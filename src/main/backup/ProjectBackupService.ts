@@ -323,27 +323,51 @@ export function clearProjectBackupScheduler(projectId: string): void {
 }
 
 export function registerProjectBackupIPC(): void {
-  ipcMain.handle('project-backup:create', async (_, { projectId, projectPath, label }: { projectId: string; projectPath: string; label?: string }) => {
+  ipcMain.handle('projectBackup:create', async (_, projectId: string, projectPath: string, label?: string) => {
     return createProjectBackup(projectId, projectPath, label);
   });
 
-  ipcMain.handle('project-backup:list', async (_, { projectId }: { projectId: string }) => {
-    return listProjectBackups(projectId);
+  ipcMain.handle('projectBackup:list', async (_, projectId?: string) => {
+    return listProjectBackups(projectId || '');
   });
 
-  ipcMain.handle('project-backup:restore', async (_, { projectId, backupId }: { projectId: string; backupId: string }) => {
-    return restoreProjectBackup(projectId, backupId, '');
+  ipcMain.handle('projectBackup:get', async (_, backupId: string) => {
+    // Search all projects for this backup
+    const backupDir = getBackupDir();
+    if (!fs.existsSync(backupDir)) return { success: false, error: 'No backups found' };
+    const projectDirs = fs.readdirSync(backupDir).filter(d => fs.statSync(path.join(backupDir, d)).isDirectory());
+    for (const pid of projectDirs) {
+      const manifests = readManifests(pid);
+      const found = manifests.find(m => m.id === backupId);
+      if (found) return { success: true, data: found };
+    }
+    return { success: false, error: 'Backup not found' };
   });
 
-  ipcMain.handle('project-backup:delete', async (_, { backupId, projectId }: { backupId: string; projectId: string }) => {
+  ipcMain.handle('projectBackup:delete', async (_, backupId: string, projectId: string) => {
     return deleteProjectBackup(backupId, projectId);
   });
 
-  ipcMain.handle('project-backup:schedule', async (_, { projectId, intervalMinutes }: { projectId: string; intervalMinutes: number }) => {
-    return { success: true, error: 'Scheduling requires projectPath context from renderer' };
+  ipcMain.handle('projectBackup:restore', async (_, projectId: string, backupId: string) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    return restoreProjectBackup(projectId, backupId, project?.path || '');
   });
 
-  ipcMain.handle('project-backup:diff', async (_, { projectId, backupId }: { projectId: string; backupId: string }) => {
-    return diffProjectBackup(projectId, backupId, '');
+  ipcMain.handle('projectBackup:diff', async (_, projectId: string, backupId: string) => {
+    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    return diffProjectBackup(projectId, backupId, project?.path || '');
+  });
+
+  ipcMain.handle('projectBackup:schedule', async (_, projectId: string, intervalMinutes: number, projectPath?: string) => {
+    if (!projectPath) {
+      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+      projectPath = project?.path;
+    }
+    if (!projectPath) return { success: false, error: 'Project path not found' };
+    return scheduleProjectBackup(projectId, projectPath, intervalMinutes);
+  });
+
+  ipcMain.handle('projectBackup:getSchedules', async () => {
+    return { success: true, data: Array.from(schedulerMap.keys()) };
   });
 }

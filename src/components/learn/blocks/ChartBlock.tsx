@@ -36,7 +36,6 @@ export function ChartBlock({ block, onAsk }: Props) {
         actions: false,
         renderer: 'svg',
         theme: 'dark',
-        width: 'container',
       }).then(() => {
         if (mounted) {
           const svgEl = containerRef.current?.querySelector('svg');
@@ -70,12 +69,12 @@ export function ChartBlock({ block, onAsk }: Props) {
   return (
     <div className="my-6 py-4 px-4 rounded-xl bg-zinc-800/30 border border-zinc-700/40 group relative min-h-[220px]" data-block-id={block.id}>
       {loading && (
-        <div className="h-40 flex items-center justify-center">
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-zinc-900/50">
           <div className="w-8 h-8 border-2 border-zinc-600 border-t-clay-400 rounded-full animate-spin" />
         </div>
       )}
       {error && (
-        <div className="text-red-400 text-sm">
+        <div className="relative z-10 text-red-400 text-sm">
           <div>{error}</div>
           <pre className="mt-2 text-xs bg-zinc-900/50 p-2 rounded overflow-x-auto">{block.spec}</pre>
           <button
@@ -86,7 +85,7 @@ export function ChartBlock({ block, onAsk }: Props) {
           </button>
         </div>
       )}
-      <div ref={containerRef} className={loading || error ? 'hidden' : ''} />
+      <div ref={containerRef} className={error ? 'hidden' : ''} />
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}

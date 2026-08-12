@@ -97,9 +97,9 @@ export function FlowBlock({ block, onAsk }: Props) {
           </details>
         </div>
       )}
-      {!error && !loading && (
-        <ZoomPan minH={220}>
-          <div ref={containerRef} className={loading ? 'hidden' : ''} />
+      {!error && (
+        <ZoomPan>
+          <div ref={containerRef} />
         </ZoomPan>
       )}
       {block.caption && (

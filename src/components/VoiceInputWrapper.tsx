@@ -8,6 +8,7 @@ import { useRef, useCallback, useEffect, useState, type ReactElement, cloneEleme
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Square, Delete, AlertCircle, WifiOff } from 'lucide-react';
+import { sttGetStatus, sttStartApi, sttStartNative } from '../lib/stt';
 
 interface VoiceInputWrapperProps {
   children: ReactElement;
@@ -40,6 +41,11 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   const retriesRef = useRef(0);
   const networkRetriesRef = useRef(0);
   const MAX_RETRIES = 5;
+  const engineStopRef = useRef<(() => void) | null>(null);
+  const sessionRef = useRef(0);
+
+  const [processing, setProcessing] = useState(false);
+  const [engineLabel, setEngineLabel] = useState<string | null>(null);
 
   // Measure input and compute absolute portal position
   const [portalPos, setPortalPos] = useState<{
@@ -171,13 +177,19 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     setSentences(prev => prev.slice(0, -1));
   }, []);
 
-  // ── Speech Recognition ──────────────────────────────────────────────
+  // ── Speech Recognition (engine-aware: API → Windows native → browser) ─
   const stopListening = useCallback(() => {
+    sessionRef.current++;
     retriesRef.current = 0;
     networkRetriesRef.current = 0;
     setReconnecting(false);
+    setProcessing(false);
     setListening(false);
     setInterim('');
+    if (engineStopRef.current) {
+      try { engineStopRef.current(); } catch {}
+      engineStopRef.current = null;
+    }
     if (recognitionRef.current) {
       recognitionRef.current.onend = null;
       recognitionRef.current.onerror = null;
@@ -189,16 +201,19 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     stopAudio();
   }, [stopAudio]);
 
-  const startListening = useCallback(() => {
+  const startBrowserListening = useCallback((lang: string, session: number, fail: (msg: string) => void, resetSilence: () => void) => {
     const SR = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-    if (!SR) { setError('Speech recognition not supported'); setTimeout(() => setError(null), 2000); return; }
-
+    if (!SR) {
+      fail('Speech recognition not available — add a speech API key in Settings → General → Voice & Speech.');
+      return;
+    }
     const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = localStorage.getItem('voice-lang') || navigator.language || 'en-US';
+    recognition.lang = lang;
 
     recognition.onresult = (event: any) => {
+      if (sessionRef.current !== session) return;
       let interimStr = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const r = event.results[i];
@@ -206,23 +221,21 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
         else { setInterim(''); setSentences(p => [...p, r[0].transcript]); insertText(r[0].transcript); }
       }
       if (interimStr) setInterim(interimStr);
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       retriesRef.current = 0;
       networkRetriesRef.current = 0;
       setReconnecting(false);
-      silenceTimerRef.current = setTimeout(() => stopListening(), silenceMs);
+      resetSilence();
     };
 
     recognition.onerror = (event: any) => {
+      if (sessionRef.current !== session) return;
       if (event.error === 'no-speech' || event.error === 'aborted') return;
       if (event.error === 'network') {
         networkRetriesRef.current++;
         setReconnecting(true);
         return;
       }
-      setError(event.error === 'not-allowed' ? 'Microphone permission denied' : 'Voice error');
-      setTimeout(() => setError(null), 2000);
-      stopListening();
+      fail(event.error === 'not-allowed' ? 'Microphone permission denied' : 'Voice error');
     };
 
     recognition.onend = () => {
@@ -241,9 +254,7 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
 
       // Non-network errors: backoff with retry limit
       if (retriesRef.current >= MAX_RETRIES) {
-        setError('Connection lost');
-        setTimeout(() => setError(null), 2000);
-        stopListening();
+        fail('Connection lost');
         return;
       }
       const delay = Math.min(300 * Math.pow(2, retriesRef.current), 3000);
@@ -256,13 +267,68 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     };
 
     recognitionRef.current = recognition;
+    try { recognition.start(); } catch { fail('Voice error'); return; }
+    resetSilence();
+  }, [insertText, stopListening]);
+
+  const startListening = useCallback(() => {
+    const session = ++sessionRef.current;
     setListening(true);
     setSentences([]);
     setInterim('');
-    try { recognition.start(); } catch { stopListening(); return; }
+    setError(null);
+    setProcessing(false);
+    setEngineLabel(null);
+
+    const fail = (msg: string) => {
+      setError(msg);
+      setTimeout(() => setError(null), 3000);
+      stopListening();
+    };
+
+    const resetSilence = () => {
+      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = setTimeout(() => stopListening(), silenceMs);
+    };
+
     startAudio();
-    silenceTimerRef.current = setTimeout(() => stopListening(), silenceMs);
-  }, [silenceMs, insertText, startAudio, stopListening]);
+    const lang = localStorage.getItem('voice-lang') || navigator.language || 'en-US';
+
+    sttGetStatus().then((status) => {
+      if (sessionRef.current !== session) return;
+      if (status.engine === 'api') {
+        setEngineLabel('Cloud API');
+        engineStopRef.current = sttStartApi(lang, {
+          onState: (s) => {
+            if (sessionRef.current === session && s === 'processing') setProcessing(true);
+          },
+          onFinal: (text) => {
+            if (sessionRef.current !== session) return;
+            setProcessing(false);
+            setSentences(p => [...p, text]);
+            insertText(text);
+            stopListening();
+          },
+          onError: (msg) => fail(msg),
+        });
+        resetSilence();
+      } else if (status.engine === 'native') {
+        setEngineLabel('Windows speech');
+        engineStopRef.current = sttStartNative(lang, {
+          onFinal: (text) => {
+            if (sessionRef.current !== session) return;
+            setSentences(p => [...p, text]);
+            insertText(text);
+            resetSilence();
+          },
+          onError: (msg) => fail(msg),
+        });
+        resetSilence();
+      } else {
+        startBrowserListening(lang, session, fail, resetSilence);
+      }
+    }).catch(() => fail('Speech not available'));
+  }, [silenceMs, insertText, startAudio, stopListening, startBrowserListening]);
 
   const toggle = useCallback(() => { listening ? stopListening() : startListening(); }, [listening, startListening, stopListening]);
 
@@ -274,7 +340,7 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
 
   useEffect(() => () => stopListening(), [stopListening]);
 
-  const supported = typeof window !== 'undefined' && !!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition);
+  const supported = typeof window !== 'undefined' && (!!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition) || !!window.deskflowAPI);
   if (!supported) return <>{children}</>;
 
   const childWithRef = cloneElement(children, {
@@ -344,8 +410,14 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
                 </div>
               ) : interim ? (
                 <p className="text-zinc-300 italic truncate" style={{ fontSize: fontSize * 0.85 }}>{interim}</p>
+              ) : processing ? (
+                <p className="text-zinc-400 italic truncate" style={{ fontSize: fontSize * 0.85 }}>
+                  {engineLabel ? `${engineLabel} — transcribing…` : 'Transcribing…'}
+                </p>
               ) : (
-                <p className="text-zinc-500 italic" style={{ fontSize: fontSize * 0.85 }}>Listening...</p>
+                <p className="text-zinc-500 italic" style={{ fontSize: fontSize * 0.85 }}>
+                  {engineLabel ? `${engineLabel} — listening…` : 'Listening...'}
+                </p>
               )}
             </div>
 

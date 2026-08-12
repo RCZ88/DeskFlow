@@ -1,0 +1,28 @@
+{
+  "id": "comparison_panel",
+  "version": "1.0.0",
+  "renderer": "card",
+  "label": "Comparison Panel",
+  "description": "Side-by-side comparison of two concepts with visual separation",
+  "intents": ["comparison", "before_after"],
+  "constraints": {
+    "min_duration": 2.2,
+    "max_duration": 10,
+    "max_characters": 128,
+    "max_lines": 4,
+    "allowed_regions": ["full", "middle"]
+  },
+  "props_schema": {
+    "left": {"type": "string", "max_chars": 64},
+    "right": {"type": "string", "max_chars": 64}
+  },
+  "animation_defaults": {
+    "left": "slide_left",
+    "right": "slide_right",
+    "delay_between_sides": 0.18
+  },
+  "fallback_template": "step_by_step_explainer",
+  "fallback_chain": ["body_card"],
+  "z_index_band": 80,
+  "supports_animation": true
+}

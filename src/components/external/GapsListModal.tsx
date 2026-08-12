@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CalendarClock, CheckCircle2, Clock, Sparkles, X } from "lucide-react";
+import { CalendarClock, Check, CheckCircle2, Clock, Sparkles, X } from "lucide-react";
 import type { ExternalActivity, ExternalSession } from "@/types/external";
 import {
   suggestGapActivities,
@@ -92,6 +92,7 @@ export function GapsListModal({
   defaultTimeframe = "week",
   onClose,
   onPickGap,
+  onFillGaps,
 }: {
   open: boolean;
   activities: ExternalActivity[];
@@ -99,6 +100,7 @@ export function GapsListModal({
   defaultTimeframe?: Timeframe;
   onClose: () => void;
   onPickGap: (gap: Gap) => void;
+  onFillGaps?: (gaps: Gap[]) => void;
 }) {
   const [timeframe, setTimeframe] = useState<Timeframe>(defaultTimeframe);
 
@@ -108,12 +110,23 @@ export function GapsListModal({
 
   const [gapsLoading, setGapsLoading] = useState(false);
   const [rawGaps, setRawGaps] = useState<Gap[] | null>(null);
+  const [selected, setSelected] = useState<Map<string, Gap>>(new Map());
+
+  const toggleGap = (gap: Gap) => {
+    setSelected((current) => {
+      const next = new Map(current);
+      if (next.has(gap.id)) next.delete(gap.id);
+      else next.set(gap.id, gap);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setGapsLoading(true);
     setRawGaps(null);
+    setSelected(new Map());
 
     const period =
       timeframe === "day"
@@ -156,6 +169,14 @@ export function GapsListModal({
   const totalMinutes = useMemo(() => {
     return allGaps.reduce((sum, gap) => sum + Math.round(gap.duration_seconds / 60), 0);
   }, [allGaps]);
+
+  const selectedMinutes = useMemo(() => {
+    let sum = 0;
+    for (const gap of selected.values()) {
+      sum += Math.round(gap.duration_seconds / 60);
+    }
+    return sum;
+  }, [selected]);
 
   const groups = useMemo(() => {
     const sorted = [...allGaps].sort((a, b) => a.start.getTime() - b.start.getTime());
@@ -285,6 +306,21 @@ export function GapsListModal({
                               animate={{ opacity: 1, y: 0 }}
                               className="flex items-center gap-4 rounded-xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-amber-400/30 hover:bg-white/[0.06]"
                             >
+                              {onFillGaps && (
+                                <button
+                                  onClick={() => toggleGap(gap)}
+                                  aria-pressed={selected.has(gap.id)}
+                                  aria-label={`Select gap ${formatTime(gap.start)}`}
+                                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition ${
+                                    selected.has(gap.id)
+                                      ? "border-amber-400/50 bg-amber-400/20 text-amber-300"
+                                      : "border-white/15 text-transparent hover:border-white/30 hover:bg-white/[0.06]"
+                                  }`}
+                                >
+                                  <Check className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+
                               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-400/20 bg-amber-400/10">
                                 <Clock className="h-5 w-5 text-amber-400" />
                               </div>
@@ -335,6 +371,36 @@ export function GapsListModal({
                 </div>
               )}
             </div>
+
+            {onFillGaps && selected.size > 0 && (
+              <div className="flex shrink-0 items-center gap-3 border-t border-white/10 px-5 py-3">
+                <span className="text-xs text-zinc-400">
+                  {selected.size} selected • {formatMinutes(selectedMinutes)}
+                </span>
+                <div className="flex-1" />
+                {selected.size < allGaps.length && (
+                  <button
+                    onClick={() => setSelected(new Map(allGaps.map((g) => [g.id, g])))}
+                    className="rounded-lg px-2.5 py-1.5 text-xs text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
+                  >
+                    Select all
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelected(new Map())}
+                  className="rounded-lg px-2.5 py-1.5 text-xs text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300"
+                >
+                  Clear
+                </button>
+                <button
+                  onClick={() => onFillGaps(Array.from(selected.values()))}
+                  className="flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-2 text-xs font-medium text-zinc-950 transition hover:bg-amber-400"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Fill {selected.size} {selected.size === 1 ? "gap" : "gaps"}
+                </button>
+              </div>
+            )}
           </motion.div>
         </div>
       )}

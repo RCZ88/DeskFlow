@@ -130,3 +130,13 @@ When a user report includes a "gap", "missing days", or "no data after X" claim 
 
 Every user request ("can we have X", "apply skill Y to Z", "the ability to...") gets a FEATURE_TRACKER.md / PROBLEMS.md entry the moment it is made (or at minimum before the first build). Requests that live only in chat are lost; the user asking "where was my request?" means the rule was violated. Answer such questions FROM the trackers and own the miss.
 
+## 22. UI visibility requires a three-gate check
+
+For every renderer feature, do not treat source code, a fresh bundle, or a successful build as proof that the user can see or use it. Verify all three independently:
+
+1. **Source gate:** the required component, handlers, and acceptance markers exist in source.
+2. **Bundle gate:** the exact current hashed entry/chunk referenced by `dist/index.html` contains those markers.
+3. **Runtime gate:** the running app visibly renders the controls and the layout gives them non-zero geometry and pointer access.
+
+For flex/grid layout changes, inspect the parent direction, child widths/heights, overflow, and responsive breakpoints before debugging feature handlers. A large normal-flow visualization can collapse the feature pane to zero height or width while every feature remains correctly implemented in code. If the runtime gate is unavailable, report `NOT LAUNCHED` and never claim the feature is fully verified.
+

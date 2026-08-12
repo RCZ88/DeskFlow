@@ -1,21 +1,78 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Plus, Minus, Maximize2, Scan } from 'lucide-react';
+import { Plus, Minus, Maximize2, Scan, ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 
-export function ZoomPan({ children, minH = 220 }: { children: React.ReactNode; minH?: number }) {
+interface ZoomPanProps {
+  children: React.ReactNode;
+}
+
+/**
+ * Zoomable / pannable wrapper for diagrams, figures and charts.
+ *
+ * behaviour: auto-fits content into the container on mount, arrow buttons +
+ * arrow keys to pan, wheel to zoom, toolbar for +/-/fit/fullscreen.
+ * No mouse drag — clean, button-only interaction.
+ */
+export function ZoomPan({ children }: ZoomPanProps) {
   const [scale, setScale] = useState(1);
   const [tx, setTx] = useState(0);
   const [ty, setTy] = useState(0);
   const [full, setFull] = useState(false);
-  const drag = useRef<{ startX: number; startY: number; tx: number; ty: number; dragging: boolean } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const DRAG_THRESHOLD = 5;
-  const clamp = (v: number) => Math.min(4, Math.max(0.25, v));
+  const contentRef = useRef<HTMLDivElement>(null);
+  const interactedRef = useRef(false);
+  const PAN_STEP = 60;
+  const clamp = (v: number) => Math.min(4, Math.max(0.1, v));
 
-  // Use native wheel listener with { passive: false } to actually preventDefault
+  const fitToContainer = useCallback(() => {
+    const el = containerRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const cw = el.clientWidth;
+    if (!cw) return;
+
+    // Prefer data-nat-w/h set by the parent (e.g. MermaidBlock reads viewBox)
+    const child = content.firstElementChild as HTMLElement | null;
+    let nw = Number(child?.getAttribute('data-nat-w')) || 0;
+    let nh = Number(child?.getAttribute('data-nat-h')) || 0;
+
+    // Fallback: measure rendered content
+    if (!nw || !nh) {
+      nw = child?.scrollWidth || content.scrollWidth || cw;
+      nh = child?.scrollHeight || content.scrollHeight || 200;
+    }
+    if (!nw || !nh) return;
+
+    // Compute container height from aspect ratio (width is fixed by card layout)
+    const aspectH = Math.round((cw / nw) * nh);
+    const ch = Math.max(120, aspectH);
+    el.style.height = ch + 'px';
+
+    const s = Math.min(1, cw / nw, ch / nh);
+    setScale(s);
+    setTx((cw - nw * s) / 2);
+    setTy((ch - nh * s) / 2);
+  }, []);
+
+  // Fit on mount + whenever content/container resizes (async render, window resize)
+  useEffect(() => {
+    fitToContainer();
+    const el = containerRef.current;
+    const content = contentRef.current;
+    if (!el || !content) return;
+    const ro = new ResizeObserver(() => {
+      if (!interactedRef.current) fitToContainer();
+    });
+    ro.observe(el);
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [fitToContainer]);
+
+  // Wheel zoom with passive:false so preventDefault works
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const handler = (e: WheelEvent) => {
+      interactedRef.current = true;
       e.preventDefault();
       e.stopPropagation();
       setScale((s) => clamp(s * (e.deltaY < 0 ? 1.1 : 0.9)));
@@ -24,46 +81,79 @@ export function ZoomPan({ children, minH = 220 }: { children: React.ReactNode; m
     return () => el.removeEventListener('wheel', handler);
   }, []);
 
-  const reset = () => { setScale(1); setTx(0); setTy(0); };
+  const zoomIn = () => { interactedRef.current = true; setScale((s) => clamp(s * 1.2)); };
+  const zoomOut = () => { interactedRef.current = true; setScale((s) => clamp(s / 1.2)); };
+
+  const reset = () => {
+    interactedRef.current = false;
+    fitToContainer();
+  };
+
+  const panBy = (dx: number, dy: number) => {
+    interactedRef.current = true;
+    setTx((t) => t + dx);
+    setTy((t) => t + dy);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    switch (e.key) {
+      case 'ArrowUp': e.preventDefault(); panBy(0, PAN_STEP); break;
+      case 'ArrowDown': e.preventDefault(); panBy(0, -PAN_STEP); break;
+      case 'ArrowLeft': e.preventDefault(); panBy(PAN_STEP, 0); break;
+      case 'ArrowRight': e.preventDefault(); panBy(-PAN_STEP, 0); break;
+      case '+': case '=': e.preventDefault(); zoomIn(); break;
+      case '-': e.preventDefault(); zoomOut(); break;
+      case '0': case 'f': case 'F': e.preventDefault(); reset(); break;
+    }
+  };
+
+  const btnCls = 'p-1 rounded bg-zinc-800/80 text-zinc-300 hover:text-white transition';
 
   return (
     <div className={full ? 'fixed inset-4 z-50 bg-zinc-900 rounded-xl border border-zinc-700 flex flex-col' : 'relative'}>
+      {/* Top-right: zoom controls */}
       <div className="absolute top-2 right-2 z-10 flex gap-1">
-        <button onClick={() => setScale((s) => clamp(s * 1.2))} className="p-1 rounded bg-zinc-800/80 text-zinc-300 hover:text-white transition" title="Zoom in">
+        <button onClick={zoomIn} className={btnCls} title="Zoom in (+)">
           <Plus className="w-3.5 h-3.5" />
         </button>
-        <button onClick={() => setScale((s) => clamp(s / 1.2))} className="p-1 rounded bg-zinc-800/80 text-zinc-300 hover:text-white transition" title="Zoom out">
+        <button onClick={zoomOut} className={btnCls} title="Zoom out (−)">
           <Minus className="w-3.5 h-3.5" />
         </button>
-        <button onClick={reset} className="p-1 rounded bg-zinc-800/80 text-zinc-300 hover:text-white transition" title="Fit">
+        <button onClick={reset} className={btnCls} title="Fit to container (F / 0)">
           <Scan className="w-3.5 h-3.5" />
         </button>
-        <button onClick={() => setFull((f) => !f)} className="p-1 rounded bg-zinc-800/80 text-zinc-300 hover:text-white transition" title={full ? 'Exit fullscreen' : 'Fullscreen'}>
+        <button onClick={() => setFull((f) => !f)} className={btnCls} title={full ? 'Exit fullscreen' : 'Fullscreen'}>
           <Maximize2 className="w-3.5 h-3.5" />
         </button>
       </div>
+
+      {/* Bottom-right: arrow pan buttons */}
+      <div className="absolute bottom-2 right-2 z-10 flex flex-col items-center gap-0.5">
+        <button onClick={() => panBy(0, -PAN_STEP)} className={btnCls} title="Pan up (↑)">
+          <ChevronUp className="w-3.5 h-3.5" />
+        </button>
+        <div className="flex gap-0.5">
+          <button onClick={() => panBy(-PAN_STEP, 0)} className={btnCls} title="Pan left (←)">
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <button onClick={() => panBy(PAN_STEP, 0)} className={btnCls} title="Pan right (→)">
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <button onClick={() => panBy(0, PAN_STEP)} className={btnCls} title="Pan down (↓)">
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Content area */}
       <div
         ref={containerRef}
-        className="overflow-hidden cursor-grab active:cursor-grabbing flex-1"
-        style={{ minHeight: full ? undefined : minH }}
-        onMouseDown={(e) => { drag.current = { startX: e.clientX, startY: e.clientY, tx, ty, dragging: false }; }}
-        onMouseMove={(e) => {
-          if (drag.current) {
-            const dx = e.clientX - drag.current.startX;
-            const dy = e.clientY - drag.current.startY;
-            if (!drag.current.dragging && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
-              drag.current.dragging = true;
-            }
-            if (drag.current.dragging) {
-              setTx(drag.current.tx + dx);
-              setTy(drag.current.ty + dy);
-            }
-          }
-        }}
-        onMouseUp={() => { drag.current = null; }}
-        onMouseLeave={() => { drag.current = null; }}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="overflow-hidden flex-1 outline-none focus-visible:ring-1 focus-visible:ring-amber-400/40"
+        style={full ? undefined : { minHeight: 120 }}
       >
-        <div style={{ transform: `translate(${tx}px, ${ty}px) scale(${scale})`, transformOrigin: 'center top', transition: drag.current ? 'none' : 'transform 0.08s' }}>
+        <div ref={contentRef} style={{ transform: `translate(${tx}px, ${ty}px) scale(${scale})`, transformOrigin: 'center top', transition: 'transform 0.08s' }}>
           {children}
         </div>
       </div>

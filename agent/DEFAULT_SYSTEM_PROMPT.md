@@ -79,6 +79,81 @@ Never act outside the most specific scope you were given.
 - Files are CRLF — preserve line endings; don't mass-reformat.
 - Generated `.md` views come from DB/JSON — don't hand-edit a generated view; edit its source.
 
+## 7b. Debugging Protocol (MANDATORY for every feature/fix)
+
+### Console Logging Standard
+Every feature implementation MUST include a version-stamped console log at the component entry point:
+
+```tsx
+// At top of component function body:
+console.log('%c[ComponentName] vX.Y loaded', 'color: #fbbf24; font-weight: bold')
+console.log('[ComponentName] state:', { key1: value1, key2: value2 })
+```
+
+This proves the new code is actually running. If the log doesn't appear, the old bundle is cached.
+
+### Debug Script Generation
+After implementing a feature, generate a **Debug Script** the user can paste into DevTools Console to verify the feature works. Format:
+
+```markdown
+### Debug Script — [Feature Name]
+Paste this into DevTools Console (Cmd+Option+I → Console):
+
+\`\`\`js
+// [Feature Name] Debug Script v1.0
+// Run: paste into Console, then interact with the UI
+
+// 1. Check if new code is loaded
+console.log('=== [Feature Name] Debug ===')
+console.log('Timestamp:', new Date().toISOString())
+
+// 2. Check specific DOM elements
+const checkElement = (selector, label) => {
+  const el = document.querySelector(selector)
+  console.log(`${label}: ${el ? '✅ FOUND' : '❌ MISSING'}`, el || selector)
+  return el
+}
+
+// 3. Check React state (if accessible)
+const checkState = (hookName) => {
+  try {
+    // For zustand stores
+    const state = window.__zustand_stores?.[hookName]?.getState?.()
+    console.log(`${hookName}:`, state || 'not found')
+  } catch (e) {
+    console.log(`${hookName}: not accessible`, e.message)
+  }
+}
+
+// 4. Simulate user interaction
+const simulateClick = (selector) => {
+  const el = document.querySelector(selector)
+  if (el) {
+    el.click()
+    console.log(`Clicked: ${selector}`)
+  } else {
+    console.log(`Cannot click - element not found: ${selector}`)
+  }
+}
+
+// 5. Run checks
+checkElement('[data-lifephase="core-sample"]', 'CoreSample')
+checkElement('[data-lifephase="phase-card"]', 'PhaseCards')
+// ... more checks specific to the feature
+
+console.log('=== Debug Complete ===')
+\`\`\`
+```
+
+### Runtime Verification Checklist
+Before closing a cycle, verify these in order:
+1. **Console stamp appears** — `[ComponentName] vX.Y loaded` in DevTools
+2. **Debug script runs clean** — no errors, all checks pass
+3. **Visual confirmation** — the feature is actually visible/rendered
+4. **Interaction test** — clicking/typing produces expected behavior
+
+If any check fails, do NOT report PASS. Report the specific failure.
+
 ## 8. Cycle report format (END every cycle with EXACTLY this)
 ```
 CYCLE: <n>

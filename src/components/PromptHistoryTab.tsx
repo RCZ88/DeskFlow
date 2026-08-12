@@ -75,6 +75,123 @@ function truncate(text: string, max: number): string {
   return text.slice(0, max).replace(/\n.*$/s, '') + '\u2026';
 }
 
+// ---------------------------------------------------------------------------
+// StatTile + Row are MODULE-LEVEL components. Defining them inside the parent
+// component would give them a new identity on every render, forcing React to
+// unmount/remount them (and replay their framer-motion fade-in) constantly.
+// ---------------------------------------------------------------------------
+interface StatTileProps {
+  label: string;
+  count: number;
+  status?: WorkStatus;
+  accent?: boolean;
+  active: boolean;
+  onClick: () => void;
+}
+
+const StatTile: React.FC<StatTileProps> = ({ label, count, status, accent, active, onClick }) => (
+  <motion.button
+    type="button" variants={riseItem} whileTap={PRESS}
+    onClick={onClick}
+    className={`flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left transition-colors focus-visible:outline-none ${
+      active
+        ? 'bg-[color-mix(in_srgb,var(--page-accent)_14%,transparent)] ring-1 ring-[color-mix(in_srgb,var(--page-accent)_40%,transparent)]'
+        : 'bg-zinc-800/50 ring-1 ring-zinc-700/50 hover:bg-zinc-800'
+    }`}
+  >
+    <span className={`tabular-nums text-lg font-semibold leading-none ${accent ? 'text-[color:var(--page-accent)]' : 'text-zinc-100'}`}>{count}</span>
+    <span className="text-[11px] font-medium text-zinc-400">{label}</span>
+  </motion.button>
+);
+
+interface RowProps {
+  entry: PromptEntry;
+  nested?: boolean;
+  isExpanded: boolean;
+  status: WorkStatus;
+  isDeleting: boolean;
+  agentColor: string;
+  onToggleExpand: () => void;
+  onDelete: (e: React.MouseEvent) => void;
+  onNavigateToSession?: (sessionId: string) => void;
+}
+
+const Row: React.FC<RowProps> = ({ entry, nested, isExpanded, status, isDeleting, agentColor, onToggleExpand, onDelete, onNavigateToSession }) => {
+  const StatusIcon = STATUS_ICON[status];
+
+  return (
+    <motion.div
+      layout variants={riseItem}
+      className={`group overflow-hidden rounded-xl transition-colors ${
+        nested ? 'bg-transparent hover:bg-zinc-800/30' : 'bg-zinc-800/40 ring-1 ring-zinc-700/50 hover:ring-zinc-600/60'
+      } ${status === 'in_progress' ? 'ring-1 ring-cyan-500/40' : ''} ${isDeleting ? 'pointer-events-none opacity-40' : ''}`}
+    >
+      <div className="flex items-start gap-2 p-2.5">
+        <button
+          type="button" onClick={onToggleExpand} aria-label={isExpanded ? 'Collapse' : 'Expand'}
+          className="mt-0.5 grid h-5 w-5 flex-shrink-0 place-items-center rounded-md text-zinc-500 hover:bg-zinc-700/60 hover:text-zinc-200 focus-visible:outline-none"
+        >
+          {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <div className="min-w-0 flex-1 cursor-pointer" onClick={onToggleExpand}>
+          <div className="mb-1 flex items-center gap-1.5">
+            <StatusPill status={status} icon={<StatusIcon className={`h-3 w-3 ${status === 'in_progress' ? 'animate-spin' : ''}`} />} />
+            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${agentColor}`}>{entry.agent || 'unknown'}</span>
+            <span className="ml-auto flex items-center gap-1 text-[11px] text-zinc-500">
+              <Clock className="h-3 w-3" />{formatTime(entry.sent_at)}
+            </span>
+          </div>
+          <p className="line-clamp-2 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-300">
+            {truncate(entry.prompt, 140) || <span className="italic text-zinc-500">(empty prompt)</span>}
+          </p>
+          {entry.session_topic && !nested && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onNavigateToSession?.(entry.session_id_ref || entry.session_id); }}
+              className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] text-[color:var(--page-accent)] hover:underline"
+            >
+              <Terminal className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate">{entry.session_topic}</span>
+            </button>
+          )}
+        </div>
+        <IconButton title="Delete this prompt" danger onClick={onDelete} className="opacity-0 group-hover:opacity-100">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+        </IconButton>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {isExpanded && (
+          <motion.div variants={expandPanel} initial="hidden" animate="show" exit="exit" className="overflow-hidden">
+            <div className="space-y-2 border-t border-zinc-700/40 px-2.5 py-2.5">
+              <div className="rounded-lg bg-zinc-900/60 p-2.5">
+                <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-zinc-300">{entry.prompt}</pre>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+                <div><span className="text-zinc-500">Terminal:</span> <span className="font-mono text-[10px] text-zinc-400">{entry.session_id}</span></div>
+                {entry.agent && <div><span className="text-zinc-500">Agent:</span> <span className="text-zinc-300">{entry.agent}</span></div>}
+                {entry.category && <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{entry.category}</span></div>}
+                {entry.product_area && <div><span className="text-zinc-500">Area:</span> <span className="text-zinc-300">{entry.product_area}</span></div>}
+                <div className="col-span-2"><span className="text-zinc-500">Sent:</span> <span className="text-zinc-300">{new Date(entry.sent_at).toLocaleString()}</span></div>
+              </div>
+              {(entry.active_problem_id || entry.active_request_id) && (
+                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                  {entry.active_problem_id && (
+                    <span className="flex items-center gap-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300 ring-1 ring-red-500/20"><Bug className="h-3 w-3" /> Problem #{entry.active_problem_id}</span>
+                  )}
+                  {entry.active_request_id && (
+                    <span className="flex items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300 ring-1 ring-blue-500/20"><Sparkles className="h-3 w-3" /> Request #{entry.active_request_id}</span>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
+
 const PromptHistoryTab: React.FC<{
   projectId?: string;
   projectPath?: string;
@@ -266,105 +383,6 @@ const PromptHistoryTab: React.FC<{
     return Array.from(groups.entries());
   }, [visibleEntries, viewMode]);
 
-  // ---- Sub-renders -------------------------------------------------------
-  const StatTile: React.FC<{ label: string; count: number; status?: WorkStatus; accent?: boolean }> = ({ label, count, status, accent }) => {
-    const active = status ? statusFilter === status : statusFilter === null;
-    return (
-      <motion.button
-        type="button" variants={riseItem} whileTap={PRESS}
-        onClick={() => setStatusFilter(status ?? null)}
-        className={`flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left transition-colors focus-visible:outline-none ${
-          active
-            ? 'bg-[color-mix(in_srgb,var(--page-accent)_14%,transparent)] ring-1 ring-[color-mix(in_srgb,var(--page-accent)_40%,transparent)]'
-            : 'bg-zinc-800/50 ring-1 ring-zinc-700/50 hover:bg-zinc-800'
-        }`}
-      >
-        <span className={`tabular-nums text-lg font-semibold leading-none ${accent ? 'text-[color:var(--page-accent)]' : 'text-zinc-100'}`}>{count}</span>
-        <span className="text-[11px] font-medium text-zinc-400">{label}</span>
-      </motion.button>
-    );
-  };
-
-  const Row: React.FC<{ entry: PromptEntry; nested?: boolean }> = ({ entry, nested }) => {
-    const isExpanded = expanded.has(entry.id);
-    const status = getStatus(entry);
-    const StatusIcon = STATUS_ICON[status];
-    const isDeleting = deleting.has(entry.id);
-    const agentColor = AGENT_COLORS[entry.agent || ''] || AGENT_FALLBACK;
-
-    return (
-      <motion.div
-        layout variants={riseItem}
-        className={`group overflow-hidden rounded-xl transition-colors ${
-          nested ? 'bg-transparent hover:bg-zinc-800/30' : 'bg-zinc-800/40 ring-1 ring-zinc-700/50 hover:ring-zinc-600/60'
-        } ${status === 'in_progress' ? 'ring-1 ring-cyan-500/40' : ''} ${isDeleting ? 'pointer-events-none opacity-40' : ''}`}
-      >
-        <div className="flex items-start gap-2 p-2.5">
-          <button
-            type="button" onClick={() => toggleExpand(entry.id)} aria-label={isExpanded ? 'Collapse' : 'Expand'}
-            className="mt-0.5 grid h-5 w-5 flex-shrink-0 place-items-center rounded-md text-zinc-500 hover:bg-zinc-700/60 hover:text-zinc-200 focus-visible:outline-none"
-          >
-            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          </button>
-          <div className="min-w-0 flex-1 cursor-pointer" onClick={() => toggleExpand(entry.id)}>
-            <div className="mb-1 flex items-center gap-1.5">
-              <StatusPill status={status} icon={<StatusIcon className={`h-3 w-3 ${status === 'in_progress' ? 'animate-spin' : ''}`} />} />
-              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${agentColor}`}>{entry.agent || 'unknown'}</span>
-              <span className="ml-auto flex items-center gap-1 text-[11px] text-zinc-500">
-                <Clock className="h-3 w-3" />{formatTime(entry.sent_at)}
-              </span>
-            </div>
-            <p className="line-clamp-2 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-zinc-300">
-              {truncate(entry.prompt, 140) || <span className="italic text-zinc-500">(empty prompt)</span>}
-            </p>
-            {entry.session_topic && !nested && (
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); onNavigateToSession?.(entry.session_id_ref || entry.session_id); }}
-                className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate text-[11px] text-[color:var(--page-accent)] hover:underline"
-              >
-                <Terminal className="h-3 w-3 flex-shrink-0" />
-                <span className="truncate">{entry.session_topic}</span>
-              </button>
-            )}
-          </div>
-          <IconButton title="Delete this prompt" danger onClick={(e) => handleDelete(entry, e)} className="opacity-0 group-hover:opacity-100">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m2 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
-          </IconButton>
-        </div>
-
-        <AnimatePresence initial={false}>
-          {isExpanded && (
-            <motion.div variants={expandPanel} initial="hidden" animate="show" exit="exit" className="overflow-hidden">
-              <div className="space-y-2 border-t border-zinc-700/40 px-2.5 py-2.5">
-                <div className="rounded-lg bg-zinc-900/60 p-2.5">
-                  <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-zinc-300">{entry.prompt}</pre>
-                </div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-                  <div><span className="text-zinc-500">Terminal:</span> <span className="font-mono text-[10px] text-zinc-400">{entry.session_id}</span></div>
-                  {entry.agent && <div><span className="text-zinc-500">Agent:</span> <span className="text-zinc-300">{entry.agent}</span></div>}
-                  {entry.category && <div><span className="text-zinc-500">Category:</span> <span className="text-zinc-300">{entry.category}</span></div>}
-                  {entry.product_area && <div><span className="text-zinc-500">Area:</span> <span className="text-zinc-300">{entry.product_area}</span></div>}
-                  <div className="col-span-2"><span className="text-zinc-500">Sent:</span> <span className="text-zinc-300">{new Date(entry.sent_at).toLocaleString()}</span></div>
-                </div>
-                {(entry.active_problem_id || entry.active_request_id) && (
-                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                    {entry.active_problem_id && (
-                      <span className="flex items-center gap-1 rounded-md bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-300 ring-1 ring-red-500/20"><Bug className="h-3 w-3" /> Problem #{entry.active_problem_id}</span>
-                    )}
-                    {entry.active_request_id && (
-                      <span className="flex items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-300 ring-1 ring-blue-500/20"><Sparkles className="h-3 w-3" /> Request #{entry.active_request_id}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.div>
-    );
-  };
-
   // ---- Loading skeleton --------------------------------------------------
   if (loading) {
     return (
@@ -411,10 +429,10 @@ const PromptHistoryTab: React.FC<{
 
       {/* Live status summary tiles (clickable filters) */}
       <div className="grid grid-cols-4 gap-2">
-        <StatTile label="Total" count={statusCounts.total} accent />
-        <StatTile label="Processing" count={statusCounts.in_progress} status="in_progress" />
-        <StatTile label="Completed" count={statusCounts.completed} status="completed" />
-        <StatTile label="Failed" count={statusCounts.failed} status="failed" />
+        <StatTile label="Total" count={statusCounts.total} accent active={statusFilter === null} onClick={() => setStatusFilter(null)} />
+        <StatTile label="Processing" count={statusCounts.in_progress} status="in_progress" active={statusFilter === 'in_progress'} onClick={() => setStatusFilter('in_progress')} />
+        <StatTile label="Completed" count={statusCounts.completed} status="completed" active={statusFilter === 'completed'} onClick={() => setStatusFilter('completed')} />
+        <StatTile label="Failed" count={statusCounts.failed} status="failed" active={statusFilter === 'failed'} onClick={() => setStatusFilter('failed')} />
       </div>
 
       {/* Result count + limit selector */}
@@ -459,7 +477,18 @@ const PromptHistoryTab: React.FC<{
                   <ArrowRight className="h-3.5 w-3.5 flex-shrink-0 text-zinc-600 opacity-0 transition-opacity group-hover:opacity-100" />
                 </button>
                 <div className="space-y-1 p-1.5">
-                  {group.entries.map(entry => <Row key={entry.id} entry={entry} nested />)}
+                  {group.entries.map(entry => (
+                    <Row
+                      key={entry.id} entry={entry} nested
+                      isExpanded={expanded.has(entry.id)}
+                      status={getStatus(entry)}
+                      isDeleting={deleting.has(entry.id)}
+                      agentColor={AGENT_COLORS[entry.agent || ''] || AGENT_FALLBACK}
+                      onToggleExpand={() => toggleExpand(entry.id)}
+                      onDelete={(e) => handleDelete(entry, e)}
+                      onNavigateToSession={onNavigateToSession}
+                    />
+                  ))}
                 </div>
               </motion.div>
             );
@@ -467,7 +496,18 @@ const PromptHistoryTab: React.FC<{
         </motion.div>
       ) : (
         <motion.div variants={listContainer} className="space-y-2">
-          {visibleEntries.map(entry => <Row key={entry.id} entry={entry} />)}
+          {visibleEntries.map(entry => (
+            <Row
+              key={entry.id} entry={entry}
+              isExpanded={expanded.has(entry.id)}
+              status={getStatus(entry)}
+              isDeleting={deleting.has(entry.id)}
+              agentColor={AGENT_COLORS[entry.agent || ''] || AGENT_FALLBACK}
+              onToggleExpand={() => toggleExpand(entry.id)}
+              onDelete={(e) => handleDelete(entry, e)}
+              onNavigateToSession={onNavigateToSession}
+            />
+          ))}
         </motion.div>
       )}
 

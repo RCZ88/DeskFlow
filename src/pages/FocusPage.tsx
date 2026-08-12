@@ -11,6 +11,8 @@ import { BorderBeam } from '../components/ui/border-beam';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Select, SelectItem } from '../components/ui/select';
+import { FocusGroupSelect, useFocusGroups, describeMatchCategory } from '../components/goals/FocusGroupSelect';
+import { LTGPicker } from '../components/goals/CriteriaBuilder';
 import { confetti } from '../components/ui/confetti';
 import type { Goal, GoalCategory, GoalPeriod, LongTermGoal, TargetType } from '../components/dashboard/types';
 
@@ -21,11 +23,6 @@ const CATEGORIES: { value: GoalCategory; label: string; color: string; icon: str
   { value: 'learning', label: 'Learning', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20', icon: '📚' },
   { value: 'finance', label: 'Finance', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20', icon: '💰' },
   { value: 'relationships', label: 'Relationships', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20', icon: '❤️' },
-];
-
-const APP_CATEGORIES = [
-  'IDE', 'AI Tools', 'Developer Tools', 'Education', 'Productivity', 'Tools',
-  'Communication', 'Design', 'Browser', 'Entertainment', 'Social Media', 'Shopping'
 ];
 
 const PERIODS = [
@@ -74,12 +71,13 @@ export default function FocusPage() {
     targetHours: 0,
     targetMinutes: 30,
     matchCategory: '',
-    parentId: '',
+    parentIds: [] as string[],
   });
 
   const [editForm, setEditForm] = useState<Partial<Goal>>({});
 
   const api = (window as any).deskflowAPI;
+  const focusGroups = useFocusGroups();
   const today = new Date().toISOString().split('T')[0];
 
   const loadData = useCallback(async () => {
@@ -123,7 +121,8 @@ export default function FocusPage() {
       date: today,
       source: 'manual',
       links: [],
-      parentId: newGoal.parentId || undefined,
+      parentIds: newGoal.parentIds,
+      parentId: newGoal.parentIds[0] || undefined,
       createdAt: new Date().toISOString(),
     };
     try {
@@ -188,7 +187,7 @@ export default function FocusPage() {
     setNewGoal({
       title: '', description: '', category: 'work', period: 'daily',
       targetType: 'completion', targetHours: 0, targetMinutes: 30,
-      matchCategory: '', parentId: '',
+      matchCategory: '', parentIds: [],
     });
   };
 
@@ -324,26 +323,24 @@ export default function FocusPage() {
 
                     {newGoal.targetType === 'time' && (
                       <div>
-                        <label className="text-[11px] text-zinc-500 font-sans mb-1 block">Track App Category (optional)</label>
-                        <Select value={newGoal.matchCategory} onValueChange={v => setNewGoal(p => ({ ...p, matchCategory: v }))} className="w-full">
-                          <SelectItem value="">No auto-tracking</SelectItem>
-                          {APP_CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </Select>
+                        <FocusGroupSelect
+                          label="Track time spent in focus group"
+                          value={newGoal.matchCategory}
+                          onValueChange={v => setNewGoal(p => ({ ...p, matchCategory: v }))}
+                          className="w-full"
+                        />
                         <p className="text-[10px] text-zinc-600 mt-1 font-sans">
-                          Time spent in apps of this category counts toward your goal
+                          Progress counts completed focus sessions of the group
                         </p>
                       </div>
                     )}
 
                     {longTermGoals.length > 0 && (
-                      <div>
-                        <label className="text-[11px] text-zinc-500 font-sans mb-1 block">Link to Long-Term Goal</label>
-                        <Select value={newGoal.parentId} onValueChange={v => setNewGoal(p => ({ ...p, parentId: v }))} className="w-full"
-                          valueLabel={Object.fromEntries(longTermGoals.map(ltg => [ltg.id, ltg.title]))}>
-                          <SelectItem value="">None</SelectItem>
-                          {longTermGoals.map(ltg => <SelectItem key={ltg.id} value={ltg.id}>{ltg.title}</SelectItem>)}
-                        </Select>
-                      </div>
+                      <LTGPicker
+                        longTermGoals={longTermGoals}
+                        value={newGoal.parentIds}
+                        onChange={ids => setNewGoal(p => ({ ...p, parentIds: ids }))}
+                      />
                     )}
                   </div>
                 </div>
@@ -383,7 +380,8 @@ export default function FocusPage() {
                 const progressSec = progress?.progressSeconds || 0;
                 const targetSec = goal.target?.targetSeconds || 0;
                 const isTimeBased = goal.target?.type === 'time';
-                const parent = goal.parentId ? longTermGoals.find(ltg => ltg.id === goal.parentId) : null;
+                const parentIds = goal.parentIds?.length ? goal.parentIds : (goal.parentId ? [goal.parentId] : []);
+                const parents = parentIds.map(pid => longTermGoals.find(ltg => ltg.id === pid)).filter(Boolean) as LongTermGoal[];
                 const catMeta = CATEGORIES.find(c => c.value === goal.category);
 
                 return (
@@ -425,10 +423,10 @@ export default function FocusPage() {
                           <p className="text-[12px] text-zinc-500 font-sans mb-2">{goal.description}</p>
                         )}
 
-                        {parent && (
+                        {parents.length > 0 && (
                           <div className="flex items-center gap-1 mb-2">
                             <Link2 size={10} className="text-zinc-600" />
-                            <span className="text-[11px] text-zinc-600 font-sans">Serves: {parent.title}</span>
+                            <span className="text-[11px] text-zinc-600 font-sans">Serves: {parents.map(p => p.title).join(', ')}</span>
                           </div>
                         )}
 
@@ -451,7 +449,7 @@ export default function FocusPage() {
                             </div>
                             {goal.target?.matchCategory && (
                               <p className="text-[10px] text-zinc-600 mt-1 font-sans">
-                                Tracking: {goal.target.matchCategory} apps
+                                Tracking: {describeMatchCategory(focusGroups.groups, goal.target.matchCategory)}
                               </p>
                             )}
                           </div>

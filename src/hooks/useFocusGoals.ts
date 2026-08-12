@@ -11,13 +11,17 @@ interface FocusState {
   sessionId?: string
 }
 
-export function matchGoalIds(goals: Goal[], allowedCategories: string[]): string[] {
+export function matchGoalIds(goals: Goal[], allowedCategories: string[], activeGroupId?: number | null): string[] {
   const allowed = allowedCategories.map(c => String(c).toLowerCase())
   return goals
     .filter(g => g.target?.type === 'time' && g.target?.matchCategory)
     .filter(g => {
+      const matchCat = String(g.target?.matchCategory).toLowerCase()
+      if (matchCat.startsWith('fg:')) {
+        return !!activeGroupId && parseInt(matchCat.slice(3), 10) === activeGroupId
+      }
       if (allowed.length === 0) return true
-      return allowed.includes(String(g.target?.matchCategory).toLowerCase())
+      return allowed.includes(matchCat)
     })
     .map(g => g.id)
 }
@@ -33,7 +37,7 @@ export function useFocusGoals(goals: Goal[]) {
 
   const sessionActive = !!state?.active
   const matchedIds = active
-    ? matchGoalIds(goals, active.allowedCategories)
+    ? matchGoalIds(goals, active.allowedCategories, active.groupId)
     : []
 
   const focusState: FocusState | null =
@@ -45,7 +49,7 @@ export function useFocusGoals(goals: Goal[]) {
 
   const flushAndClear = useCallback((grp: ActiveFocusGroup | null) => {
     if (!grp) return
-    const ids = matchGoalIds(goalsRef.current, grp.allowedCategories)
+    const ids = matchGoalIds(goalsRef.current, grp.allowedCategories, grp.groupId)
     let flushed = false
     for (const gid of ids) {
       const goal = goalsRef.current.find(g => g.id === gid)

@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { BookOpen, ChevronRight, Sparkles, ArrowRight, CheckCircle2, Plus } from 'lucide-react';
 import {
-  CURRICULUM_BLUEPRINT,
-  type CurriculumPart,
+  CURRICULUM_TOPICS,
+  type CurriculumTopic,
   rarityStars,
 } from '../../services/learn/curriculum';
 import { MasteryRing } from './MasteryRing';
@@ -11,7 +11,7 @@ import type { MasteryLevel } from '../../shared/learn/types';
 interface CurriculumShowcaseProps {
   lessonsByPart: Record<number, { id: string; title: string; masteryLevel?: string }[]>;
   checklistByPart: Record<number, boolean[]>;
-  onGenerate: (part: CurriculumPart) => void;
+  onGenerate: (part: CurriculumTopic) => void;
   onOpenLesson: (lessonId: string) => void;
   onToggleChecklist: (part: number, index: number) => void;
 }
@@ -37,7 +37,7 @@ function PartCard({
   onOpenLesson,
   onToggleChecklist,
 }: {
-  part: CurriculumPart;
+  part: CurriculumTopic;
   lessons: { id: string; title: string; masteryLevel?: string }[];
   checklist: boolean[];
   checklistProgress: number;
@@ -128,11 +128,10 @@ export function CurriculumShowcase({
 
   const phases = [1, 2, 3] as const;
   const filtered = phaseFilter
-    ? CURRICULUM_BLUEPRINT.filter((p) => p.phase === phaseFilter)
-    : CURRICULUM_BLUEPRINT;
-
+    ? CURRICULUM_TOPICS.filter((p) => p.phase === phaseFilter)
+    : CURRICULUM_TOPICS;
   const phaseStats = phases.map((ph) => {
-    const parts = CURRICULUM_BLUEPRINT.filter((p) => p.phase === ph);
+    const parts = CURRICULUM_TOPICS.filter((p) => p.phase === ph);
     const lessonsExist = parts.filter((p) => (lessonsByPart[p.part]?.length ?? 0) > 0).length;
     return { phase: ph, total: parts.length, lessonsExist };
   });
@@ -196,7 +195,7 @@ export function CurriculumShowcase({
       {/* Bottom stats */}
       <div className="lyceum-showcase-footer">
         <span className="lyceum-showcase-count">
-          {CURRICULUM_BLUEPRINT.length} parts &middot; {CURRICULUM_BLUEPRINT.reduce((s, p) => s + p.checklist.length, 0)} competencies
+          {CURRICULUM_TOPICS.length} topics &middot; {CURRICULUM_TOPICS.reduce((s, p) => s + p.checklist.length, 0)} competencies
         </span>
       </div>
     </div>

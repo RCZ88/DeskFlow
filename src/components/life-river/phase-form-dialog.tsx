@@ -41,7 +41,8 @@ import {
   type PhaseMoodTag,
 } from '@/lib/riverMath'
 import { cn } from '@/lib/utils'
-import { LoaderCircle, Sparkles, X } from 'lucide-react'
+import { LoaderCircle, Mic, Sparkles, X } from 'lucide-react'
+import { VoiceInputWrapper } from '@/components/VoiceInputWrapper'
 
 const api = () => window.deskflowAPI
 
@@ -227,7 +228,7 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
   const next = () => {
     if (!canGoNext) return
     if (isLast) {
-      saveNow()
+      saveNow('complete')
       return
     }
     setStep(STEPS[stepIndex + 1].id)
@@ -285,7 +286,7 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
     }
   }
 
-  const saveNow = () => {
+  const saveNow = (status: 'draft' | 'complete' = 'complete') => {
     const phase: LifePhase = {
       id: initial?.id ?? uid('phase'),
       title: draft.title.trim(),
@@ -312,6 +313,7 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
       colorSource: draft.colorSource,
       reflectionSource: draft.reflectionSource,
       reflectionGeneratedAt: draft.reflectionGeneratedAt,
+      status,
       updatedAt: new Date().toISOString(),
     }
     onSave(phase)
@@ -323,13 +325,15 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
     <div className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="fp-title">Title</Label>
-        <Input
-          id="fp-title"
-          value={draft.title}
-          onChange={e => dispatch({ type: 'set', patch: { title: e.target.value } })}
-          placeholder="e.g. University, First startup, Parenthood"
-          autoFocus
-        />
+        <VoiceInputWrapper>
+          <Input
+            id="fp-title"
+            value={draft.title}
+            onChange={e => dispatch({ type: 'set', patch: { title: e.target.value } })}
+            placeholder="e.g. University, First startup, Parenthood"
+            autoFocus
+          />
+        </VoiceInputWrapper>
       </div>
 
       <div className="space-y-1.5">
@@ -453,14 +457,16 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
     <div className="space-y-3">
       <div className="space-y-1.5">
         <Label htmlFor="fp-story">The story</Label>
-        <Textarea
-          id="fp-story"
-          value={draft.description}
-          onChange={e => dispatch({ type: 'set', patch: { description: e.target.value } })}
-          placeholder="What was this time actually like? Where were you, who was around, what filled the days…"
-          rows={6}
-          autoFocus
-        />
+        <VoiceInputWrapper>
+          <Textarea
+            id="fp-story"
+            value={draft.description}
+            onChange={e => dispatch({ type: 'set', patch: { description: e.target.value } })}
+            placeholder="What was this time actually like? Where were you, who was around, what filled the days…"
+            rows={6}
+            autoFocus
+          />
+        </VoiceInputWrapper>
         <p className="text-[10.5px] text-zinc-600">Write it like you'd tell a friend who has an hour.</p>
       </div>
     </div>
@@ -586,13 +592,15 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="fp-feelings">Day to day…</Label>
-        <Textarea
-          id="fp-feelings"
-          value={draft.feelingsNote ?? ''}
-          onChange={e => dispatch({ type: 'set', patch: { feelingsNote: e.target.value } })}
-          placeholder="How did this chapter actually feel, day to day?"
-          rows={3}
-        />
+        <VoiceInputWrapper>
+          <Textarea
+            id="fp-feelings"
+            value={draft.feelingsNote ?? ''}
+            onChange={e => dispatch({ type: 'set', patch: { feelingsNote: e.target.value } })}
+            placeholder="How did this chapter actually feel, day to day?"
+            rows={3}
+          />
+        </VoiceInputWrapper>
       </div>
     </div>
   )
@@ -611,13 +619,15 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
             Help me find the words
           </button>
         </div>
-        <Textarea
-          id="fp-lessons"
-          value={draft.lessonsLearned ?? ''}
-          onChange={e => dispatch({ type: 'set', patch: { lessonsLearned: e.target.value } })}
-          placeholder="A line or two that the younger you needed to hear…"
-          rows={3}
-        />
+        <VoiceInputWrapper>
+          <Textarea
+            id="fp-lessons"
+            value={draft.lessonsLearned ?? ''}
+            onChange={e => dispatch({ type: 'set', patch: { lessonsLearned: e.target.value } })}
+            placeholder="A line or two that the younger you needed to hear…"
+            rows={3}
+          />
+        </VoiceInputWrapper>
         {assistQuestions && assistQuestions.length > 0 && (
           <div className="mt-1 space-y-1 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2.5">
             <p className="text-[10px] uppercase tracking-wider text-amber-400/70">Try answering these:</p>
@@ -629,13 +639,15 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="fp-impact">How are you different now than before?</Label>
-        <Textarea
-          id="fp-impact"
-          value={draft.impactNotes}
-          onChange={e => dispatch({ type: 'set', patch: { impactNotes: e.target.value } })}
-          placeholder="What did this chapter change about you?"
-          rows={3}
-        />
+        <VoiceInputWrapper>
+          <Textarea
+            id="fp-impact"
+            value={draft.impactNotes}
+            onChange={e => dispatch({ type: 'set', patch: { impactNotes: e.target.value } })}
+            placeholder="What did this chapter change about you?"
+            rows={3}
+          />
+        </VoiceInputWrapper>
       </div>
     </div>
   )
@@ -754,13 +766,15 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
             Generate reflection
           </button>
         </div>
-        <Textarea
-          id="fp-reflection"
-          value={draft.reflection}
-          onChange={e => dispatch({ type: 'set', patch: { reflection: e.target.value, reflectionSource: draft.reflectionSource === 'ai' ? 'ai-edited' : 'manual' } })}
-          placeholder="A reflection will appear here — or write your own."
-          rows={4}
-        />
+        <VoiceInputWrapper>
+          <Textarea
+            id="fp-reflection"
+            value={draft.reflection}
+            onChange={e => dispatch({ type: 'set', patch: { reflection: e.target.value, reflectionSource: draft.reflectionSource === 'ai' ? 'ai-edited' : 'manual' } })}
+            placeholder="A reflection will appear here — or write your own."
+            rows={4}
+          />
+        </VoiceInputWrapper>
         <p className="text-[10.5px] text-zinc-600">AI frames with what you wrote. Accept it, edit it, or discard it.</p>
       </div>
     </div>
@@ -784,9 +798,18 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-lifephase="phase-form-dialog" className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="font-display text-[15px] text-zinc-100">
-            {initial ? 'Edit this chapter' : 'Add a chapter'}
-          </DialogTitle>
+          <div className="flex items-center justify-between gap-2 pr-8">
+            <DialogTitle className="font-display text-[15px] text-zinc-100">
+              {initial ? 'Edit this chapter' : 'Add a chapter'}
+            </DialogTitle>
+            <span
+              data-lifephase="voice-badge"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-300"
+            >
+              <Mic size={10} />
+              Voice input ready
+            </span>
+          </div>
           <DialogDescription>
             {STEPS[stepIndex].label} · step {stepIndex + 1} of {STEPS.length}
           </DialogDescription>
@@ -833,11 +856,9 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
               <DialogClose render={<Button variant="ghost" size="sm">Cancel</Button>} />
             </div>
             <div className="flex items-center gap-2">
-              {!isLast && (
-                <Button variant="ghost" size="sm" onClick={saveNow} data-lifephase="save-draft">
-                  Save as draft
-                </Button>
-              )}
+              <Button variant="ghost" size="sm" onClick={() => saveNow('draft')} data-lifephase="save-draft">
+                Save as draft
+              </Button>
               <Button
                 variant="default"
                 size="sm"

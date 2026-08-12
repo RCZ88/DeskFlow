@@ -15,7 +15,7 @@ import type { LessonWithNodes, RenderableNode, TutorAnswer, MasteryLevel, NodePr
 
 const api = (window as any).deskflowAPI;
 
-export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, currentLevel, onAsk, onSelectionAsk, onQuizSubmit, tutorOpen, setTutorOpen, tutorQuestion, setTutorQuestion,   tutorAnswer, tutorLoading, graphView, onSetGraphView, onOpenShortcuts, progress, mobileOutlineOpen, setMobileOutlineOpen, containerRef, highlights, completedItems, onToggleCheck, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, tutorConfig }: {
+export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, currentLevel, onAsk, onSelectionAsk, onQuizSubmit, tutorOpen, setTutorOpen, tutorQuestion, setTutorQuestion,   tutorAnswer, tutorLoading, graphView, onSetGraphView, onOpenShortcuts, progress, mobileOutlineOpen, setMobileOutlineOpen, containerRef, highlights, completedItems, onToggleCheck, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, tutorConfig, onPersistIllustration }: {
   lesson: LessonWithNodes;
   selectedNode: string | null;
   onSelectNode: (id: string) => void;
@@ -48,6 +48,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
   onDeleteNote?: (noteId: string) => void;
   onTogglePin?: (noteId: string) => void;
   tutorConfig?: { provider: string; model: string } | null;
+  onPersistIllustration?: (blockId: string, imagePath: string) => void;
 }) {
   if (!selectedNode && lesson.nodes.length > 0) {
     onSelectNode(lesson.nodes[0].id);
@@ -454,6 +455,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                               onAddNote={onAddNote}
                               onDeleteNote={onDeleteNote}
                               onTogglePin={onTogglePin}
+                              onIllustrationGenerated={onPersistIllustration}
                             />
                           </div>
                         ))}
@@ -648,6 +650,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
         open={showIllustrations}
         onClose={() => setShowIllustrations(false)}
         onNavigateToNode={(id) => { onSelectNode(id); setShowIllustrations(false); }}
+        onImageUploaded={onPersistIllustration}
       />
     </>
   );

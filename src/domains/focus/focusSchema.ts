@@ -50,6 +50,13 @@ export function ensureFocusSchema(db: Database.Database) {
       used_at    TEXT NOT NULL DEFAULT (datetime('now','localtime')),
       PRIMARY KEY (group_id, session_id)
     );
+
+    CREATE TABLE IF NOT EXISTS focus_goal_config (
+      id               INTEGER PRIMARY KEY CHECK (id = 1),
+      lenient_goal_sec INTEGER NOT NULL DEFAULT 0,
+      strict_goal_sec  INTEGER NOT NULL DEFAULT 0,
+      updated_at       TEXT
+    );
   `);
 
   // Migration for existing DBs: add goal_ids column if missing

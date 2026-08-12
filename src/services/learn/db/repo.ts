@@ -31,14 +31,16 @@ export function upsertLesson(db: Database, lesson: {
   summary?: string; authored_by?: string; doc_json: string;
   status?: string; created_at: string; updated_at: string;
   chapter?: string; original_prompt?: string;
+  branch_id?: string; subtopic?: string;
 }) {
   const stmt = db.prepare(`
-    INSERT INTO learn_lessons (id, title, part, version, summary, authored_by, doc_json, status, created_at, updated_at, chapter, original_prompt)
-    VALUES (@id, @title, @part, @version, @summary, @authored_by, @doc_json, @status, @created_at, @updated_at, @chapter, @original_prompt)
+    INSERT INTO learn_lessons (id, title, part, version, summary, authored_by, doc_json, status, created_at, updated_at, chapter, original_prompt, branch_id, subtopic)
+    VALUES (@id, @title, @part, @version, @summary, @authored_by, @doc_json, @status, @created_at, @updated_at, @chapter, @original_prompt, @branch_id, @subtopic)
     ON CONFLICT(id) DO UPDATE SET
       title = @title, part = @part, version = @version, summary = @summary,
       authored_by = @authored_by, doc_json = @doc_json, status = @status, updated_at = @updated_at,
-      chapter = @chapter, original_prompt = @original_prompt
+      chapter = @chapter, original_prompt = @original_prompt,
+      branch_id = @branch_id, subtopic = @subtopic
   `);
   stmt.run({
     id: lesson.id, title: lesson.title, part: lesson.part, version: lesson.version,
@@ -46,14 +48,42 @@ export function upsertLesson(db: Database, lesson: {
     doc_json: lesson.doc_json, status: lesson.status || 'draft',
     created_at: lesson.created_at, updated_at: lesson.updated_at,
     chapter: lesson.chapter || '', original_prompt: lesson.original_prompt || '',
+    branch_id: lesson.branch_id || 'cs-ai', subtopic: lesson.subtopic || '',
   });
 }
 
-export function listLessons(db: Database, part?: number) {
-  if (part != null) {
-    return db.prepare('SELECT id, title, part, version, status, chapter, original_prompt, created_at, updated_at FROM learn_lessons WHERE part = ? ORDER BY created_at DESC').all(part);
-  }
-  return db.prepare('SELECT id, title, part, version, status, chapter, original_prompt, created_at, updated_at FROM learn_lessons ORDER BY part ASC, created_at DESC').all();
+export interface LessonFilters {
+  branchId?: string | null;
+  part?: number | null;
+  chapter?: string | null;
+  subtopic?: string | null;
+}
+
+export function listLessons(db: Database, opts: LessonFilters = {}) {
+  const branchId = opts.branchId != null ? opts.branchId : (opts.part != null ? null : 'cs-ai');
+  const where: string[] = [];
+  const params: any[] = [];
+  if (branchId != null) { where.push('branch_id = ?'); params.push(branchId); }
+  if (opts.part != null) { where.push('part = ?'); params.push(opts.part); }
+  if (opts.chapter != null && opts.chapter !== '') { where.push('chapter = ?'); params.push(opts.chapter); }
+  if (opts.subtopic != null && opts.subtopic !== '') { where.push('subtopic = ?'); params.push(opts.subtopic); }
+  const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+  return db.prepare(`SELECT id, title, part, version, status, chapter, subtopic, branch_id, original_prompt, created_at, updated_at FROM learn_lessons${whereSql} ORDER BY part ASC, created_at DESC`).all(...params);
+}
+
+export function listBranches(db: Database) {
+  return db.prepare('SELECT id, emoji, title, description, color, ord FROM learn_branches ORDER BY ord ASC').all();
+}
+
+export function listGroups(db: Database, opts: LessonFilters = {}) {
+  const branchId = opts.branchId != null ? opts.branchId : (opts.part != null ? null : 'cs-ai');
+  const where: string[] = ["chapter != ''"];
+  const params: any[] = [];
+  if (branchId != null) { where.push('branch_id = ?'); params.push(branchId); }
+  if (opts.part != null) { where.push('part = ?'); params.push(opts.part); }
+  const whereSql = ` WHERE ${where.join(' AND ')}`;
+  const orderSql = opts.part != null ? 'ORDER BY chapter' : 'ORDER BY part, chapter';
+  return db.prepare(`SELECT DISTINCT chapter, part FROM learn_lessons${whereSql} ${orderSql}`).all(...params);
 }
 
 export function getLesson(db: Database, lessonId: string) {
@@ -178,22 +208,25 @@ export function setTutorCache(db: Database, data: {
 
 // ── Graph (prereq DAG) ──
 
-export function getGraph(db: Database, part?: number) {
-  let nodesQuery = 'SELECT n.id, n.title, n.mastery_target, l.part FROM learn_nodes n JOIN learn_lessons l ON n.lesson_id = l.id';
-  if (part != null) {
-    nodesQuery += ' WHERE l.part = ?';
-  }
-  const nodes = part != null
-    ? db.prepare(nodesQuery).all(part)
-    : db.prepare(nodesQuery).all();
+export function getGraph(db: Database, opts: LessonFilters = {}) {
+  const branchId = opts.branchId != null ? opts.branchId : (opts.part != null ? null : 'cs-ai');
+  const where: string[] = [];
+  const params: any[] = [];
+  if (branchId != null) { where.push('l.branch_id = ?'); params.push(branchId); }
+  if (opts.part != null) { where.push('l.part = ?'); params.push(opts.part); }
+  const whereSql = where.length ? ` WHERE ${where.join(' AND ')}` : '';
+
+  const nodes = params.length
+    ? db.prepare(`SELECT n.id, n.title, n.mastery_target, l.part FROM learn_nodes n JOIN learn_lessons l ON n.lesson_id = l.id${whereSql}`).all(...params)
+    : db.prepare(`SELECT n.id, n.title, n.mastery_target, l.part FROM learn_nodes n JOIN learn_lessons l ON n.lesson_id = l.id`).all();
 
   const edges = db.prepare(`
     SELECT np.node_id as "to", np.prereq_id as "from"
     FROM learn_node_prereqs np
     JOIN learn_nodes n ON np.node_id = n.id
     JOIN learn_lessons l ON n.lesson_id = l.id
-    ${part != null ? 'WHERE l.part = ?' : ''}
-  `).all(part != null ? part : undefined);
+    ${whereSql}
+  `).all(...params);
 
   return { nodes, edges };
 }

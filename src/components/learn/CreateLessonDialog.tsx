@@ -20,8 +20,12 @@ import {
   BookOpen,
   Plus,
   BookMarked,
+  Upload,
+  ImageIcon,
 } from 'lucide-react';
 import { ResourceInput, type Resource } from './ResourceInput';
+import { BookCard } from './BookCard';
+import type { LessonSummary } from '../../shared/learn/types';
 
 const api = (window as any).deskflowAPI;
 
@@ -112,12 +116,14 @@ export function CreateLessonDialog({
   onImported,
   seed,
   onBrowseSavedIdeas,
+  onOpenLesson,
 }: {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
   seed?: LessonSeed | null;
   onBrowseSavedIdeas?: () => void;
+  onOpenLesson?: (id: string) => void;
 }) {
   const [step, setStep] = useState<Step>('input');
   const [inputMode, setInputMode] = useState<InputMode>('simple');
@@ -142,15 +148,21 @@ export function CreateLessonDialog({
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [externalPaste, setExternalPaste] = useState('');
+  const [externalImporting, setExternalImporting] = useState(false);
+  const [externalImportError, setExternalImportError] = useState('');
+  const [externalImportSuccess, setExternalImportSuccess] = useState('');
+  const [createdLesson, setCreatedLesson] = useState<LessonSummary | null>(null);
 
   useEffect(() => {
     if (open) {
       setSaved(false);
+      setCreatedLesson(null);
       setChapterChoice('');
       setChapterPickerOpen(false);
       setNewGroupName('');
       if (seed) {
-        setInputMode('detailed');
+        setInputMode('simple');
         setDescription(seed.title);
         setUserInput(`I want to learn about ${seed.title}. The key areas are:\n${seed.scope.map((s) => `- ${s}`).join('\n')}`);
         if (seed.topicPrompt) {
@@ -272,6 +284,83 @@ export function CreateLessonDialog({
     URL.revokeObjectURL(url);
   };
 
+  const handleExternalImport = async () => {
+    setExternalImporting(true);
+    setExternalImportError('');
+    setExternalImportSuccess('');
+    try {
+      const text = externalPaste.trim();
+      if (!text) { setExternalImportError('Paste some content first'); setExternalImporting(false); return; }
+      const result = await api.learnImportLdoc({ source: text });
+      if (result.ok) {
+        setExternalImportSuccess('Lesson imported!');
+        onImported();
+        const lessonId = (result.data as any)?.lessonId;
+        if (lessonId) {
+          const summary = await fetchLessonSummary(lessonId);
+          if (summary) setCreatedLesson(summary);
+        }
+        setStep('result');
+      } else {
+        setExternalImportError(result.error || 'Import failed');
+      }
+    } catch (e: any) {
+      setExternalImportError(e.message || 'Import failed');
+    }
+    setExternalImporting(false);
+  };
+
+  const handleExternalFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExternalImporting(true);
+    setExternalImportError('');
+    setExternalImportSuccess('');
+    try {
+      const text = await file.text();
+      const result = await api.learnImportLdoc({ source: text });
+      if (result.ok) {
+        setExternalImportSuccess('Lesson imported!');
+        onImported();
+        const lessonId = (result.data as any)?.lessonId;
+        if (lessonId) {
+          const summary = await fetchLessonSummary(lessonId);
+          if (summary) setCreatedLesson(summary);
+        }
+        setStep('result');
+      } else {
+        setExternalImportError(result.error || 'Import failed');
+      }
+    } catch (e: any) {
+      setExternalImportError(e.message || 'Failed to read file');
+    }
+    setExternalImporting(false);
+    e.target.value = '';
+  };
+
+  const handleExternalImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setExternalImporting(true);
+    setExternalImportError('');
+    setExternalImportSuccess('');
+    try {
+      const result = await api.learnUploadIllustration({
+        lessonId: 'general',
+        filename: file.name,
+      });
+      if (result.ok && result.data?.imagePath) {
+        setExternalImportSuccess(`Image saved: ${result.data.imagePath}`);
+      } else {
+        setExternalImportError(result.error || 'Upload failed');
+      }
+    } catch (e: any) {
+      setExternalImportError(e.message || 'Upload failed');
+    }
+    setExternalImporting(false);
+    e.target.value = '';
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -307,6 +396,21 @@ export function CreateLessonDialog({
     }
   };
 
+  const fetchLessonSummary = async (lessonId: string): Promise<LessonSummary | null> => {
+    try {
+      const res = await api.learnListLessons();
+      const list: LessonSummary[] = res?.ok ? (res.data ?? []) : [];
+      return list.find((l) => String(l.id) === String(lessonId)) ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleOpenLesson = (id: string) => {
+    if (onOpenLesson) onOpenLesson(id);
+    else { onClose(); onImported(); }
+  };
+
   const handleGenerate = async () => {
     if (!validPrompt) return;
     setGenStatus('generating');
@@ -329,6 +433,9 @@ export function CreateLessonDialog({
         setGenStatus('done');
         setGenResult(result);
         onImported();
+        const summary = await fetchLessonSummary(result.data.lessonId);
+        if (summary) setCreatedLesson(summary);
+        setStep('result');
       } else {
         setGenStatus('error');
         setGenError(result.error || 'Generation failed');
@@ -915,6 +1022,93 @@ export function CreateLessonDialog({
                   </div>
                 </motion.div>
               )}
+
+              {/* STEP 3: LESSON RESULT */}
+              {step === 'result' && (
+                <motion.div
+                  key="result"
+                  initial={{ opacity: 0, y: 8, filter: 'blur(4px)' }}
+                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  exit={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
+                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                  className="space-y-4"
+                >
+                  {/* Created lesson book card */}
+                  <div className={`rounded-xl border overflow-hidden ${createdLesson ? 'border-sage-500/25 bg-sage-500/5' : 'border-zinc-700/40 bg-zinc-800/20'}`}>
+                    <div className="flex items-center gap-2.5 p-4">
+                      <div className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 ${createdLesson ? 'bg-sage-500/15 border-sage-500/25' : 'bg-zinc-800/60 border-zinc-700/40'}`}>
+                        {createdLesson ? <CheckCircle2 className="w-4 h-4 text-sage-300" /> : <BookMarked className="w-4 h-4 text-zinc-500" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-zinc-200 leading-tight">
+                          {createdLesson ? 'Lesson created!' : 'No lesson yet'}
+                        </div>
+                        <div className="text-xs text-zinc-500 mt-0.5">
+                          {createdLesson
+                            ? 'Click the book to open the lesson, or import another result below'
+                            : 'Import your AI-generated result below — it will appear here as a book you can click to open'}
+                        </div>
+                      </div>
+                    </div>
+                    {createdLesson && (
+                      <div className="flex justify-center px-6 pb-6">
+                        <div className="w-[190px]">
+                          <BookCard lesson={createdLesson} onOpen={handleOpenLesson} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* External import section */}
+                  <div className="rounded-xl border border-zinc-700/40 bg-zinc-800/20 overflow-hidden">
+                    <div className="flex items-center gap-2.5 p-4">
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500/20 to-violet-500/10 border border-blue-500/25 flex items-center justify-center shrink-0">
+                        <Upload className="w-4 h-4 text-blue-300" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-zinc-200 leading-tight">Or import your result</div>
+                        <div className="text-xs text-zinc-500 mt-0.5">Paste .lmd (starts with ---) or .ldoc JSON, upload a file, or upload illustration images</div>
+                      </div>
+                    </div>
+
+                    <div className="px-4 pb-4 space-y-3">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-zinc-500 mb-1 block">Paste .lmd or .ldoc content</label>
+                        <textarea
+                          value={externalPaste}
+                          onChange={(e) => setExternalPaste(e.target.value)}
+                          placeholder={'Paste your .lmd lesson (starts with ---) or .ldoc JSON here — code fences and preamble are stripped automatically...'}
+                          className="w-full px-3 py-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800/50 text-zinc-300 text-[11px] font-mono leading-relaxed resize-y min-h-[100px] max-h-[200px] focus:outline-none focus:border-blue-500/40 placeholder:text-zinc-600 transition-all"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium bg-zinc-800/60 text-zinc-400 border border-zinc-700/50 hover:bg-zinc-700/60 hover:text-zinc-200 transition-all cursor-pointer">
+                          <FileText className="w-3 h-3" />
+                          Upload .ldoc file
+                          <input type="file" accept=".ldoc,.json,.lmd" className="hidden" onChange={handleExternalFileUpload} />
+                        </label>
+                        <label className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium bg-zinc-800/60 text-zinc-400 border border-zinc-700/50 hover:bg-zinc-700/60 hover:text-zinc-200 transition-all cursor-pointer">
+                          <ImageIcon className="w-3 h-3" />
+                          Upload illustration
+                          <input type="file" accept="image/*" className="hidden" onChange={handleExternalImageUpload} />
+                        </label>
+                        {externalPaste.trim().length > 0 && (
+                          <button
+                            onClick={handleExternalImport}
+                            disabled={externalImporting}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-medium bg-blue-500/15 text-blue-300 border border-blue-500/20 hover:bg-blue-500/25 transition-all disabled:opacity-50"
+                          >
+                            {externalImporting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+                            Import
+                          </button>
+                        )}
+                      </div>
+                      {externalImportError && <p className="text-[11px] text-red-400">{externalImportError}</p>}
+                      {externalImportSuccess && <p className="text-[11px] text-sage-400">{externalImportSuccess}</p>}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
               </AnimatePresence>
             </div>
 
@@ -976,15 +1170,32 @@ export function CreateLessonDialog({
 
               {step === 'prompt' && (
                 <button
-                  onClick={() => {
-                    if (genStatus === 'done') { onClose(); onImported(); }
-                    else setStep('result');
-                  }}
+                  onClick={() => setStep('result')}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-zinc-800/60 hover:bg-zinc-800/80 text-zinc-300 text-sm font-medium transition-all duration-150 border border-zinc-700/50"
                 >
-                  {genStatus === 'done' ? 'View Library' : 'Done'}
+                  {genStatus === 'done' ? 'View Lesson' : 'Done'}
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
+              )}
+
+              {step === 'result' && (
+                <div className="flex items-center gap-2">
+                  {createdLesson && (
+                    <button
+                      onClick={() => handleOpenLesson(createdLesson.id)}
+                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-sage-500/20 hover:bg-sage-500/30 text-sage-300 text-sm font-medium transition-all duration-150 border border-sage-500/30"
+                    >
+                      <BookOpen className="w-4 h-4" />
+                      View Lesson
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { onClose(); onImported(); }}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-zinc-800/60 hover:bg-zinc-800/80 text-zinc-300 text-sm font-medium transition-all duration-150 border border-zinc-700/50"
+                  >
+                    Close
+                  </button>
+                </div>
               )}
             </div>
           </motion.div>

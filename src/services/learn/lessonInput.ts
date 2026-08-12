@@ -14,15 +14,34 @@ import { parseLessonMarkdown, LessonMarkdownError } from './parseLessonMarkdown'
 
 /** Strip a single leading/trailing Markdown code fence the model may have wrapped everything in. */
 function stripOuterFence(text: string): string {
-  const t = text.trim();
-  const fenced = t.match(/^`{3,}[A-Za-z0-9_+-]*\n([\s\S]*?)\n`{3,}$/);
-  return fenced ? fenced[1].trim() : t;
+  let t = text.replace(/^\uFEFF/, '').trim();
+  // Full wrapper: opening fence line + content + closing fence line
+  const fenced = t.match(/^(`{3,}|~{3,})[A-Za-z0-9_+-]*\n([\s\S]*?)\n(`{3,}|~{3,})$/);
+  if (fenced) return fenced[2].trim();
+  // Partial: a stray opening fence at the very start (e.g. user copied ```lmd and
+  // the closing fence with it, but content or trailing text broke the full match).
+  // .lmd always starts with frontmatter, so a leading fence line is never legit.
+  const lines = t.split('\n');
+  if (/^(`{3,}|~{3,})/.test(lines[0]?.trim() ?? '')) {
+    lines.shift();
+    const lastIdx = lines.length - 1;
+    const last = lines[lastIdx]?.trim() ?? '';
+    if (!last || /^(`{3,}|~{3,})/.test(last)) {
+      lines[lastIdx] = '';
+    } else {
+      // Closing fence glued to the last content line (no newline before it),
+      // e.g. single-line .ldoc JSON wrapped in ```json — strip it from the end.
+      lines[lastIdx] = last.replace(/(`{3,}|~{3,})+[^`~]*$/, '');
+    }
+    t = lines.join('\n').trim();
+  }
+  return t;
 }
 
 /** Heuristic: does this look like a JSON document rather than .lmd? */
 function looksLikeJson(text: string): boolean {
   const t = text.trim();
-  return t.startsWith('{') && t.includes('"doc"') && t.includes('"nodes"');
+  return t.startsWith('{');
 }
 
 export interface ToLdocResult {

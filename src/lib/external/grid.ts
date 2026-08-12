@@ -91,58 +91,59 @@ const MAX_SHARE_MAP: Record<Hierarchy, number> = {
 };
 
 /**
- * Water-filling ceiling: clamp every card over `maxShare` to the cap, then
- * redistribute the freed mass proportionally to the cards still below the
- * cap, repeating until stable. Ordering and legibility are preserved — the
- * smaller cards just absorb what the giant used to hog.
+ * Water-filling ceiling that CANNOT be broken: every card over `maxShare` is
+ * clamped to the cap and the freed mass is redistributed to the cards below
+ * it — but each one is only raised UP TO the cap, never past it. Whatever
+ * mass remains unabsorbed (too few cards to hold it) is DISCARDED: the
+ * returned weights sum to ≤ 1, and the renderer scales the grid height by
+ * that sum so every card's ON-SCREEN share is exactly its weight.
  *
- * Degenerate data (so few cards that not all can fit under the cap, e.g. a
- * 95/5 split with two activities) ends in a renormalized equal-ish split
- * rather than an infinite oscillation — the cap itself still holds.
+ * This is what makes subtle/balanced genuinely non-exaggerated: two
+ * activities in subtle (cap 0.18) yield [0.18, 0.18] — two modest cards —
+ * instead of the old degenerate 50/50 blow-up that renormalized the excess
+ * back into the layout. Renormalizing to 1 would inflate every card past
+ * the cap, so we never do it; the grid simply underfills.
  */
 function applyMaxShare(weights: number[], maxShare: number): number[] {
   if (!(maxShare > 0) || maxShare >= 1) return weights;
   const n = weights.length;
-  if (n < 2) return weights;
+  if (n < 2) {
+    // Single card: cap it directly, discard the rest of the area.
+    return weights.map((w) => Math.min(w, maxShare));
+  }
 
-  let result = weights.slice();
+  const result = weights.slice();
+  let excess = 0;
 
-  for (let iter = 0; iter < 32; iter++) {
-    const over: number[] = [];
-    const under: number[] = [];
-    let excess = 0;
-    let underSum = 0;
-
-    for (let i = 0; i < n; i++) {
-      if (result[i] > maxShare + 1e-9) {
-        over.push(i);
-        excess += result[i] - maxShare;
-      } else if (result[i] < maxShare - 1e-9) {
-        under.push(i);
-        underSum += result[i];
-      }
-    }
-
-    if (!over.length) break;
-
-    for (const i of over) result[i] = maxShare;
-
-    if (!under.length || underSum <= 1e-9) {
-      // No one left to absorb the excess: renormalize and stop.
-      const total = result.reduce((a, b) => a + b, 0);
-      if (total > 0) result = result.map((w) => w / total);
-      break;
-    }
-
-    for (const i of under) {
-      result[i] += excess * (result[i] / underSum);
+  // Clamp every card over the cap.
+  for (let i = 0; i < n; i++) {
+    if (result[i] > maxShare + 1e-9) {
+      excess += result[i] - maxShare;
+      result[i] = maxShare;
     }
   }
 
-  // Defensive final renormalization (floating-point drift).
-  const total = result.reduce((a, b) => a + b, 0);
-  if (total > 0) result = result.map((w) => w / total);
+  // Redistribute the freed mass to cards below the cap, never pushing any
+  // past it (proportional to each card's remaining room, bounded by it).
+  for (let iter = 0; iter < 16 && excess > 1e-9; iter++) {
+    let underRoom = 0;
+    for (let i = 0; i < n; i++) {
+      if (result[i] < maxShare - 1e-9) underRoom += maxShare - result[i];
+    }
+    if (underRoom <= 1e-9) break;
 
+    const take = Math.min(excess, underRoom);
+    for (let i = 0; i < n; i++) {
+      const room = maxShare - result[i];
+      if (room > 1e-9) {
+        result[i] += take * (room / underRoom);
+      }
+    }
+    excess -= take;
+  }
+
+  // Any remaining excess stays discarded — the grid underfills (fill < 1)
+  // and the renderer scales the container height to match.
   return result;
 }
 
@@ -159,10 +160,13 @@ function applyMaxShare(weights: number[], maxShare: number): number[] {
  *      scale is `true` — zero processing means exactly that.
  *   3. s_i normalized so the fractions sum to 1 → each card's area IS its
  *      share of tracked time. Dominance emerges from the data, not a ladder.
- *   4. applyMaxShare() caps the biggest card per hierarchy (subtle 18% /
+ *   4. applyMaxShare() caps EVERY card per hierarchy (subtle 18% /
  *      balanced 30% / dramatic 48%) so no card can ever swallow the grid —
  *      EXCEPT in `true` scale, where the cap is lifted so a genuinely
- *      dominant activity is allowed to take its real share.
+ *      dominant activity is allowed to take its real share. When too few
+ *      cards exist to absorb the capped-out mass, the leftover is discarded
+ *      (weights sum to < 1) and computeActivityGridLayout shortens the grid
+ *      so each card's on-screen share stays at or under the cap.
  */
 export function buildTargetWeights(
   sorted: ActivityWithSeconds[],
@@ -424,6 +428,14 @@ export function computeActivityGridLayout(options: {
 
   const fractions = buildTargetWeights(main, hierarchy, scale);
 
+  // Fill ratio: the capped weights may sum to < 1 when too few cards exist
+  // to absorb the capped-out mass. The treemap container height AND the
+  // rendered aspect ratio are scaled by it, so a card's ON-SCREEN share of
+  // the full section is exactly its weight (≤ maxShare) — a subtle layout
+  // with two activities stays two modest cards, never a 50/50 blow-up.
+  const fill = Math.max(0.05, fractions.reduce((a, b) => a + b, 0));
+  const renderedAspect = Math.abs(fill - 1) < 1e-9 ? aspect : aspect / fill;
+
   // K-cap: any activity whose share falls below the readable floor is dropped
   // from the main grid (its weight can't fill a readable cell) and overflowed
   // into the compact row instead of squashing it into an unreadable sliver.
@@ -446,7 +458,7 @@ export function computeActivityGridLayout(options: {
     x: 0,
     y: 0,
     w: width,
-    h: height,
+    h: height * fill,
   });
 
   const epsilon = Math.max(width, height) / 2500;
@@ -471,6 +483,9 @@ export function computeActivityGridLayout(options: {
     .map((coord, index) => `${Math.max(0.0001, coord - yCoords[index])}fr`)
     .join(" ");
 
+  // Full-section container area (NOT the fill-scaled treemap container):
+  // areaFraction is the card's true share of the visible section, which is
+  // what sizeTier and the user-facing "how huge is this card" feel depend on.
   const containerArea = width * height;
 
   const mainCells: ActivityGridCell[] = readableMain.map((item, index) => {
@@ -511,7 +526,7 @@ export function computeActivityGridLayout(options: {
     compactActivities: [...compactActivities, ...overflow],
     gridTemplateColumns,
     gridTemplateRows,
-    aspectRatio: String(aspect),
+    aspectRatio: String(renderedAspect),
     hasMainGrid: true,
   };
 }

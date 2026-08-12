@@ -241,26 +241,6 @@ export function serializeParsed(parsed?: ParsedMessage): string | undefined {
   }
 }
 
-export function parseReminderCreate(content: string): { type: "reminder_create"; text: string; dueDate?: string } | null {
-  try {
-    const json = JSON.parse(content)
-    if (json.type === "reminder_create" && json.text) {
-      return { type: "reminder_create", text: json.text, dueDate: json.dueDate }
-    }
-  } catch {}
-  return null
-}
-
-export function parseGoalEventLink(content: string): { type: "goal_event_link"; goalId: string; eventId: string; eventTitle: string } | null {
-  try {
-    const json = JSON.parse(content)
-    if (json.type === "goal_event_link" && json.goalId && json.eventId) {
-      return { type: "goal_event_link", goalId: json.goalId, eventId: json.eventId, eventTitle: json.eventTitle }
-    }
-  } catch {}
-  return null
-}
-
 export function formatStat(value: number, format?: StatMetric["format"]): string {
   if (format === "duration") {
     const s = Math.max(0, Math.round(value))

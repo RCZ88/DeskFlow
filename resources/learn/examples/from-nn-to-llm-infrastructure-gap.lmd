@@ -1,0 +1,430 @@
+---
+title: From Neural Network to LLM: The Infrastructure Gap
+id: from-nn-to-llm-infrastructure-gap
+part: 3
+chapter: From NN to LLM
+version: 1.0.0
+summary: How a raw neural network becomes a working LLM through tokenization, sampling, parallelism, and inference infrastructure.
+authored_by: ai
+---
+
+# The Gap: A Neural Network Is Just a Function
+@mastery L2
+@prereq the-systems-lens algorithmic-vs-systems-optimization-choosing-the-right-lever
+
+If you have built a neural network from scratch, you know what it really is: a function. Input vector, matrix multiplications, non-linearities, output vector. That is it. A 175-billion-parameter GPT model is the same thing — just bigger. The parameters are knobs, and the network is a very expensive knob-turning machine.
+
+The gap between that function and ChatGPT is not inside the network. It is everything wrapped around it. The neural network never sees text. It never "chooses" words. It never "remembers" your previous message. All of that is infrastructure bolted on by engineers.
+
+Here is what actually lives outside the neural network:
+
+```mermaid
+flowchart LR
+    A["Raw Neural Network<br>f(x) = y"] -->|"wrap in"| B["Tokenizer"]
+    B --> C["Positional Encoding"]
+    C --> D["Causal Attention Mask"]
+    D --> E["Core Transformer"]
+    E --> F["Output Logits"]
+    F --> G["Softmax + Sampling"]
+    G --> H["Working LLM"]
+```
+
+The network itself is only the box labeled "Core Transformer." Everything else is scaffolding. If you think the model "understands" English, you are wrong. It understands integers between 0 and 50,000. The tokenizer translates your English into those integers before the network ever runs. The sampler translates the network's output integers back into English after it finishes.
+
+::: callout info
+A 175B parameter GPT-3 model is just a function with 175 billion knobs. The magic is in what you feed it and what you do with the output.
+:::
+
+::: quiz mcq L2
+What does the tokenizer do BEFORE the neural network sees the input?
+- [ ] It trains the model weights
+- [x] It converts text into integer token IDs
+- [ ] It runs the forward pass
+- [ ] It applies the softmax function
+explain: Tokenization is a pre-processing step. The neural network only sees numbers, never raw text.
+:::
+
+::: grounding
+includes: The conceptual gap between a raw neural network function and a production LLM system
+know: A neural network is a mathematical function mapping input vectors to output vectors [goodfellow2016]
+know: An LLM requires tokenization, positional encoding, attention masking, and sampling infrastructure external to the core network [vaswani2017]
+source: goodfellow2016 | Deep Learning | https://www.deeplearningbook.org/
+source: vaswani2017 | Attention Is All You Need | https://arxiv.org/abs/1706.03762
+:::
+
+# Tokenization: The Input Bridge
+@mastery L2
+
+Before the neural network runs, your text must become numbers. This happens in the tokenizer — a completely separate program from the neural network. The tokenizer has its own vocabulary, typically 32,000 to 100,000 tokens, fixed at training time. It never changes during inference.
+
+Byte Pair Encoding (BPE) is the standard algorithm. It starts with characters and iteratively merges the most frequent pairs into new tokens. "Transformer" might become ["Transform", "er"]. The model never sees the word "Transformer" as a single unit unless that exact sequence was merged into the vocabulary during training.
+
+Here is a simplified but complete tokenizer in pure Python:
+
+```python
+# Simplified BPE-style tokenization
+vocab = {
+    "the": 0, "cat": 1, "sat": 2, "on": 3,
+    "mat": 4, "dog": 5, "ran": 6, "a": 7
+}
+
+def encode(text):
+    words = text.lower().split()
+    return [vocab[w] for w in words if w in vocab]
+
+def decode(token_ids):
+    reverse = {v: k for k, v in vocab.items()}
+    return " ".join([reverse[i] for i in token_ids])
+
+text = "the cat sat on the mat"
+tokens = encode(text)
+print(f"Text:    '{text}'")
+print(f"Tokens:  {tokens}")
+print(f"Decoded: '{decode(tokens)}'")
+```
+
+In reality, tokenizers use subword units, not whole words. "unhappiness" might tokenize to ["un", "happiness"] or ["un", "happ", "iness"]. The neural network receives only the integer IDs. It has no idea what letters those IDs represent.
+
+::: html
+<style>
+  .concept-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 600px; margin: 0 auto; font-family: system-ui; }
+  .card { background: #292524; border: 1px solid #44403c; border-radius: 8px; padding: 16px; cursor: pointer; transition: all 0.2s; }
+  .card:hover { border-color: #a8a29e; background: #44403c; }
+  .card.active { border-color: #f59e0b; background: #451a03; }
+  .label { font-size: 13px; color: #a8a29e; margin-bottom: 4px; }
+  .value { font-size: 15px; color: #fafaf9; font-weight: 600; }
+  .detail { font-size: 12px; color: #d6d3d1; margin-top: 8px; display: none; }
+  .card.active .detail { display: block; }
+</style>
+<div class="concept-grid">
+  <div class="card" onclick="this.classList.toggle('active')">
+    <div class="label">Input</div>
+    <div class="value">Token IDs</div>
+    <div class="detail">Integers from 0 to V-1. The model never sees text — only these numbers.</div>
+  </div>
+  <div class="card" onclick="this.classList.toggle('active')">
+    <div class="label">Process</div>
+    <div class="value">Transformer</div>
+    <div class="detail">Self-attention + FFN repeated L times. Each layer refines the representation.</div>
+  </div>
+  <div class="card" onclick="this.classList.toggle('active')">
+    <div class="label">Output</div>
+    <div class="value">Logits</div>
+    <div class="detail">One score per vocabulary token. Softmax turns these into probabilities.</div>
+  </div>
+</div>
+:::
+
+::: quiz mcq L2
+What does the tokenizer do BEFORE the neural network sees the input?
+- [ ] It trains the model weights
+- [x] It converts text into integer token IDs
+- [ ] It runs the forward pass
+- [ ] It applies the softmax function
+explain: Tokenization is a pre-processing step. The neural network only sees numbers, never raw text.
+:::
+
+::: grounding
+includes: How text is converted into token IDs via subword tokenization before entering the neural network
+know: Tokenization maps text to a fixed vocabulary of integer IDs using algorithms like Byte Pair Encoding [sennrich2016]
+know: The vocabulary size is fixed at training time and determines the dimensionality of the input embedding layer [vaswani2017]
+source: sennrich2016 | Neural Machine Translation of Rare Words with Subword Units | https://arxiv.org/abs/1508.07909
+source: vaswani2017 | Attention Is All You Need | https://arxiv.org/abs/1706.03762
+:::
+
+# Inside the Stack: One Network or Many?
+@mastery L3
+
+A common confusion: is a Transformer multiple neural networks working together? No. It is one very deep neural network. The "layers" you hear about are not separate networks. They are repeated applications of the same two operations — self-attention and a feed-forward network — with residual connections and layer normalization between them.
+
+Think of it as a for-loop, not a pipeline of independent models:
+
+```mermaid
+flowchart TD
+    Input["Token Embeddings<br>x_0"] --> L1["Layer 1<br>Self-Attn + FFN"]
+    L1 --> L2["Layer 2<br>Self-Attn + FFN"]
+    L2 --> L3["Layer 3<br>Self-Attn + FFN"]
+    L3 -->|"..."| LL["Layer L<br>Self-Attn + FFN"]
+    LL --> Output["Final Hidden State<br>h"]
+```
+
+Each layer updates the representation:
+
+$$
+x_{l+1} = \text{LayerNorm}(x_l + \text{Attention}(x_l) + \text{FFN}(x_l))
+$$
+
+The weights for every layer are stored inside the same model checkpoint. When you load "Llama-3-8B," you are loading one network with 32 layers, not 32 networks.
+
+But here is the critical systems insight: some of what happens inside the forward pass is not "learning" at all. It is engineered machinery:
+
+| Component | Type | Why It Matters |
+|-----------|------|--------------|
+| Weight matrices | Learned | Store knowledge from training data |
+| Layer norm params | Learned | Stabilize training dynamics |
+| Attention mask | Engineered | Prevents the model from looking at future tokens |
+| Positional encoding | Engineered | Tells the model where each token sits in the sequence |
+| Residual connections | Engineered | Enable gradient flow through deep stacks |
+
+The mask and positional encoding are not learned. They are computed on the fly by the inference engine. This is part of the gap between "a neural network" and "an LLM system."
+
+::: grounding
+includes: The transformer architecture as a single deep network composed of stacked identical layers
+know: A transformer consists of L identical layers each containing multi-head self-attention and a feed-forward network [vaswani2017]
+know: Layer normalization and residual connections are architectural components that enable training but are not the core learned function [vaswani2017]
+source: vaswani2017 | Attention Is All You Need | https://arxiv.org/abs/1706.03762
+:::
+
+# The Output Layer: How Neurons Become Tokens
+@mastery L3
+
+This is the question you actually care about. When the final layer produces its hidden state $h \in \mathbb{R}^{d_{\text{hidden}}}$, what happens next?
+
+The output layer is a fixed linear projection. It is not dynamic. It does not adjust per request. It is a matrix $W \in \mathbb{R}^{V \times d_{\text{hidden}}}$ where $V$ is the vocabulary size — typically 32,000 to 100,000. Each row of $W$ corresponds to exactly one token in the fixed vocabulary.
+
+The math is brutal in its simplicity:
+
+$$
+\text{logits} = h W^T + b
+$$
+
+$$
+P(t_i) = \frac{e^{\text{logit}_i}}{\sum_{j=1}^{V} e^{\text{logit}_j}}
+$$
+
+Every token in the vocabulary gets one logit. Every logit gets one probability. The neural network does not "choose" the token. It produces a score for every possible token, and the inference engine samples from that distribution.
+
+Here is a complete NumPy simulation:
+
+```python
+import numpy as np
+
+vocab_size = 50257   # GPT-2 vocabulary
+hidden_dim = 768
+
+# Simulated final hidden state from the last layer
+h = np.random.randn(hidden_dim)
+
+# Output projection matrix (learned during training, frozen now)
+W = np.random.randn(vocab_size, hidden_dim) * 0.02
+b = np.zeros(vocab_size)
+
+# One matrix multiplication produces every logit
+logits = W @ h + b
+print(f"Vocabulary size:     {vocab_size}")
+print(f"Hidden state shape:  {h.shape}")
+print(f"Output logits shape: {logits.shape}")
+print(f"Each logit maps to exactly ONE token in the fixed vocabulary")
+
+# Softmax
+probs = np.exp(logits - np.max(logits))
+probs = probs / np.sum(probs)
+
+# Sampling strategies live OUTSIDE the network
+token_id = np.random.choice(vocab_size, p=probs)
+print(f"Sampled token ID:    {token_id}")
+```
+
+::: html
+<style>
+  body { font-family: system-ui; background: #1c1917; color: #fafaf9; padding: 20px; }
+  .control { margin-bottom: 16px; }
+  .control label { display: block; font-size: 13px; color: #a8a29e; margin-bottom: 4px; }
+  input[type="range"] { width: 100%; }
+  .bar-container { display: flex; align-items: flex-end; height: 120px; gap: 4px; margin-top: 12px; }
+  .bar { flex: 1; background: #f59e0b; border-radius: 4px 4px 0 0; transition: height 0.15s; min-height: 4px; }
+  .bar-label { text-align: center; font-size: 11px; color: #a8a29e; margin-top: 4px; }
+  .token-row { display: flex; gap: 4px; margin-top: 8px; }
+</style>
+<div>
+  <div class="control">
+    <label>Temperature: <span id="tval">1.0</span></label>
+    <input type="range" min="0.1" max="2.0" step="0.1" value="1.0" oninput="update(this.value)">
+  </div>
+  <div class="token-row">
+    <div style="flex:1"><div class="bar-container"><div class="bar" id="b0"></div></div><div class="bar-label">"the"</div></div>
+    <div style="flex:1"><div class="bar-container"><div class="bar" id="b1"></div></div><div class="bar-label">"a"</div></div>
+    <div style="flex:1"><div class="bar-container"><div class="bar" id="b2"></div></div><div class="bar-label">"this"</div></div>
+    <div style="flex:1"><div class="bar-container"><div class="bar" id="b3"></div></div><div class="bar-label">"that"</div></div>
+  </div>
+</div>
+<script>
+  const logits = [2.5, 1.2, 0.8, 0.3];
+  function update(t) {
+    document.getElementById('tval').textContent = parseFloat(t).toFixed(1);
+    const exp = logits.map(l => Math.exp(l / t));
+    const sum = exp.reduce((a,b) => a+b, 0);
+    const probs = exp.map(e => e / sum);
+    probs.forEach((p, i) => { document.getElementById('b'+i).style.height = (p * 100) + '%'; });
+    parent.postMessage({type:'widget:height', height: 280}, '*');
+  }
+  update(1.0);
+</script>
+:::
+
+::: callout warning
+The output layer is NOT dynamically adjusted. It is a fixed linear projection learned during training. You cannot add new tokens without retraining or at least fine-tuning this layer. The vocabulary is frozen.
+:::
+
+::: quiz mcq L3
+How many output neurons does a GPT-style model have?
+- [ ] One neuron per layer
+- [x] One neuron per token in the fixed vocabulary
+- [ ] One neuron per input token
+- [ ] It changes dynamically for each prompt
+explain: The output layer is a fixed [vocab_size × hidden_dim] matrix. Every token in the vocabulary has a dedicated neuron (logit) at the output.
+:::
+
+::: grounding
+includes: The mechanics of the output projection layer and how hidden states map to token probabilities via a fixed vocabulary
+know: The output layer is a linear projection from hidden dimension to vocabulary size producing logits for every token in the fixed vocabulary [vaswani2017]
+know: Softmax converts logits into a probability distribution over the fixed vocabulary [goodfellow2016]
+know: The output layer weights are learned during training and remain fixed during inference [brown2020]
+source: vaswani2017 | Attention Is All You Need | https://arxiv.org/abs/1706.03762
+source: goodfellow2016 | Deep Learning | https://www.deeplearningbook.org/
+source: brown2020 | Language Models are Few-Shot Learners | https://arxiv.org/abs/2005.14165
+:::
+
+# Parallelism: Multiple Networks and GPUs
+@mastery L3
+
+You asked how multiple neural networks run in parallel. Here is the truth: a standard GPT-style LLM is one network, but it is so large that no single GPU can hold it. We parallelize the same network across many GPUs. There are three strategies:
+
+**Data parallelism:** Copy the entire model to each GPU. Each GPU processes a different batch of data. Gradients are averaged across GPUs. This is training.
+
+**Tensor parallelism:** Split individual weight matrices across GPUs. For the output layer, GPU 0 might hold the first half of the vocabulary logits, GPU 1 the second half. They compute in parallel, then gather.
+
+**Pipeline parallelism:** Assign consecutive layers to different GPUs. GPU 0 runs layers 1–10, GPU 1 runs layers 11–20, and so on.
+
+```mermaid
+flowchart LR
+    H["Hidden State<br>h ∈ R^768"] --> GPU0["GPU 0<br>W[:25000] @ h"]
+    H --> GPU1["GPU 1<br>W[25000:] @ h"]
+    GPU0 --> G["All-Gather"]
+    GPU1 --> G
+    G --> Logits["Full Logits<br>∈ R^50000"]
+```
+
+While a standard GPT is monolithic, some architectures do use multiple distinct networks:
+
+- **Encoder-decoder:** Two separate transformers (e.g., T5, BART)
+- **Speculative decoding:** A small draft model generates candidates; the large model verifies them in parallel
+- **Multi-modal:** A vision encoder feeds into an LLM backbone
+
+But the dominant paradigm — GPT-4, Claude, Llama — is one network, sliced across many GPUs.
+
+::: quiz mcq L3
+In tensor parallelism, how is a single layer's weight matrix distributed?
+- [ ] Each GPU gets a copy of the full matrix
+- [x] Each GPU gets a slice of the matrix (e.g., half the rows)
+- [ ] Each GPU gets a different layer entirely
+- [ ] The matrix is dynamically resized per request
+explain: Tensor parallelism splits individual weight matrices across GPUs. For the output layer, each GPU might handle a subset of the vocabulary logits.
+:::
+
+::: grounding
+includes: How transformer inference and training are parallelized across multiple GPUs through data, tensor, and pipeline parallelism
+know: Data parallelism replicates the model across GPUs with different data batches [li2020]
+know: Tensor parallelism splits individual layers across multiple GPUs [shoeybi2019]
+know: Pipeline parallelism assigns consecutive layers to different GPUs [huang2019]
+source: li2020 | PyTorch Distributed | https://pytorch.org/tutorials/beginner/dist_overview.html
+source: shoeybi2019 | Megatron-LM | https://arxiv.org/abs/1909.08053
+source: huang2019 | GPipe | https://arxiv.org/abs/1811.06965
+:::
+
+# The Full Inference Machine
+@mastery L4
+
+Putting it all together, here is what happens when you send a prompt to ChatGPT. The neural network is only one step in a long pipeline:
+
+```mermaid
+flowchart TD
+    Prompt["User Prompt"] --> Tok["Tokenizer<br>(external)"]
+    Tok --> Emb["Embeddings + Positional Encoding<br>(external)"]
+    Emb --> Trans["Transformer Stack<br>(the neural network)"]
+    Trans --> Logits["Output Logits<br>(fixed projection)"]
+    Logits --> Soft["Softmax<br>(external)"]
+    Soft --> Sample["Sampling<br>temperature, top-p<br>(external)"]
+    Sample --> Out{"Is EOS token?"}
+    Out -->|"No"| Tok
+    Out -->|"Yes"| Detok["Detokenizer<br>(external)"]
+    Detok --> Resp["Response Text"]
+```
+
+Notice the loop. The model generates one token at a time. That token is fed back in as input for the next forward pass. This is autoregressive generation. The neural network has no memory of previous tokens inside its weights — it relies on the KV-cache, an external data structure that stores key and value tensors from previous steps so attention does not recompute them.
+
+| Element | Source | Fixed or Dynamic? |
+|---------|--------|-------------------|
+| Weight matrices | Training | Fixed at inference |
+| Tokenizer rules | BPE merge table | Fixed |
+| Vocabulary | Training corpus | Fixed |
+| Attention mask | Engineered per step | Dynamic per sequence |
+| KV-cache | Accumulated during generation | Dynamic |
+| Sampling parameters | User/config | Dynamic |
+
+::: html
+<style>
+  body { font-family: system-ui; background: #1c1917; color: #fafaf9; padding: 16px; }
+  canvas { border: 1px solid #44403c; border-radius: 8px; display: block; margin: 12px auto; }
+  .controls { text-align: center; margin-top: 8px; }
+  button { background: #44403c; color: #fafaf9; border: 1px solid #57534e; padding: 6px 16px; border-radius: 6px; cursor: pointer; margin: 0 4px; }
+  button:hover { background: #57534e; }
+  .status { font-size: 12px; color: #a8a29e; text-align: center; margin-top: 8px; }
+</style>
+<div>
+  <canvas id="c" width="500" height="200"></canvas>
+  <div class="controls">
+    <button onclick="reset()">Reset</button>
+    <button onclick="step()">Step</button>
+    <button onclick="auto()">Auto</button>
+  </div>
+  <div class="status" id="status">x = 10.0, loss = 100.0</div>
+</div>
+<script>
+  const ctx = document.getElementById('c').getContext('2d');
+  let x = 10, lr = 0.1, history = [];
+  function draw() {
+    ctx.fillStyle = '#1c1917'; ctx.fillRect(0,0,500,200);
+    ctx.strokeStyle = '#57534e'; ctx.beginPath();
+    for (let px = 0; px < 500; px++) {
+      let xv = (px - 250) / 20, py = 180 - xv*xv*1.5;
+      px===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py);
+    }
+    ctx.stroke();
+    ctx.fillStyle = '#f59e0b';
+    history.forEach(([hx, hloss]) => {
+      ctx.beginPath(); ctx.arc(250+hx*20, 180-hloss*1.5, 3, 0, Math.PI*2); ctx.fill();
+    });
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(250+x*20, 180-x*x*1.5, 5, 0, Math.PI*2); ctx.fill();
+    document.getElementById('status').textContent = `x = ${x.toFixed(3)}, loss = ${(x*x).toFixed(3)}`;
+  }
+  function step() { history.push([x, x*x]); x -= lr * 2*x; draw(); parent.postMessage({type:'widget:height', height: 280}, '*'); }
+  function reset() { x = 10; history = []; draw(); }
+  function auto() { let i = setInterval(() => { if (Math.abs(x) < 0.01) clearInterval(i); else step(); }, 200); }
+  draw();
+</script>
+:::
+
+::: layer L4 deeper
+For production systems, there is also speculative decoding: a small draft model (e.g., 1B parameters) generates 4–8 candidate tokens, and the large model (70B+) verifies them all in a single forward pass. This can 2–3× speed up inference without changing the output distribution. The draft model is a separate neural network running in parallel.
+:::
+
+::: quiz mcq L4
+In autoregressive generation, why is the KV-cache necessary?
+- [ ] It stores the model's weights
+- [ ] It compresses the vocabulary
+- [x] It avoids recomputing attention for previously generated tokens
+- [ ] It trains the model during inference
+explain: The KV-cache stores key and value tensors from previous tokens so each new token only needs to attend to the new state, not recompute all previous attention.
+:::
+
+::: grounding
+includes: The complete inference pipeline from user prompt to generated response including all external infrastructure
+know: LLM inference is an autoregressive loop where each generated token becomes input for the next generation step [vaswani2017]
+know: The KV-cache stores past key and value tensors to avoid recomputing attention for previous tokens [pope2022]
+know: Temperature, top-k, and top-p sampling are post-processing steps applied to logits outside the neural network [holtzman2020]
+source: vaswani2017 | Attention Is All You Need | https://arxiv.org/abs/1706.03762
+source: pope2022 | Efficiently Scaling Transformer Inference | https://arxiv.org/abs/2211.05102
+source: holtzman2020 | The Curious Case of Neural Text Degeneration | https://arxiv.org/abs/1904.09751
+:::

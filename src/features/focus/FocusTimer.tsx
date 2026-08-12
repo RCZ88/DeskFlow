@@ -145,7 +145,7 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               className="w-full"
             >
               <p className="text-center text-[11px] text-zinc-500 mb-3">
-                {state!.strictness === 'non_allowed' ? 'Strict mode -- only productive apps allowed' : 'Blocking distracting apps and sites'}
+                {state!.strictness === 'non_allowed' ? 'Strict mode -- only allowed & productive apps' : 'Blocking distracting apps and sites'}
               </p>
               <motion.button
                 whileTap={tapScale}
@@ -173,19 +173,12 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                       <div className="min-w-0">
                         <p className="text-[12px] font-semibold text-pink-300 truncate">{activeGroup.name}</p>
                         <p className="text-[10px] text-zinc-500 truncate">
-                          {activeGroup.daily_goal_sec
-                            ? `Daily goal: ${Math.round(activeGroup.daily_goal_sec / 60)} min`
-                            : activeGroup.allowed_categories.length > 0
-                              ? `${activeGroup.allowed_categories.length} categories tracked`
-                              : 'All productive categories'}
+                          {activeGroup.allowed_apps.length + activeGroup.allowed_domains.length + activeGroup.allowed_categories.length > 0
+                            ? `${activeGroup.allowed_apps.length} apps · ${activeGroup.allowed_domains.length} sites · ${activeGroup.allowed_categories.length} categories`
+                            : 'All productive categories'}
                         </p>
                       </div>
                     </div>
-                    {activeGroup.strictness === 'non_allowed' && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 shrink-0">
-                        strict
-                      </span>
-                    )}
                   </div>
                 )}
               </div>
@@ -251,12 +244,12 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                   Strict mode
                 </span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${strict === 'non_allowed' ? 'bg-amber-500/15 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
-                  {strict === 'non_allowed' ? 'Blocks distracting + neutral' : 'Blocks distracting only'}
+                  {strict === 'non_allowed' ? 'Only allowed & productive' : 'Blocks distracting apps only'}
                 </span>
               </button>
               {strict === 'non_allowed' && (
                 <p className="text-[10px] text-amber-400/60 leading-relaxed text-center mb-3 px-2">
-                  Only productive apps allowed. Non-productive apps and sites will trigger a focus reminder overlay.
+                  Hard whitelist: your allowed apps, sites and categories, plus productive apps — everything else triggers a focus reminder overlay.
                   Requires tracking set to "Track as Normal" in Settings for full enforcement.
                 </p>
               )}

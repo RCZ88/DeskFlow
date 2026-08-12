@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Handshake, Calendar, AlertTriangle, Check, RotateCcw, Info } from 'lucide-react';
 import { getCurrencyInfo } from './currency-data';
@@ -40,8 +40,9 @@ export function RepaymentModal({
   const [success, setSuccess] = useState(false);
   const [partial, setPartial] = useState(false);
 
+  const prevOpen = useRef(false);
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpen.current) {
       setAmount(String(amountOwed ?? totalAmount));
       setDate(new Date().toISOString().split('T')[0]);
       setWalletId(wallets.find(w => !w.is_archived)?.id ?? 0);
@@ -51,6 +52,7 @@ export function RepaymentModal({
       setSuccess(false);
       setPartial(false);
     }
+    prevOpen.current = open;
   }, [open, personName, totalAmount, amountOwed, wallets]);
 
   const handleConfirm = async () => {

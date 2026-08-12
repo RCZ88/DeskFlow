@@ -130,6 +130,50 @@ export function mergeAdjacentSegments(segments: GapSegment[]): GapSegment[] {
   return merged;
 }
 
+/**
+ * Scales a composition of segments (built against one reference gap) to fit a
+ * different gap's duration, preserving relative proportions. Used by the
+ * multi-gap fill flow: the user composes once, every selected gap receives the
+ * same relative composition scaled to its own length.
+ *
+ * Unassigned segments (activityId null) are dropped — they carry no time.
+ * Each scaled segment is clamped to a minimum of 1 minute; the rounding
+ * remainder is added to the last segment. fillGapWithSegments clips anything
+ * that would overshoot a very small gap's end.
+ */
+export function scaleSegmentsToGap(
+  segments: GapSegment[],
+  targetSeconds: number
+): GapSegment[] {
+  const active = segments.filter((segment) => segment.activityId);
+  if (!active.length) return [];
+
+  const targetMinutes = Math.max(1, Math.round(targetSeconds / 60));
+  const referenceMinutes = active.reduce(
+    (sum, segment) => sum + Math.max(1, segment.minutes),
+    0
+  );
+  if (referenceMinutes <= 0) {
+    return active.map((segment) => ({ ...segment, minutes: 1 }));
+  }
+
+  let assigned = 0;
+
+  return active.map((segment, index) => {
+    if (index === active.length - 1) {
+      return { ...segment, minutes: Math.max(1, targetMinutes - assigned) };
+    }
+
+    const minutes = Math.max(
+      1,
+      Math.floor((Math.max(1, segment.minutes) * targetMinutes) / referenceMinutes)
+    );
+    assigned += minutes;
+
+    return { ...segment, minutes };
+  });
+}
+
 export async function fillGapWithSegments(
   gap: Gap,
   segments: GapSegment[],

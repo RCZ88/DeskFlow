@@ -1996,7 +1996,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
                                           <span className="text-sm text-zinc-300 truncate">{session.topic || session.agent || 'Untitled'}</span>
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
-                                          <span className="text-xs text-zinc-500">{formatDistanceToNow(new Date(session.started_at))}</span>
+                                          <span className="text-xs text-zinc-500">{session.created_at ? formatDistanceToNow(new Date(session.created_at)) : 'Unknown'}</span>
                                         </div>
                                       </div>
                                     ))}

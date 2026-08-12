@@ -54,6 +54,7 @@ export interface LifePhase {
   colorSource?: 'category' | 'custom' | null
   reflectionSource?: 'manual' | 'ai' | 'ai-edited' | null
   reflectionGeneratedAt?: string | null
+  status?: 'draft' | 'complete'
   updatedAt?: string
 }
 

@@ -25,6 +25,7 @@ import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Select, SelectItem } from '../ui/select';
+import { LTGPicker } from '../goals/CriteriaBuilder';
 import type { Goal, GoalCategory, GoalPeriod, LongTermGoal, TargetType } from './types';
 
 const CATEGORIES: { value: GoalCategory; label: string; color: string }[] = [
@@ -118,10 +119,10 @@ export function GoalsCard({
     targetType: TargetType;
     targetHours: number;
     targetMinutes: number;
-    parentId: string;
+    parentIds: string[];
   }>({
     title: '', description: '', category: 'work', period: 'daily',
-    targetType: 'completion', targetHours: 0, targetMinutes: 30, parentId: '',
+    targetType: 'completion', targetHours: 0, targetMinutes: 30, parentIds: [],
   });
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -144,7 +145,8 @@ export function GoalsCard({
       category: newGoal.category,
       period: newGoal.period,
       target: { type: newGoal.targetType, targetSeconds },
-      parentId: newGoal.parentId || undefined,
+      parentIds: newGoal.parentIds,
+      parentId: newGoal.parentIds[0] || undefined,
       links: [],
     });
     resetAddForm();
@@ -154,7 +156,7 @@ export function GoalsCard({
   const resetAddForm = () => {
     setNewGoal({
       title: '', description: '', category: 'work', period: 'daily',
-      targetType: 'completion', targetHours: 0, targetMinutes: 30, parentId: '',
+      targetType: 'completion', targetHours: 0, targetMinutes: 30, parentIds: [],
     });
   };
 
@@ -347,13 +349,11 @@ export function GoalsCard({
                 </AnimatePresence>
 
                 {longTermGoals.length > 0 && (
-                  <Select value={newGoal.parentId} onValueChange={v => setNewGoal(p => ({ ...p, parentId: v }))} className="w-full"
-                    valueLabel={Object.fromEntries(longTermGoals.map(ltg => [ltg.id, ltg.title]))}>
-                    <SelectItem value="" disabled>Link to long-term goal (optional)</SelectItem>
-                    {longTermGoals.map(ltg => (
-                      <SelectItem key={ltg.id} value={ltg.id}>{ltg.title}</SelectItem>
-                    ))}
-                  </Select>
+                  <LTGPicker
+                    longTermGoals={longTermGoals}
+                    value={newGoal.parentIds}
+                    onChange={ids => setNewGoal(p => ({ ...p, parentIds: ids }))}
+                  />
                 )}
 
                 <div className="flex items-center gap-2 pt-1">
@@ -499,12 +499,13 @@ export function GoalsCard({
                         <p className="text-[11px] text-white/40 mt-0.5 line-clamp-1">{goal.description}</p>
                       )}
 
-                      {goal.parentId && (() => {
-                        const parent = longTermGoals.find(ltg => ltg.id === goal.parentId);
-                        return parent ? (
+                      {(() => {
+                        const parentIds = goal.parentIds?.length ? goal.parentIds : (goal.parentId ? [goal.parentId] : []);
+                        const parents = parentIds.map(pid => longTermGoals.find(ltg => ltg.id === pid)).filter(Boolean) as LongTermGoal[];
+                        return parents.length > 0 ? (
                           <div className="flex items-center gap-1 mt-1">
-                            <ArrowRight size={8} className="text-white/40" />
-                            <span className="text-[10px] text-white/50 truncate">Serves: {parent.title}</span>
+                            <ArrowRight size={8} className="text-white/40 shrink-0" />
+                            <span className="text-[10px] text-white/50 truncate">Serves: {parents.map(p => p.title).join(', ')}</span>
                           </div>
                         ) : null;
                       })()}

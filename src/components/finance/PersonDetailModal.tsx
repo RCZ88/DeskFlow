@@ -70,8 +70,10 @@ export function PersonDetailModal({
     return personTxns;
   }, [filter, pendingTxs, repaidTxs, personTxns]);
 
-  const balance = totalOwed;
   const storedBalance = person.balance ?? 0;
+  const balance = storedBalance;
+  const hasOwed = balance < 0;
+  const hasCredit = balance > 0;
   const linkedWallet = person.wallet_id ? wallets.find(w => w.id === person.wallet_id) : null;
   const initials = person.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
@@ -187,92 +189,104 @@ export function PersonDetailModal({
             </div>
           )}
 
-          {/* Balance Summary — two sections: Owed (computed) + Stored Balance */}
+          {/* Balance Summary — show Owed when negative, Credit when positive, Settled when zero */}
           <div className="mt-4 space-y-3">
-            {/* Owed Balance */}
-            <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-amber-400/80 uppercase tracking-wider">Amount Owed</p>
-                  <p className="text-2xl font-bold text-amber-400 mt-0.5">{displayCurrency}{fmtMoney(balance)}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[11px] text-zinc-500">Total Repaid</p>
-                  <p className="text-sm font-semibold text-emerald-400 mt-0.5">{displayCurrency}{fmtMoney(totalRepaid)}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-amber-500/10">
-                <span className="text-[11px] text-zinc-500">{pendingTxs.length} pending</span>
-                <span className="text-[11px] text-zinc-600">·</span>
-                <span className="text-[11px] text-zinc-500">{repaidTxs.length} repaid</span>
-              </div>
-            </div>
-
-            {/* Stored Balance + Wallet Link */}
-            <div className="rounded-xl bg-violet-500/5 border border-violet-500/20 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] text-violet-400/80 uppercase tracking-wider">Balance</p>
-                  <p className="text-xl font-bold text-violet-400 mt-0.5">{displayCurrency}{fmtMoney(storedBalance)}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {/* Wallet Picker */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowWalletPicker(!showWalletPicker)}
-                      className="flex items-center gap-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 px-2.5 py-1.5 text-[11px] text-violet-300 hover:bg-violet-500/20 transition-colors"
-                    >
-                      <Landmark className="w-3 h-3" />
-                      {linkedWallet ? linkedWallet.name : 'Link Wallet'}
-                      <ChevronDown className={`w-3 h-3 transition-transform ${showWalletPicker ? 'rotate-180' : ''}`} />
-                    </button>
-                    {showWalletPicker && (
-                      <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg bg-zinc-800 border border-zinc-700/60 shadow-xl py-1">
-                        <button
-                          onClick={() => handleSetWallet(null)}
-                          className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-zinc-700/50 transition-colors"
-                        >
-                          <span className="text-zinc-400">No wallet</span>
-                          {!person.wallet_id && <Check className="w-3 h-3 text-emerald-400" />}
-                        </button>
-                        {wallets.filter(w => !w.is_archived).map(w => (
-                          <button
-                            key={w.id}
-                            onClick={() => handleSetWallet(w.id)}
-                            className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-zinc-700/50 transition-colors"
-                          >
-                            <span className="text-zinc-200">{w.name}</span>
-                            {w.id === person.wallet_id && <Check className="w-3 h-3 text-emerald-400" />}
-                          </button>
-                        ))}
-                      </div>
-                    )}
+            {hasOwed ? (
+              /* Owed Balance */
+              <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] text-amber-400/80 uppercase tracking-wider">Amount Owed</p>
+                    <p className="text-2xl font-bold text-amber-400 mt-0.5">{displayCurrency}{fmtMoney(Math.abs(balance))}</p>
                   </div>
-                  {/* Top Up Button */}
-                  <button
-                    onClick={() => setShowTopUp(true)}
-                    className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5 text-[11px] text-emerald-400 font-medium hover:bg-emerald-500/20 transition-colors"
-                  >
-                    <Plus className="w-3 h-3" /> Top Up
-                  </button>
-                  {/* Deduct Button */}
-                  {storedBalance > 0 && (
-                    <button
-                      onClick={() => setShowDeduct(true)}
-                      className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 text-[11px] text-amber-400 font-medium hover:bg-amber-500/20 transition-colors"
-                    >
-                      <Minus className="w-3 h-3" /> Deduct
-                    </button>
-                  )}
+                  <div className="text-right">
+                    <p className="text-[11px] text-zinc-500">Total Repaid</p>
+                    <p className="text-sm font-semibold text-emerald-400 mt-0.5">{displayCurrency}{fmtMoney(totalRepaid)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 mt-3 pt-3 border-t border-amber-500/10">
+                  <span className="text-[11px] text-zinc-500">{pendingTxs.length} pending</span>
+                  <span className="text-[11px] text-zinc-600">·</span>
+                  <span className="text-[11px] text-zinc-500">{repaidTxs.length} repaid</span>
                 </div>
               </div>
-              {linkedWallet && (
-                <p className="text-[10px] text-zinc-600 mt-2">Linked to {linkedWallet.name} ({displayCurrency}{fmtMoney(linkedWallet.balance ?? 0)} available)</p>
+            ) : hasCredit ? (
+              /* Credit Balance */
+              <div className="rounded-xl bg-violet-500/5 border border-violet-500/20 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] text-violet-400/80 uppercase tracking-wider">Balance</p>
+                    <p className="text-2xl font-bold text-violet-400 mt-0.5">{displayCurrency}{fmtMoney(balance)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[11px] text-zinc-500">Available</p>
+                    <p className="text-sm font-semibold text-violet-400 mt-0.5">{displayCurrency}{fmtMoney(balance)}</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* Settled */
+              <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-4">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <p className="text-sm font-medium text-emerald-400">Settled up</p>
+                </div>
+              </div>
+            )}
+            {/* Wallet Picker + Actions */}
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <button
+                  onClick={() => setShowWalletPicker(!showWalletPicker)}
+                  className="flex items-center gap-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 px-2.5 py-1.5 text-[11px] text-violet-300 hover:bg-violet-500/20 transition-colors"
+                >
+                  <Landmark className="w-3 h-3" />
+                  {linkedWallet ? linkedWallet.name : 'Link Wallet'}
+                  <ChevronDown className={`w-3 h-3 transition-transform ${showWalletPicker ? 'rotate-180' : ''}`} />
+                </button>
+                {showWalletPicker && (
+                  <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg bg-zinc-800 border border-zinc-700/60 shadow-xl py-1">
+                    <button
+                      onClick={() => handleSetWallet(null)}
+                      className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-zinc-700/50 transition-colors"
+                    >
+                      <span className="text-zinc-400">No wallet</span>
+                      {!person.wallet_id && <Check className="w-3 h-3 text-emerald-400" />}
+                    </button>
+                    {wallets.filter(w => !w.is_archived).map(w => (
+                      <button
+                        key={w.id}
+                        onClick={() => handleSetWallet(w.id)}
+                        className="w-full flex items-center justify-between px-3 py-2 text-xs hover:bg-zinc-700/50 transition-colors"
+                      >
+                        <span className="text-zinc-200">{w.name}</span>
+                        {w.id === person.wallet_id && <Check className="w-3 h-3 text-emerald-400" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setShowTopUp(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5 text-[11px] text-emerald-400 font-medium hover:bg-emerald-500/20 transition-colors"
+              >
+                <Plus className="w-3 h-3" /> Top Up
+              </button>
+              {storedBalance > 0 && (
+                <button
+                  onClick={() => setShowDeduct(true)}
+                  className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 px-2.5 py-1.5 text-[11px] text-amber-400 font-medium hover:bg-amber-500/20 transition-colors"
+                >
+                  <Minus className="w-3 h-3" /> Deduct
+                </button>
               )}
             </div>
+            {linkedWallet && (
+              <p className="text-[10px] text-zinc-600 mt-2">Linked to {linkedWallet.name} ({displayCurrency}{fmtMoney(linkedWallet.balance ?? 0)} available)</p>
+            )}
           </div>
 
-          {balance > 0 && (
+          {hasOwed && (
             <button onClick={onRecordPayment}
               className="w-full mt-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-medium text-xs py-2.5 transition-colors flex items-center justify-center gap-1.5">
               <Wallet className="w-3.5 h-3.5" /> Record Payment

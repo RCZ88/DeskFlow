@@ -20,8 +20,8 @@ export function loadMermaid(): Promise<any> {
           startOnLoad: false,
           theme: 'dark',
           securityLevel: 'loose',
-          flowchart: { useMaxWidth: true, htmlLabels: true },
-          sequence: { useMaxWidth: true },
+          flowchart: { useMaxWidth: false, htmlLabels: true },
+          sequence: { useMaxWidth: false },
           logLevel: 'error',
         });
         return m;

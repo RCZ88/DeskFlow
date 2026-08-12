@@ -3,7 +3,9 @@
 import * as React from 'react'
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { HeartHandshake, Images, Layers, Map, BookOpen } from 'lucide-react'
+import { HeartHandshake, Images, Layers, Map, BookOpen, Plus, FileClock, Pencil, Mic, Target, Sparkles } from 'lucide-react'
+
+
 import { cn } from '@/lib/utils'
 
 import { RiverMap } from '@/components/life-river/RiverMap'
@@ -15,6 +17,8 @@ import { PhaseFormDialog } from '@/components/life-river/phase-form-dialog'
 import { MemoryLightbox } from '@/components/life-river/memory-lightbox'
 import { LifeRiver } from '@/components/life-river/river'
 import { NotesTab } from '@/components/life-river/NotesTab'
+import type { LensId } from '@/components/life-river/RingCanvas'
+import type { LifePhase } from '@/lib/riverMath'
 import CovenantPage from '../../features/covenant/CovenantPage'
 import MemoriesPage from '../../features/memories/MemoriesPage'
 import GoldPage from '../../features/warmth/gold/GoldPage'
@@ -22,6 +26,7 @@ import { confetti } from '../../components/ui/confetti'
 import { useLifePhases } from '@/hooks/useLifePhases'
 import { useCovenant } from '../../features/covenant/useCovenant'
 import { useMemories, type LoadedMemory } from '../../features/memories/useMemories'
+
 import type { Goal, LongTermGoal } from '../../components/dashboard/types'
 import type { LTGForm } from '../warmth/gold/GoldPage'
 
@@ -53,19 +58,35 @@ export default function LifePage() {
   const covenant = useCovenant()
   const memories = useMemories()
 
+  console.log('%c[LifePage] v2.0 loaded', 'color: #fbbf24; font-weight: bold')
+
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try { return (localStorage.getItem('life-view-mode') as ViewMode) || 'river' } catch { return 'river' }
   })
   const [pageTab, setPageTab] = useState<PageTab>('covenant')
 
+  const [lens, setLens] = useState<LensId>('phases')
   const [zoomStop, setZoomStop] = useState('Life')
   const [activePhaseId, setActivePhaseId] = useState<string | null>(null)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [adding, setAdding] = useState(false)
+  const [editingPhase, setEditingPhase] = useState<LifePhase | null>(null)
   const [goals, setGoals] = useState<Goal[]>([])
   const [ltgs, setLtgs] = useState<LongTermGoal[]>([])
   const [viewing, setViewing] = useState<LoadedMemory | null>(null)
+  const [redirectMode, setRedirectMode] = useState<'instant' | 'confirm'>(() => {
+    try { return (localStorage.getItem('life-redirect-mode') as 'instant' | 'confirm') || 'instant' } catch { return 'instant' }
+  })
+  const [confirmRedirect, setConfirmRedirect] = useState<{ lens: LensId; label: string } | null>(null)
+
+  const toggleRedirectMode = useCallback(() => {
+    setRedirectMode(prev => {
+      const next = prev === 'instant' ? 'confirm' : 'instant'
+      try { localStorage.setItem('life-redirect-mode', next) } catch { /* ignore */ }
+      return next
+    })
+  }, [])
 
   const feedRef = useRef<HTMLDivElement>(null)
   const { scrollY } = useScroll({ container: feedRef })
@@ -111,15 +132,109 @@ export default function LifePage() {
     return () => { cancelled = true }
   }, [])
 
+  const redirectToPageForAdd = useCallback((type: 'covenant' | 'gold' | 'memory') => {
+    const lensMap: Record<string, LensId> = { covenant: 'covenant', gold: 'gold', memory: 'memories' }
+    setLens(lensMap[type] || 'phases')
+    if (redirectMode === 'instant') {
+      redirectToPage(type)
+    } else {
+      const labelMap: Record<string, string> = { covenant: 'Covenant', gold: 'Goal', memory: 'Memory' }
+      setConfirmRedirect({ lens: type, label: labelMap[type] || type })
+    }
+  }, [redirectMode, redirectToPage])
+
+  const redirectToPage = useCallback((lens: LensId) => {
+    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories' }
+    const tab = tabMap[lens]
+    if (tab) {
+      setPageTab(tab)
+      setMode('pages')
+    }
+  }, [setMode])
+
+  const openAddForLens = useCallback((nextLens: LensId) => {
+    setLens(nextLens)
+    if (nextLens === 'phases') {
+      setAdding(true)
+      return
+    }
+    if (redirectMode === 'instant') {
+      redirectToPage(nextLens)
+    } else {
+      const labelMap: Record<string, string> = { covenant: 'Covenant', gold: 'Goal', memories: 'Memory' }
+      setConfirmRedirect({ lens: nextLens, label: labelMap[nextLens] || nextLens })
+    }
+  }, [redirectMode, redirectToPage])
+
+  const LENS_META: Record<
+    LensId,
+    {
+      label: string
+      icon: typeof Layers
+      blurb: string
+      activeClass: string
+    }
+  > = {
+    phases: {
+      label: 'Phases',
+      icon: Layers,
+      blurb: 'The full cross-section — every chapter and every layer visible together.',
+      activeClass: 'border-amber-400/40 bg-amber-400/10 text-amber-100',
+    },
+    covenant: {
+      label: 'Covenant',
+      icon: Sparkles,
+      blurb: 'The grain brightens — daily promises become texture in the ring.',
+      activeClass: 'border-rose-400/40 bg-rose-500/10 text-rose-100',
+    },
+    gold: {
+      label: 'Gold',
+      icon: Target,
+      blurb: 'The branches brighten — long-term goals become visible.',
+      activeClass: 'border-amber-400/40 bg-amber-500/10 text-amber-100',
+    },
+    memories: {
+      label: 'Memories',
+      icon: Images,
+      blurb: 'The amber pockets brighten — kept moments become visible.',
+      activeClass: 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100',
+    },
+  }
+
+  const LensIcon = LENS_META[lens].icon
+
+  const drafts = useMemo(() => {
+    return (phases ?? [])
+      .filter((p) => p.status === 'draft')
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+  }, [phases])
+
+  const todayISO = new Date().toISOString().slice(0, 10)
+
+  const covenantCount = covenant.commitments?.length ?? 0
+  const covenantCompletionsToday =
+    covenant.completions?.filter((c) => c.date === todayISO).length ?? 0
+
+  const goldCount = goals.length + ltgs.length
+  const memoryCount = memories.items.length
+
   const scrollToPhase = useCallback((id: string) => {
     setActivePhaseId(id)
     setHighlightId(id)
     if (highlightTimer.current) clearTimeout(highlightTimer.current)
     highlightTimer.current = setTimeout(() => setHighlightId(null), 900)
     try {
-      document.getElementById(`phase-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      document.getElementById(`phase-card-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     } catch { /* ignore */ }
   }, [])
+
+  const handleRingClick = useCallback((id: string) => {
+    const phase = phases.find(p => p.id === id)
+    if (phase) {
+      setEditingPhase(phase)
+      scrollToPhase(id)
+    }
+  }, [phases, scrollToPhase])
 
   const toggleGoal = useCallback(
     async (goal: Goal) => {
@@ -330,7 +445,7 @@ export default function LifePage() {
         </div>
       ) : (
         /* ═══ NEW RIVER MODE ═══ */
-        <div className="flex flex-col flex-1 min-h-0 relative" ref={feedRef}>
+        <div className="flex flex-1 min-h-0 relative gap-6" ref={feedRef}>
           {/* Vital Thread — continuous glowing line */}
           <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 pointer-events-none z-0"
             style={{
@@ -340,21 +455,22 @@ export default function LifePage() {
           />
 
           {/* Apex Map (sticky with scroll parallax) */}
-          <motion.div style={{ opacity: mapOpacity, scale: mapScale }} className="space-y-3">
+          <motion.div
+            style={{ opacity: mapOpacity, scale: mapScale }}
+            className="sticky top-0 z-[5] w-[440px] max-w-[92vw] shrink-0 max-h-full overflow-y-auto ws-scroll space-y-3"
+          >
             <CoreSample
               phases={phases}
               covenant={{ completions: covenant.completions, commitments: covenant.commitments }}
               memoriesByPhase={memoriesByPhase}
               ltgsByPhase={ltgsByPhase}
               selectedPhaseId={activePhaseId}
-              onPhaseClick={scrollToPhase}
-              onOpenMemories={phaseId => {
-                const first = memories.items.find(m => {
-                  const y = parseInt((m.meta.date || '').slice(0, 4), 10)
-                  const p = phases.find(ph => ph.id === phaseId)
-                  return p && Number.isFinite(y) && y >= p.startYear && y <= (p.endYear || nowYear)
-                })
-                if (first) setViewing(first)
+              onPhaseClick={handleRingClick}
+              lens={lens}
+              onLensChange={setLens}
+              onOpenMemories={(phaseId) => {
+                setActivePhaseId(phaseId)
+                setLens('memories')
               }}
             />
             {phases.length > 0 && (
@@ -370,7 +486,7 @@ export default function LifePage() {
             />
           </motion.div>
 
-          <div className="flex-1 min-h-0 overflow-auto p-5 ws-scroll relative z-10">
+          <div className="flex-1 min-w-0 min-h-0 overflow-auto p-5 ws-scroll relative z-10">
             <div className="mx-auto max-w-5xl space-y-8">
               <motion.div
                 initial={{ opacity: 0, y: 40 }}
@@ -389,6 +505,287 @@ export default function LifePage() {
                 />
               </motion.div>
 
+              {/* River controls — always visible */}
+              <section
+                data-river-controls="always-visible"
+                className="mt-6 space-y-4"
+              >
+                {/* Lens indicator — always visible */}
+                <div
+                  data-lens-indicator
+                  className={`flex flex-col gap-3 rounded-xl border bg-zinc-900/30 px-5 py-4 backdrop-blur md:flex-row md:items-center md:justify-between ${LENS_META[lens].activeClass}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <LensIcon className="h-4 w-4" />
+                    <div>
+                      <p className="text-sm font-medium">
+                        {LENS_META[lens].label} lens active
+                      </p>
+                      <p className="text-[12px] text-zinc-400">
+                        {LENS_META[lens].blurb}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1">
+                    {(Object.keys(LENS_META) as LensId[]).map((key) => {
+                      const Meta = LENS_META[key]
+                      const Icon = Meta.icon
+
+                      return (
+                        <button
+                          key={key}
+                          onClick={() => setLens(key)}
+                          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] transition-colors ${
+                            lens === key
+                              ? Meta.activeClass
+                              : 'border-zinc-800 bg-zinc-950/40 text-zinc-500 hover:text-zinc-300'
+                          }`}
+                        >
+                          <Icon className="h-3.5 w-3.5" />
+                          {Meta.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Quick-add toolbar — always visible */}
+                <div
+                  data-quick-add
+                  className="grid grid-cols-2 gap-2 lg:grid-cols-4"
+                >
+                  <button
+                    onClick={() => openAddForLens('phases')}
+                    className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                      lens === 'phases'
+                        ? 'border-amber-400/40 bg-amber-400/10 text-amber-100'
+                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Layers className="h-4 w-4" />
+                      New Phase
+                    </span>
+
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-1 text-[10px] text-amber-300">
+                      <Mic className="h-3 w-3" />
+                      voice
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => openAddForLens('covenant')}
+                    className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                      lens === 'covenant'
+                        ? 'border-rose-400/40 bg-rose-500/10 text-rose-100'
+                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4" />
+                      New Covenant
+                    </span>
+
+                    <Plus className="h-4 w-4 text-zinc-500" />
+                  </button>
+
+                  <button
+                    onClick={() => openAddForLens('gold')}
+                    className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                      lens === 'gold'
+                        ? 'border-amber-400/40 bg-amber-500/10 text-amber-100'
+                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Target className="h-4 w-4" />
+                      New Goal
+                    </span>
+
+                    <Plus className="h-4 w-4 text-zinc-500" />
+                  </button>
+
+                  <button
+                    onClick={() => openAddForLens('memories')}
+                    className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
+                      lens === 'memories'
+                        ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100'
+                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Images className="h-4 w-4" />
+                      New Memory
+                    </span>
+
+                    <Plus className="h-4 w-4 text-zinc-500" />
+                  </button>
+                </div>
+
+                {/* Redirect mode toggle */}
+                <div className="flex items-center justify-end gap-1.5">
+                  <span className="text-[11px] text-zinc-500">Add mode:</span>
+                  <button
+                    onClick={toggleRedirectMode}
+                    className="inline-flex h-6 items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950/40 px-2 text-[10px] text-zinc-400 hover:text-zinc-300 transition-colors"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${redirectMode === 'instant' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    {redirectMode === 'instant' ? 'Instant' : 'Confirm'}
+                  </button>
+                </div>
+
+                {/* Data preview cards — always visible */}
+                <div
+                  data-preview-cards
+                  className="grid gap-2 md:grid-cols-3"
+                >
+                  <button
+                    onClick={() => setLens('covenant')}
+                    className={`rounded-xl border p-5 text-left transition-colors ${
+                      lens === 'covenant'
+                        ? 'border-rose-400/40 bg-rose-500/10'
+                        : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-rose-300">
+                      <Sparkles className="h-4 w-4" />
+                      <span className="text-[11px] uppercase tracking-wider">
+                        Covenant
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-2xl text-zinc-100">
+                      {covenantCount}
+                    </p>
+
+                    <p className="text-[12px] text-zinc-500">
+                      commitments · {covenantCompletionsToday} kept today
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => setLens('gold')}
+                    className={`rounded-xl border p-5 text-left transition-colors ${
+                      lens === 'gold'
+                        ? 'border-amber-400/40 bg-amber-500/10'
+                        : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-amber-300">
+                      <Target className="h-4 w-4" />
+                      <span className="text-[11px] uppercase tracking-wider">
+                        Gold
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-2xl text-zinc-100">
+                      {goldCount}
+                    </p>
+
+                    <p className="text-[12px] text-zinc-500">
+                      goals and long-term branches
+                    </p>
+                  </button>
+
+                  <button
+                    onClick={() => setLens('memories')}
+                    className={`rounded-xl border p-5 text-left transition-colors ${
+                      lens === 'memories'
+                        ? 'border-emerald-400/40 bg-emerald-500/10'
+                        : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 text-emerald-300">
+                      <Images className="h-4 w-4" />
+                      <span className="text-[11px] uppercase tracking-wider">
+                        Memories
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-2xl text-zinc-100">
+                      {memoryCount}
+                    </p>
+
+                    <p className="text-[12px] text-zinc-500">
+                      amber pockets kept
+                    </p>
+                  </button>
+                </div>
+
+                {/* Draft shelf — always visible */}
+                <div
+                  data-drafts-shelf
+                  className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5 backdrop-blur"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <FileClock className="h-4 w-4 text-amber-300" />
+                      <h3 className="text-sm font-medium text-zinc-100">
+                        Draft chapters
+                      </h3>
+                    </div>
+
+                    <span className="rounded-full bg-zinc-800 px-2 py-1 text-[11px] text-zinc-400">
+                      {drafts.length}
+                    </span>
+                  </div>
+
+                  {drafts.length === 0 ? (
+                    <div className="mt-4 rounded-lg border border-dashed border-zinc-800 p-4">
+                      <p className="text-[13px] text-zinc-500">
+                        No saved drafts yet. Start a chapter and choose
+                        “Save as draft” — it will appear here so you can return to it.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-2">
+                      {drafts.map((draft) => (
+                        <div
+                          key={draft.id}
+                          className="flex flex-col gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm text-zinc-200">
+                              {draft.title || 'Untitled draft'}
+                            </p>
+                            <p className="mt-0.5 text-[11px] text-zinc-500">
+                              {draft.category}
+                              {draft.updatedAt
+                                ? ` · updated ${new Date(draft.updatedAt).toLocaleString()}`
+                                : ''}
+                            </p>
+                          </div>
+
+                          <div className="flex shrink-0 gap-2">
+                            <button
+                              onClick={() => setEditingPhase(draft)}
+                              className="inline-flex h-8 items-center gap-1 rounded-md border border-amber-400/30 bg-amber-400/10 px-2.5 text-[11px] text-amber-200 hover:bg-amber-400/15"
+                            >
+                              <Pencil className="h-3 w-3" />
+                              Resume
+                            </button>
+
+                            <button
+                              onClick={() =>
+                                savePhase({
+                                  ...draft,
+                                  status: 'complete',
+                                  updatedAt: new Date().toISOString(),
+                                })
+                              }
+                              className="inline-flex h-8 items-center rounded-md border border-zinc-700 px-2.5 text-[11px] text-zinc-400 hover:text-zinc-200"
+                            >
+                              Mark complete
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
               {phases.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-zinc-800 py-10 text-center">
                   <p className="text-[12.5px] text-zinc-600">
@@ -399,8 +796,8 @@ export default function LifePage() {
                 phases.map((phase, i) => (
                   <motion.div
                     key={phase.id}
-                    id={`phase-${phase.id}`}
-                    className="scroll-mt-32"
+                    id={`phase-card-${phase.id}`}
+                    className="scroll-mt-28"
                     initial={{ opacity: 0, y: 50 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     viewport={{ once: true, margin: '-100px' }}
@@ -416,6 +813,7 @@ export default function LifePage() {
                       phase={phase}
                       active={activePhaseId === phase.id}
                       allPhases={phases}
+                      covenant={{ commitments: covenant.commitments, completions: covenant.completions }}
                       memories={memories.items}
                       longTermGoals={ltgs}
                       onActiveChange={setActivePhaseId}
@@ -424,6 +822,11 @@ export default function LifePage() {
                       onKeepReflection={handleKeepReflection}
                       onOpenMemory={setViewing}
                       onJump={scrollToPhase}
+                      lens={lens}
+                      onAddMemory={() => redirectToPageForAdd('memory')}
+                      onAddGoal={() => redirectToPageForAdd('gold')}
+                      onAddCovenant={() => redirectToPageForAdd('covenant')}
+                      onEditPhase={() => setEditingPhase(phase)}
                     />
                     </div>
                   </motion.div>
@@ -442,7 +845,44 @@ export default function LifePage() {
             }}
           />
 
+          <PhaseFormDialog
+            open={!!editingPhase}
+            onOpenChange={o => { if (!o) setEditingPhase(null) }}
+            initial={editingPhase}
+            allPhases={phases}
+            onSave={p => {
+              savePhase(p)
+              setEditingPhase(null)
+            }}
+          />
+
           {viewing && <MemoryLightbox memory={viewing} onClose={() => setViewing(null)} />}
+
+          {/* Confirm Redirect Dialog */}
+          {confirmRedirect && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setConfirmRedirect(null)}>
+              <div className="w-full max-w-sm bg-zinc-900/95 border border-zinc-700 rounded-2xl p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+                <h3 className="text-base font-semibold text-zinc-100 mb-2">Switch to Pages mode?</h3>
+                <p className="text-[13px] text-zinc-400 mb-5">
+                  Open the {confirmRedirect.label} page to create with all available fields.
+                </p>
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => setConfirmRedirect(null)}
+                    className="h-9 rounded-lg border border-zinc-700 px-4 text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { redirectToPage(confirmRedirect.lens); setConfirmRedirect(null) }}
+                    className="h-9 rounded-lg bg-amber-400/15 border border-amber-400/30 px-4 text-sm text-amber-100 hover:bg-amber-400/25 transition-colors"
+                  >
+                    Go to page
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

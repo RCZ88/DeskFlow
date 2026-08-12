@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook, BarChart3 } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook, BarChart3, DatabaseBackup } from 'lucide-react';
 import { AnomalyBadge } from '../components/AnomalyBadge';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
@@ -44,6 +44,7 @@ import { WorkspaceGroupRail } from '../components/workspace/WorkspaceGroupRail';
 import { PresetsTab } from '../components/workspace/PresetsTab';
 import { ConfigsTab } from '../components/workspace/ConfigsTab';
 import FortressProtocolSetup from '../components/workspace/FortressProtocolSetup';
+import BackupCenterPage from '../pages/BackupCenterPage';
 import { usePersistentSubTab } from '../hooks/usePersistentSubTab';
 import PageContextPanel from '../components/PageContextPanel';
 import FeatureLogicPanel from '../components/workspace/FeatureLogicPanel';
@@ -139,6 +140,7 @@ const SUBPAGE_LABELS: Record<string, string> = {
   'setup/presets': 'Setup / Presets',
   'setup/configs': 'Setup / Configs',
   'setup/fortress': 'Setup / Fortress',
+  'setup/backups': 'Setup / Backups',
   'work/sessions': 'Work / Sessions',
   'work/map': 'Work / Map',
   'work/files': 'Work / Files',
@@ -1127,21 +1129,10 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         }
       }
 
-      // ═══ DUMMY ENTER FALLBACK ═══
-      // If agent still hasn't reached ready, send a dummy Enter to wake the TUI
-      // This helps when the TUI is waiting for input before showing its prompt
-      try {
-        const phase = await (window.deskflowAPI as any)?.agentGetPhase?.(terminalId);
-        if (phase === 'launching') {
-          console.log('[TerminalPage] Agent still launching after timeout, sending dummy Enter to wake TUI');
-          await window.deskflowAPI?.terminalWriteRaw?.(terminalId, '\r');
-          // Wait 1s for TUI to process the Enter
-          await new Promise(r => setTimeout(r, 1000));
-        }
-      } catch {}
-
-      // ═══ SETTLE: let TUI fully grab the PTY before first flush ═══
-      await new Promise(r => setTimeout(r, 200));
+      // ═══ SETTLE ═══
+      // The backend now handles TUI settle detection via the 500ms idle heuristic.
+      // We just wait a brief moment to ensure the PTY spawn command has fully registered.
+      await new Promise(r => setTimeout(r, 300));
 
       // ═══ HANDSHAKE REMOVED ═══
       // The bracketed-paste handshake was non-functional and added up to 10s of
@@ -1156,10 +1147,9 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         const sendResult = await window.deskflowAPI.agentSend(terminalId, combined, agent);
         if (!sendResult?.success) {
           console.warn('[TerminalPage] Failed to send initialization prompt:', sendResult?.error);
-        } else {
-          const mode = sendResult?.queued ? 'queued (waiting for agent ready)' : 'sent immediately';
-          console.log('[TerminalPage] Sent initialization prompt:', combined.length, 'chars,', mode);
         }
+        // The backend will broadcast 'agent:write-verified' or 'agent:write-failed'
+        // No need to block the renderer waiting for verification here.
       }
     } catch (e) {
       console.error('[TerminalPage] initializeTerminal failed:', e);
@@ -1501,7 +1491,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           await new Promise(r => setTimeout(r, 5000));
           try {
             if (!window.deskflowAPI) return;
-            const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd);
+            const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd, Date.now() - 10000);
             if (capResult?.success && capResult.sessionId) {
               await (window.deskflowAPI as any).updateSessionResumeId?.(savedSessionId, capResult.sessionId);
               console.log('[InstructionSend] Captured opencode session:', capResult.sessionId, 'for', cwd);
@@ -1633,7 +1623,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           await new Promise(r => setTimeout(r, 5000));
           try {
             if (!window.deskflowAPI) return;
-            const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd);
+            const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd, Date.now() - 10000);
             if (capResult?.success && capResult.sessionId) {
               await (window.deskflowAPI as any).updateSessionResumeId?.(capturedSessionId, capResult.sessionId);
               console.log('[TerminalPage] Captured opencode session:', capResult.sessionId, 'for', cwd);
@@ -2331,12 +2321,14 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     const handleReSpawn = async (e: CustomEvent) => {
       const { terminalId } = e.detail as { terminalId: string };
       const tab = terminalTabs[terminalId];
-      const agent = tab?.agent || 'opencode';
+      const agent = tab?.agent || '';
       const cwd = propProjectPath || '';
-      const spawned = await spawnTerminal(terminalId, cwd, agent);
+      const spawned = await spawnTerminal(terminalId, cwd, agent || undefined);
       if (!spawned) return;
       window.dispatchEvent(new CustomEvent('terminal:mark-spawned', { detail: { terminalId } }));
-      await initializeTerminal(terminalId, agent, undefined, undefined, undefined, cwd);
+      if (agent) {
+        await initializeTerminal(terminalId, agent, undefined, undefined, undefined, cwd);
+      }
     };
     window.addEventListener('re-spawn-terminal', handleReSpawn as EventListener);
     return () => window.removeEventListener('re-spawn-terminal', handleReSpawn as EventListener);
@@ -2754,15 +2746,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
     const handleTerminalCreated = async (e: CustomEvent<{ terminalId: string; agent?: string }>) => {
       const { terminalId } = e.detail;
-      const agent = e.detail.agent || getDefaultAgent();
+      // ONLY launch an agent when one was EXPLICITLY requested (New Session dialog /
+      // opening an existing session). Plain terminals (New Terminal, split panes,
+      // + Open Terminal) must stay plain shells — never fall back to the default agent.
+      const agent = e.detail.agent || '';
       const proj = projects.find(p => p.id === selectedProject);
       setTerminalTabs(prev => {
         if (prev[terminalId]) return prev;
         return { ...prev, [terminalId]: { name: proj?.name || 'Terminal', agent, modelTier: 'mid' } };
       });
-      await registerTerminal(terminalId, agent);
-      // Initialize the agent (launch command + system prompt)
-      await initializeTerminal(terminalId, agent, undefined, undefined, undefined, propProjectPath);
+      await registerTerminal(terminalId, agent || undefined);
+      if (agent) {
+        // Initialize the agent (launch command + system prompt)
+        await initializeTerminal(terminalId, agent, undefined, undefined, undefined, propProjectPath);
+      }
     };
 
     const handleClosePane = (e: CustomEvent<{ terminalId: string }>) => {
@@ -2786,7 +2783,8 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
     };
 
     const handleOpenNewAgent = () => {
-      if (!selectedProject) { showError('Please select a project first', 'warning'); return; }
+      const projectId = propProjectId || selectedProject;
+      if (!projectId) { showError('Please select a project first', 'warning'); return; }
       setNewSessionMode('initialize');
       setNewSessionAgent(localStorage.getItem('terminal-defaultAgent') || 'claude');
       setShowNewSessionDialog(true);
@@ -3210,6 +3208,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'presets', icon: Zap, label: 'Presets' },
                 { key: 'configs', icon: Settings, label: 'Configs' },
                 { key: 'fortress', icon: Shield, label: 'Fortress' },
+                { key: 'backups', icon: DatabaseBackup, label: 'Backups' },
               ]} storageKey="setup" render={(sub) => {
                 switch (sub) {
                   case 'presets': return (
@@ -3386,6 +3385,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       <FortressProtocolSetup />
                     </GroupPanel>
                   );
+                  case 'backups': return (
+                    <GroupPanel accent="orange">
+                      <BackupCenterPage />
+                    </GroupPanel>
+                  );
                   default: return null;
                 }
               }} />
@@ -3541,10 +3545,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                          ) : (
                            <div>
                               <div className="flex gap-2 mb-4">
-                                <button onClick={() => {
-                                    setNewSessionTerminalMode('create');
-                                    setNewSessionSelectedTerminal('');
-                                    setNewSessionAgent('claude');
+                                 <button onClick={() => {
+                                     setNewSessionMode('create');
+                                     setNewSessionTerminalMode('create');
+                                     setNewSessionSelectedTerminal('');
+                                     setNewSessionAgent('claude');
                                     setNewSessionName('');
                                     setShowNewSessionDialog(true);
                                   }} className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg text-[11px] font-medium transition-colors duration-150 active:scale-95 bg-emerald-600 text-white hover:bg-emerald-500 ring-1 ring-inset ring-white/15 shadow-sm shadow-black/40">
@@ -4095,11 +4100,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               open={showNewSessionDialog}
               mode={newSessionMode}
               defaultName={openCodeSessionName || undefined}
-              projectId={selectedProject || undefined}
+              projectId={propProjectId || selectedProject || undefined}
               onClose={() => { setShowNewSessionDialog(false); setNewSessionSelectedTerminal(''); }}
               onCreate={async (config: SessionConfig) => {
                 const proj = projects.find(p => p.id === selectedProject);
-                const cwd = proj?.path || '';
+                const cwd = propProjectPath || proj?.path || '';
                 const agent = config.agentType;
                 const sessionName = config.name.trim() || `Session ${sessions.length + 1}`;
                 localStorage.setItem('terminal-defaultAgent', agent);
@@ -4208,7 +4213,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 // ═══ CAPTURE REAL OPENCODE SESSION ID ═══
                 if (cwd && !config.resumeId) {
                   try {
-                    const capResult = await (window.deskflowAPI as any)?.captureOpencodeSessionId?.(cwd);
+                    const capResult = await (window.deskflowAPI as any)?.captureOpencodeSessionId?.(cwd, Date.now() - 10000);
                     if (capResult?.success && capResult.sessionId) {
                       console.log('[NewSession] Captured opencode session:', capResult.sessionId);
                       const updateBanner = `\r\n[captured] opencode session ${capResult.sessionId}\r\n`;
@@ -4225,7 +4230,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     await new Promise(r => setTimeout(r, 5000));
                     try {
                       if (!window.deskflowAPI) return;
-                      const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd);
+                      const capResult = await (window.deskflowAPI as any).captureOpencodeSessionId?.(cwd, Date.now() - 10000);
                       if (capResult?.success && capResult.sessionId) {
                         await (window.deskflowAPI as any).updateSessionResumeId?.(config.id, capResult.sessionId);
                         console.log('[TerminalPage] Captured opencode session:', capResult.sessionId, 'for', cwd);

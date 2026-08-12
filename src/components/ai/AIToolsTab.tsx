@@ -57,6 +57,15 @@ ChartJS.register(
   Filler
 )
 
+// ai_usage can contain corrupt timestamps (e.g. a codex parser bug once wrote
+// dates like '+058462-06-04', year 58462). isNaN alone is NOT enough — those
+// strings parse as valid extended-ISO dates. Guard all date math with isSaneDay.
+const isSaneDay = (t: number): boolean => {
+  if (!isFinite(t) || isNaN(t)) return false
+  const y = new Date(t).getFullYear()
+  return y >= 2000 && y <= new Date().getFullYear() + 1
+}
+
 const AIUsageCityscape = lazy(() =>
   import('../AICityscape').then((m) => ({ default: m.default }))
 )
@@ -424,7 +433,7 @@ export default function AIToolsTab({
           entry.sessions += dayData.sessions || 0
           entry.messageCount += dayData.messageCount || 0
           const t = new Date(dayStr).getTime()
-          if (!isNaN(t) && t > entry.lastUsed!) entry.lastUsed = t
+          if (isSaneDay(t) && t > entry.lastUsed!) entry.lastUsed = t
         }
         if (!entry.agents.includes(agentId)) entry.agents.push(agentId)
       }
@@ -492,7 +501,7 @@ export default function AIToolsTab({
           entry.sessions += dayData.sessions || 0
           entry.messageCount += dayData.messageCount || 0
           const t = new Date(dayStr).getTime()
-          if (!isNaN(t) && t > entry.lastUsed!) entry.lastUsed = t
+          if (isSaneDay(t) && t > entry.lastUsed!) entry.lastUsed = t
         }
         if (!entry.agents.includes(agentId)) entry.agents.push(agentId)
       }
@@ -567,7 +576,7 @@ export default function AIToolsTab({
               if (!daily) continue
               for (const d of Object.keys(daily)) {
                 const t = new Date(d).getTime()
-                if (!isNaN(t)) {
+                if (isSaneDay(t)) {
                   if (t < minDate) minDate = t
                   if (t > maxDate) maxDate = t
                 }
@@ -595,7 +604,7 @@ export default function AIToolsTab({
             if (!daily) continue
             for (const d of Object.keys(daily)) {
               const t = new Date(d).getTime()
-              if (!isNaN(t) && t < minDate) minDate = t
+              if (isSaneDay(t) && t < minDate) minDate = t
             }
           }
           if (minDate < Infinity) {
@@ -1431,7 +1440,9 @@ export default function AIToolsTab({
             const periodDays = eachDayOfInterval({
               start: (() => {
                 if (effectiveAiPeriod === 'all') {
-                  const dateStrs = Object.keys(toolDaily)
+                  const dateStrs = Object.keys(toolDaily).filter(
+                    (d) => isSaneDay(new Date(d).getTime())
+                  )
                   if (dateStrs.length > 0) {
                     const sorted = dateStrs.sort()
                     return subDays(new Date(sorted[0]), 3)
@@ -1980,7 +1991,7 @@ export default function AIToolsTab({
           const daily = ovByTool[agent.id]?.daily || {}
           for (const [dateStr, dayData] of Object.entries(daily) as [string, any][]) {
             const dt = new Date(dateStr)
-            if (isNaN(dt.getTime())) continue
+            if (!isSaneDay(dt.getTime())) continue
             allDateStrs.add(dateStr)
             if (!dateMap[dateStr]) dateMap[dateStr] = {}
             dateMap[dateStr][agent.id] = {
@@ -2812,10 +2823,11 @@ export default function AIToolsTab({
                   let minDate = Infinity
                   for (const tool of Object.values(byTool) as any[]) {
                     const toolDates = Object.keys(tool?.daily || {})
-                    allDates = allDates.concat(toolDates)
                     for (const d of toolDates) {
                       const t = new Date(d).getTime()
-                      if (!isNaN(t) && t < minDate) minDate = t
+                      if (!isSaneDay(t)) continue
+                      allDates.push(d)
+                      if (t < minDate) minDate = t
                     }
                   }
                   if (allDates.length > 0) {
@@ -3141,10 +3153,11 @@ export default function AIToolsTab({
                     const toolDates = Object.keys(
                       byToolAll[tid]?.daily || {}
                     )
-                    allDates = allDates.concat(toolDates)
                     for (const d of toolDates) {
                       const t = new Date(d).getTime()
-                      if (!isNaN(t) && t < minDate) minDate = t
+                      if (!isSaneDay(t)) continue
+                      allDates.push(d)
+                      if (t < minDate) minDate = t
                     }
                   }
                   if (allDates.length > 0) {
@@ -3535,10 +3548,11 @@ export default function AIToolsTab({
                           const toolDates = Object.keys(
                             byTool[toolId]?.daily || {}
                           )
-                          allDates = allDates.concat(toolDates)
                           for (const d of toolDates) {
                             const t = new Date(d).getTime()
-                            if (!isNaN(t) && t < minDate) minDate = t
+                            if (!isSaneDay(t)) continue
+                            allDates.push(d)
+                            if (t < minDate) minDate = t
                           }
                         }
                         if (allDates.length > 0) {

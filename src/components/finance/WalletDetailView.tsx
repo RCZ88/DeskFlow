@@ -2040,11 +2040,13 @@ function PrepaidCardDetail({ metadata, onChange, transactions, displayCurrency, 
   const fmtSym = (v: number) => showNumbers ? `${sym}${v.toFixed(2)}` : maskNumber(`${sym}${v.toFixed(2)}`, maskMode, maskFixedValue);
 
   const walletTxns = useMemo(() =>
-    transactions.filter(t => t.type === 'expense' || t.type === 'income'),
+    transactions.filter(t => t.type === 'expense' || t.type === 'income' || t.type === 'transfer'),
     [transactions]
   );
 
-  const recentTxns = walletTxns.slice(-10).reverse();
+  const recentTxns = [...walletTxns]
+    .sort((a, b) => `${b.date || ''}-${b.id}`.localeCompare(`${a.date || ''}-${a.id}`))
+    .slice(0, 10);
 
   return (
     <div className="space-y-4">
@@ -2132,7 +2134,11 @@ export function WalletDetailView({ wallet, displayCurrency, transactions, wallet
   const isOutOfSync = isPhysical && denominationTotal !== null && Math.abs(denominationTotal - wallet.balance) > 0.01;
 
   const walletTransactions = useMemo(() =>
-    transactions.filter(t => t.wallet_id === wallet.id || (t as any).to_wallet_id === wallet.id),
+    transactions.filter(t =>
+      t.wallet_id === wallet.id ||
+      (t as any).from_wallet_id === wallet.id ||
+      (t as any).to_wallet_id === wallet.id
+    ),
     [transactions, wallet.id]
   );
 

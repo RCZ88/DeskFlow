@@ -1,9 +1,13 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
-import { ChevronRight, ChevronLeft, BookOpen, Zap, Network, FolderTree, FileText, Bot, ChevronDown, Palette, RefreshCw, Check, Loader2, AlertCircle, Sparkles, Brain, Shield, Terminal, Link } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, Fragment, type FormEvent } from 'react';
+import { ChevronRight, ChevronLeft, ChevronDown, BookOpen, Zap, Network, FolderTree, FileText, Bot, Palette, RefreshCw, Check, AlertCircle, Brain, Terminal } from 'lucide-react';
 import { DEFAULT_SYSTEM_PROMPT } from '../lib/defaults';
 import { assembleContext } from '../services/ContextService';
 import { WORKSPACE_CONFIG_PREF_KEY } from './ContextSidebar';
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
+import { NumberTicker } from './ui/number-ticker';
+import { Skeleton } from './ui/skeleton';
+import { Particles } from './ui/particles';
 import type { WorkspaceConfig } from './ContextSidebar';
 
 const NSD_ACCENT = { ['--page-accent' as any]: '#2dd4bf' } as any;
@@ -66,6 +70,14 @@ interface BackendSystem {
 type Health = 'healthy' | 'degraded' | 'missing' | 'unknown' | 'error';
 type VerifySignal = { id: string; status: 'green' | 'red'; n: number } | null;
 
+const HEALTH_LABELS: Record<Health, string> = {
+  healthy: 'Live',
+  degraded: 'Degraded',
+  missing: 'Not configured',
+  unknown: 'Checking',
+  error: 'Error',
+};
+
 interface SystemInfo {
   id: string; name: string; icon: any; accentColor: string;
   itemCount: number; itemLabel: string; lastBuilt: string | null;
@@ -125,8 +137,8 @@ const SYSTEM_DEFS: Array<{ id: string; name: string; icon: any; accentColor: str
   { id: 'design_skills', name: 'Design Skills', icon: Palette, accentColor: 'text-pink-400', maxTokens: 800, defaultLabel: 'design skills' },
 ];
 
-/* ─── System Toggle Card (revamped visual) ─── */
-function SystemToggleCard({ system, verifySignal }: { system: SystemInfo; verifySignal: VerifySignal }) {
+/* ─── System Toggle Card (skeleton / error / expandable) ─── */
+function SystemToggleCard({ system, verifySignal, index }: { system: SystemInfo; verifySignal: VerifySignal; index: number }) {
   const toggleColors: Record<string, { on: string }> = {
     llm_wiki: { on: 'bg-blue-500/40' }, obsidian_skills: { on: 'bg-purple-500/40' },
     graphify: { on: 'bg-cyan-500/40' }, para: { on: 'bg-teal-500/40' },
@@ -143,6 +155,7 @@ function SystemToggleCard({ system, verifySignal }: { system: SystemInfo; verify
   const [flash, setFlash] = useState<'none' | 'green' | 'red'>('none');
   const [countPulse, setCountPulse] = useState(false);
   const [dotReady, setDotReady] = useState(system.health !== 'unknown');
+  const [expanded, setExpanded] = useState(false);
   const prevCount = useRef(system.itemCount);
   const lastSignalN = useRef(0);
 
@@ -167,6 +180,7 @@ function SystemToggleCard({ system, verifySignal }: { system: SystemInfo; verify
   const scaleClass = dotReady ? 'scale-100' : 'scale-75';
   const loading = system.health === 'unknown';
   const isEmptyDegraded = system.health === 'degraded' && system.itemCount === 0;
+  const isError = system.health === 'error';
 
   const tip = system.health === 'healthy' ? `Live: ${system.itemCount} ${system.itemLabel} · updated ${formatRelTime(system.lastSynced)}`
     : system.health === 'degraded' ? `System exists but no items found${system.lastBuilt ? ` · last built ${formatRelTime(system.lastBuilt)}` : ''}`
@@ -176,561 +190,815 @@ function SystemToggleCard({ system, verifySignal }: { system: SystemInfo; verify
   const timeText = system.lastSynced ? formatRelTime(system.lastSynced) : system.lastBuilt ? `Built ${formatRelTime(system.lastBuilt)}` : '';
   const timeClass = staleClass(system.lastSynced || system.lastBuilt);
 
+  if (loading) {
+    return (
+      <div className="nsd-anim rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3" style={{ animationDelay: `${index * 45}ms` }}>
+        <Skeleton className="mb-2 h-3 w-2/3" />
+        <Skeleton className="h-2.5 w-1/2" />
+      </div>
+    );
+  }
+
   return (
-    <div className={`group relative border rounded-xl p-3 transition-all duration-200 ${system.enabled ? 'bg-zinc-800/40 border-zinc-600/40 shadow-[0_1px_4px_rgba(0,0,0,0.1)]' : 'bg-zinc-900/30 border-zinc-700/30 opacity-60 hover:opacity-80'}`}>
+    <div className={`nsd-anim group relative border rounded-xl p-3 transition-all duration-200 ${isError ? 'border-red-500/40 bg-red-500/5' : system.enabled ? 'bg-zinc-800/40 border-zinc-600/40 shadow-[0_1px_4px_rgba(0,0,0,0.1)]' : 'bg-zinc-900/30 border-zinc-700/30 opacity-60 hover:opacity-80'}`} style={{ animationDelay: `${index * 45}ms` }}>
       <span className="group/tooltip absolute top-2 left-2 z-10">
         <span className={`block w-2 h-2 rounded-full transition-transform duration-300 ${scaleClass} ${dotClass}`} />
         <span className="absolute left-0 top-3 hidden group-hover/tooltip:block whitespace-nowrap rounded-md bg-zinc-950/95 border border-zinc-700/60 px-2 py-1 text-[10px] text-zinc-300 shadow-lg z-20">{tip}</span>
       </span>
       <div className="pl-3">
         <div className="flex items-center justify-between mb-1.5">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <div className={`p-1 rounded-md ${system.enabled ? 'bg-zinc-800/60' : 'bg-zinc-800/20'}`}>
               <system.icon className={`w-3.5 h-3.5 ${system.accentColor}`} />
             </div>
-            <span className="text-[11px] text-zinc-300 font-medium">{system.name}</span>
+            <span className="text-[11px] text-zinc-300 font-medium truncate">{system.name}</span>
           </div>
-          <div className="flex items-center gap-1">
-            <button onClick={system.onVerify} disabled={loading || system.refreshing} title="Verify" className="p-1 rounded-md hover:bg-zinc-700/50 disabled:opacity-40">
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button type="button" onClick={() => setExpanded(!expanded)} title={expanded ? 'Hide details' : 'Show details'} className={`p-1 rounded-md hover:bg-zinc-700/50 transition-all duration-150 ${expanded ? 'text-cyan-400' : 'text-zinc-600 hover:text-zinc-400'}`}>
+              <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
+            </button>
+            <button type="button" onClick={system.onVerify} disabled={system.refreshing} title="Verify" className="p-1 rounded-md hover:bg-zinc-700/50 disabled:opacity-40">
               <RefreshCw className={`w-3 h-3 ${system.refreshing ? 'animate-spin text-cyan-400' : 'text-zinc-600 hover:text-zinc-400'}`} />
             </button>
-            <button onClick={system.onToggle} className={`w-8 h-4 rounded-full transition-all duration-200 relative ${system.enabled ? c.on : 'bg-zinc-700'}`}>
+            <button type="button" onClick={system.onToggle} aria-pressed={system.enabled} title={system.enabled ? 'Disable' : 'Enable'} className={`w-8 h-4 rounded-full transition-all duration-200 relative ${system.enabled ? c.on : 'bg-zinc-700'}`}>
               <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${system.enabled ? d.on : 'left-0.5 bg-zinc-400'}`} />
             </button>
           </div>
         </div>
         <div className="text-[10px] text-zinc-500 leading-relaxed">
-          {loading ? <span className="text-zinc-600">...</span> : isEmptyDegraded ? <span className="text-amber-500">Empty</span> : (
+          {isError ? <span className="text-red-400">Check failed{system.lastError ? `: ${system.lastError}` : ''}</span> : isEmptyDegraded ? <span className="text-amber-500">Empty</span> : (
             <span className={`transition-colors duration-300 ${countPulse ? 'text-emerald-400' : 'text-zinc-400'}`}>{system.itemCount} {system.itemLabel}</span>
           )}
           <span className="text-zinc-600 mx-1">·</span>
           <span className="text-zinc-600 text-[10px]">~{system.maxTokens}t</span>
           {timeText ? <><span className="text-zinc-600 mx-1">·</span><span className={timeClass}>{timeText}</span></> : null}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Context Map Visualization (restored) ─── */
-function ContextMapVisualization({ systems, totalBudget }: { systems: SystemInfo[]; totalBudget: number }) {
-  const nodes: Record<string, { x: number; y: number }> = {
-    llm_wiki: { x: 60, y: 30 }, obsidian_skills: { x: 220, y: 30 },
-    graphify: { x: 60, y: 100 }, para: { x: 220, y: 100 },
-    qmd: { x: 30, y: 170 }, automations: { x: 140, y: 170 }, design_skills: { x: 250, y: 170 },
-  };
-  const edges = [
-    { from: 'llm_wiki', to: 'obsidian_skills' }, { from: 'graphify', to: 'para' },
-    { from: 'llm_wiki', to: 'graphify' }, { from: 'qmd', to: 'llm_wiki' },
-    { from: 'automations', to: 'graphify' }, { from: 'automations', to: 'para' },
-    { from: 'design_skills', to: 'obsidian_skills' }, { from: 'design_skills', to: 'para' },
-  ];
-  const accentHex: Record<string, string> = {
-    llm_wiki: '#3b82f6', obsidian_skills: '#a855f7', graphify: '#22d3ee', para: '#14b8a6',
-    qmd: '#f59e0b', automations: '#f43f5e', design_skills: '#ec4899',
-  };
-  const enabledIds = systems.filter(s => s.enabled).map(s => s.id);
-  const usedTokens = systems.filter(s => s.enabled).reduce((sum, s) => sum + s.maxTokens, 0);
-  const pct = Math.min((usedTokens / totalBudget) * 100, 100);
-  return (
-    <div className="bg-zinc-900/70 backdrop-blur-sm border border-zinc-800/50 rounded-xl p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_4px_rgba(6,182,212,0.3)]" />
-          <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Context Map</span>
-        </div>
-        <span className="text-[10px] text-zinc-600">{enabledIds.length}/{systems.length} active · ~{usedTokens}/{totalBudget} tokens</span>
-      </div>
-      <svg width="280" height="240" className="w-full">
-        {edges.map((edge, i) => {
-          const f = nodes[edge.from]; const t = nodes[edge.to];
-          const active = enabledIds.includes(edge.from) && enabledIds.includes(edge.to);
-          return <line key={i} x1={f.x} y1={f.y} x2={t.x} y2={t.y} stroke={active ? 'rgba(6,182,212,0.3)' : 'rgba(63,63,70,0.2)'} strokeWidth={active ? 1.5 : 0.5} strokeDasharray={active ? 'none' : '4,4'} />;
-        })}
-        {systems.map(s => {
-          const pos = nodes[s.id]; const enabled = enabledIds.includes(s.id);
-          return (
-            <g key={s.id}>
-              <circle cx={pos.x} cy={pos.y} r={enabled ? 22 : 18} fill={enabled ? accentHex[s.id] + '25' : 'transparent'} stroke={enabled ? accentHex[s.id] : '#52525b'} strokeWidth={enabled ? 2 : 0.5} className={enabled ? 'drop-shadow-[0_0_4px_rgba(6,182,212,0.2)]' : ''} />
-              <circle cx={pos.x} cy={pos.y} r={enabled ? 22 : 18} fill="none" stroke={enabled ? accentHex[s.id] : 'none'} strokeWidth={4} className="opacity-30" />
-              <text x={pos.x} y={pos.y + 28} textAnchor="middle" className="text-[7px] fill-zinc-500 font-medium" fill={enabled ? (accentHex[s.id] || '#a1a1aa') : '#52525b'}>{s.name.split(' ')[0]}</text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="mt-2 w-full h-1.5 bg-zinc-800/50 rounded-full overflow-hidden">
-        <div className="h-full bg-gradient-to-r from-cyan-500/60 to-emerald-500/40 rounded-full transition-all duration-700 ease-out" style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
-/* ─── Step Indicator ─── */
-function StepIndicator({ steps, current }: { steps: string[]; current: number }) {
-  return (
-    <div className="flex items-center gap-1.5 mt-3">
-      {steps.map((s, i) => (
-        <Fragment key={s}>
-          <div className="flex items-center gap-1.5">
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all duration-200 ${i < current ? 'bg-cyan-500 text-white' : i === current ? 'bg-cyan-500/20 text-cyan-400 ring-1 ring-cyan-500/50' : 'bg-zinc-800 text-zinc-500'}`}>
-              {i < current ? <Check className="w-2.5 h-2.5" /> : i + 1}
+        {expanded && (
+          <div className="nsd-fadein mt-2 pt-2 border-t border-zinc-700/40 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Token budget</span>
+              <span className="text-[10px] text-zinc-300">~{system.maxTokens} tokens</span>
             </div>
-            <span className={`text-[10px] font-medium ${i <= current ? 'text-zinc-300' : 'text-zinc-600'}`}>{s}</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Last verified</span>
+              <span className={`text-[10px] ${timeClass}`}>{timeText || 'Never'}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Status</span>
+              <span className="text-[10px] text-zinc-300">{HEALTH_LABELS[system.health]}</span>
+            </div>
+            {isError && (
+              <button type="button" onClick={system.onVerify} className="text-[10px] text-red-300 hover:text-red-200 underline underline-offset-2 transition-colors">
+                Retry check
+              </button>
+            )}
           </div>
-          {i < steps.length - 1 && <div className={`w-4 h-px ${i < current ? 'bg-cyan-500/50' : 'bg-zinc-700/50'}`} />}
-        </Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Context map visualization (clickable nodes + animated beams) ─── */
+interface ContextItem { node: string; type: string; label?: string; value: string; status?: string; usedTokens?: number; total?: number; }
+interface ContextState { items: ContextItem[]; graphNodes: string[]; usedTokens: number; loading: boolean; error?: string; }
+
+function ContextMapVisualization({ ctx, prevNode, allNodes, toggleState, getColor, SYSTEM_DEFS: _defs, activeSystems, findSystem, onNodeClick, layoutMode, svgDim }: {
+  ctx: ContextState; prevNode: string | null; allNodes: string[];
+  toggleState: (n: string) => boolean;
+  getColor: (n: string) => string; SYSTEM_DEFS: typeof SYSTEM_DEFS;
+  activeSystems: string[]; findSystem: (id: string) => { name: string; icon: any; accentColor: string } | undefined;
+  onNodeClick: (n: string) => void; layoutMode: 'grid' | 'line' | 'radial'; svgDim: { w: number; h: number };
+}) {
+  const w = svgDim.w, h = svgDim.h;
+  const positions: Record<string, { x: number; y: number }> = {};
+  if (layoutMode === 'line') {
+    const startX = 40, endX = w - 40, y = 42;
+    const ordered = allNodes.filter(n => n !== 'user' && n !== 'chat');
+    const cnt = ordered.length + 2;
+    const step = (endX - startX) / (cnt - 1 || 1);
+    positions['user'] = { x: startX, y };
+    ordered.forEach((n, i) => { positions[n] = { x: startX + step * (i + 1), y }; });
+    positions['chat'] = { x: endX, y };
+  } else {
+    const cols = 3, rows = 3;
+    const cellW = w / cols, cellH = h / rows;
+    const offX = (i: number) => (i % 2 === 0 ? -1 : 1) * Math.abs(Math.sin(i * 1.7)) * 14;
+    const offY = (i: number) => (i % 2 === 0 ? -1 : 1) * Math.abs(Math.cos(i * 2.3)) * 10;
+    allNodes.forEach((n, i) => {
+      if (n === 'user' || n === 'chat') return;
+      const col = i % cols, row = Math.floor(i / cols);
+      const cx = 24 + col * cellW + cellW / 2, cy = 16 + row * cellH + cellH / 2;
+      positions[n] = { x: cx + offX(i), y: cy + offY(i) };
+    });
+    positions['user'] = { x: 18, y: 8 };
+    positions['chat'] = { x: w - 18, y: h - 8 };
+  }
+  void prevNode;
+
+  const edgePairs: Array<[string, string]> = [];
+  const seenEdges = new Set<string>();
+  const addEdge = (a: string, b: string) => {
+    const key = [a, b].sort().join('|');
+    if (a === b || seenEdges.has(key)) return;
+    seenEdges.add(key);
+    edgePairs.push([a, b]);
+  };
+  activeSystems.forEach((sid, i) => {
+    if (i > 0) addEdge(activeSystems[i - 1], sid);
+  });
+  if (activeSystems.length) addEdge('user', activeSystems[0]);
+  if (activeSystems.length) addEdge(activeSystems[activeSystems.length - 1], 'chat');
+
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full" role="img" aria-label="Context systems map">
+      <defs>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+      {edgePairs.map(([a, b], i) => {
+        const pa = positions[a], pb = positions[b];
+        if (!pa || !pb) return null;
+        const dx = pb.x - pa.x, dy = pb.y - pa.y;
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = -dy / len, ny = dx / len;
+        const active = toggleState(a) && toggleState(b);
+        const cy = getColor(a) === getColor(b) ? getColor(a) : '#22d3ee';
+        return (
+          <g key={i}>
+            <line x1={pa.x + nx * 6} y1={pa.y + ny * 6} x2={pb.x + nx * 6} y2={pb.y + ny * 6}
+              stroke={active ? cy : '#2b2b35'} strokeWidth={active ? 1.2 : 0.8} strokeOpacity={active ? 0.85 : 0.55}
+              strokeDasharray={active ? '5,4' : undefined}
+              className={active ? 'nsd-beam' : undefined} />
+          </g>
+        );
+      })}
+      {allNodes.map((n) => {
+        const p = positions[n];
+        if (!p) return null;
+        const isUser = n === 'user', isChat = n === 'chat';
+        const sys = findSystem(n);
+        const color = getColor(n);
+        const on = toggleState(n);
+        const r = isUser || isChat ? 5 : 7;
+        return (
+          <g key={n} onClick={() => onNodeClick(n)} role="button" aria-label={isUser ? 'You' : isChat ? 'Session' : sys ? sys.name : n} className="cursor-pointer">
+            {isUser || isChat ? null : (
+              <circle cx={p.x} cy={p.y} r={r + 2} fill={color} opacity={on ? 0.22 : 0.08}>
+                <animate attributeName="r" values={`${r + 1};${r + 3.5};${r + 1}`} dur="2.4s" repeatCount="indefinite" />
+              </circle>
+            )}
+            <circle cx={p.x} cy={p.y} r={r} fill={isUser || isChat ? '#ffffff' : color} stroke={on ? color : '#3f3f46'}
+              strokeWidth={on ? 1.6 : 0.8} filter={on ? 'url(#glow)' : undefined}
+              opacity={isUser || isChat ? 0.95 : on ? 0.95 : 0.6} />
+            <circle cx={p.x} cy={p.y} r={r} fill="transparent" stroke="#ffffff" strokeOpacity="0.35" strokeWidth="0.4" />
+            <title>{isUser ? 'You' : isChat ? 'Session output' : `${sys?.name ?? n} — ${on ? 'enabled' : 'disabled'} (click to toggle)`}</title>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ─── Wizard step indicator ─── */
+function StepIndicator({ step, labels, accent }: { step: number; labels: string[]; accent: string }) {
+  return (
+    <div className="flex items-center gap-1.5 mb-3">
+      {labels.map((label, i) => {
+        const active = i === step, done = i < step;
+        return (
+          <Fragment key={label}>
+            {i > 0 && <div className={`h-px flex-1 max-w-6 ${done ? 'bg-zinc-600' : 'bg-zinc-800'}`} />}
+            <span className={`text-[10px] rounded-md px-1.5 py-0.5 transition-all duration-200 ${active ? `text-zinc-950 font-semibold ${accent}` : done ? 'text-zinc-400 bg-zinc-800/70' : 'text-zinc-600 bg-zinc-800/30'}`}>
+              {label}
+            </span>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─── System prompt layer bar + preview ─── */
+function LayerBar() {
+  const layers = [
+    { name: 'default', color: '#2dd4bf' },
+    { name: 'general', color: '#a78bfa' },
+    { name: 'project', color: '#34d399' },
+    { name: 'session', color: '#fbbf24' },
+  ];
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Stack</span>
+      {layers.map((l) => (
+        <span key={l.name} className="flex items-center gap-1 text-[10px] text-zinc-400">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: l.color }} />
+          {l.name}
+        </span>
       ))}
     </div>
   );
 }
 
-/* ─── Main Component ─── */
-export function NewSessionDialog({ open, mode = 'create', onClose, onCreate, projectPath, projectId, projectPrompt = '', terminalTabs, defaultAgent, initialTerminalMode, initialSelectedTerminal, defaultName = 'New Agent' }: NewSessionDialogProps) {
-  const [name, setName] = useState(defaultName);
-  useEffect(() => { setName(defaultName); }, [defaultName]);
-  const [agentType, setAgentType] = useState('opencode');
-  const [terminalMode, setTerminalMode] = useState<'create' | 'select'>('create');
-  const [selectedTerminal, setSelectedTerminal] = useState('');
-  const [includeDefaultInit, setIncludeDefaultInit] = useState(true);
-  const [customInitFile, setCustomInitFile] = useState('');
-  const [customSystemPrompt, setCustomSystemPrompt] = useState('');
-  const [generalAdditions, setGeneralAdditions] = useState('');
-  const [initFiles, setInitFiles] = useState<string[]>([]);
-  const [agentFiles, setAgentFiles] = useState<{ name: string; path: string }[]>([]);
-  const [selectedAgentFiles, setSelectedAgentFiles] = useState<string[]>([]);
-  const [agentsMdContent, setAgentsMdContent] = useState('');
-  const [loadingAgentsMd, setLoadingAgentsMd] = useState(false);
-  const [includeAgentsMd, setIncludeAgentsMd] = useState(true);
-  const [includeGraphify, setIncludeGraphify] = useState(true);
-  const [includeQMD, setIncludeQMD] = useState(true);
-  const [includeSkills, setIncludeSkills] = useState(true);
-  const [showPreview, setShowPreview] = useState(false);
-  const [previewContent, setPreviewContent] = useState('');
-  const [totalBudget, setTotalBudget] = useState(7000);
-  const [ctxLLMWiki, setCtxLLMWiki] = useState(true);
-  const [ctxSkills, setCtxSkills] = useState(true);
-  const [ctxGraphify, setCtxGraphify] = useState(true);
-  const [ctxPara, setCtxPara] = useState(false);
-  const [ctxQMD, setCtxQMD] = useState(true);
-  const [ctxAutomations, setCtxAutomations] = useState(false);
-  const [ctxSummarization, setCtxSummarization] = useState(true);
-  const [ctxDeepMemory, setCtxDeepMemory] = useState(true);
-  const [showAdvanced, setShowAdvanced] = useState(true);
-  const [ctxSystemData, setCtxSystemData] = useState<BackendSystem[]>([]);
-  const [ctxLastSynced, setCtxLastSynced] = useState<string | null>(null);
-  const [ctxLoadFailed, setCtxLoadFailed] = useState(false);
-  const [refreshingId, setRefreshingId] = useState<string | null>(null);
-  const [verifySignal, setVerifySignal] = useState<VerifySignal>(null);
-  const appliedAtRef = useRef(0);
-  const signalSeq = useRef(0);
-  const [ctxShowMap, setCtxShowMap] = useState(true);
-  const [resumeSessionId, setResumeSessionId] = useState('');
-  const [resumeSession, setResumeSession] = useState<any>(null);
-  const [resumeError, setResumeError] = useState('');
-  const [resumeChecking, setResumeChecking] = useState(false);
-  const [resumeCliResult, setResumeCliResult] = useState<{ exists: boolean; error?: string } | null>(null);
-  const [ctxDesignSkills, setCtxDesignSkills] = useState(true);
-  const [modelTier, setModelTier] = useState<'top' | 'mid' | 'low'>('mid');
-  const [step, setStep] = useState(0);
-
-  const isWizard = mode !== 'create';
-  const wizardSteps = ['Essentials', 'Context Systems', 'Review'];
-
-  useEffect(() => {
-    if (open) {
-      setAgentType(defaultAgent);
-      setTerminalMode(initialTerminalMode || 'create');
-      setSelectedTerminal(initialSelectedTerminal || '');
-      setName(defaultName && defaultName !== 'New Agent' ? defaultName : '');
-      setIncludeDefaultInit(true); setCustomInitFile(''); setCustomSystemPrompt('');
-      setGeneralAdditions(''); setSelectedAgentFiles([]); setIncludeAgentsMd(true);
-      setIncludeGraphify(true); setIncludeQMD(true); setIncludeSkills(true);
-      setShowPreview(false); setTotalBudget(7000); setCtxLLMWiki(true); setCtxSkills(true);
-      setCtxGraphify(true); setCtxPara(false); setCtxQMD(true); setCtxAutomations(false);
-      setCtxSummarization(true); setCtxDeepMemory(true); setCtxShowMap(true);
-      setCtxDesignSkills(true); setResumeSessionId(''); setResumeSession(null);
-      setResumeError(''); setResumeChecking(false); setResumeCliResult(null);
-      setCtxLoadFailed(false); setVerifySignal(null); setStep(0);
-      loadInitFiles();
-      const configKey = projectId ? `${WORKSPACE_CONFIG_PREF_KEY}-${projectId}` : WORKSPACE_CONFIG_PREF_KEY;
-      const dapi = (window as any).deskflowAPI;
-      if (dapi?.getPreferences) {
-        dapi.getPreferences().then((prefs: any) => {
-          if (prefs?.systemPrompts) setGeneralAdditions(prefs.systemPrompts[defaultAgent] || prefs.systemPrompts.claude || '');
-          if (prefs?.total_token_budget) setTotalBudget(prefs.total_token_budget);
-          const raw = prefs?.[configKey] || prefs?.[WORKSPACE_CONFIG_PREF_KEY];
-          if (raw) {
-            try {
-              const wsConfig: WorkspaceConfig = JSON.parse(raw);
-              if (wsConfig.systems) {
-                if (wsConfig.systems.llm_wiki != null) setCtxLLMWiki(wsConfig.systems.llm_wiki.enabled);
-                if (wsConfig.systems.obsidian_skills != null) setCtxSkills(wsConfig.systems.obsidian_skills.enabled);
-                if (wsConfig.systems.graphify != null) setCtxGraphify(wsConfig.systems.graphify.enabled);
-                if (wsConfig.systems.para != null) setCtxPara(wsConfig.systems.para.enabled);
-                if (wsConfig.systems.qmd_templates != null) setCtxQMD(wsConfig.systems.qmd_templates.enabled);
-                if (wsConfig.systems.automations != null) setCtxAutomations(wsConfig.systems.automations.enabled);
-                if (wsConfig.systems.design_skills != null) setCtxDesignSkills(wsConfig.systems.design_skills.enabled);
-              }
-              if (wsConfig.behaviors) {
-                if (wsConfig.behaviors.summarization != null) setCtxSummarization(wsConfig.behaviors.summarization);
-                if (wsConfig.behaviors.deep_memory != null) setCtxDeepMemory(wsConfig.behaviors.deep_memory);
-              }
-            } catch (e) { console.warn('[NewSessionDialog] Could not load workspace settings:', e); }
-          }
-        });
-      }
-      if (mode !== 'create' && projectPath) loadAgentsContext();
-    }
-  }, [open, defaultAgent, mode, projectPath, initialTerminalMode, initialSelectedTerminal]);
-
-  const applyIfLatest = useCallback((issuedAt: number, data: BackendSystem[]) => {
-    if (issuedAt < appliedAtRef.current) return false;
-    appliedAtRef.current = issuedAt; setCtxSystemData(data);
-    setCtxLastSynced(new Date(issuedAt).toISOString()); setCtxLoadFailed(false);
-    return true;
-  }, []);
-
-  const fetchSystems = useCallback(async (): Promise<{ ok: boolean; data?: BackendSystem[] }> => {
-    const dapi = (window as any).deskflowAPI;
-    if (!dapi?.getContextSystems || !projectPath) return { ok: false };
-    try { const res = await dapi.getContextSystems(projectPath); if (res?.success && Array.isArray(res.data)) return { ok: true, data: res.data as BackendSystem[] }; return { ok: false }; } catch { return { ok: false }; }
-  }, [projectPath]);
-
-  const loadSystemStatus = useCallback(async () => {
-    if (mode === 'create') return;
-    const issuedAt = Date.now(); const r = await fetchSystems();
-    if (r.ok && r.data) applyIfLatest(issuedAt, r.data);
-    else if (appliedAtRef.current === 0) { setCtxSystemData([]); setCtxLoadFailed(true); }
-  }, [mode, fetchSystems, applyIfLatest]);
-
-  useEffect(() => { if (mode === 'create') return; void loadSystemStatus(); const t = setInterval(() => void loadSystemStatus(), 30000); return () => clearInterval(t); }, [mode, loadSystemStatus]);
-
-  const loadInitFiles = async () => { if (!projectPath) return; try { const r = await (window as any).deskflowAPI?.listInitFiles?.(projectPath); if (r?.success) setInitFiles(r.data || []); } catch {} };
-  const loadAgentsContext = async () => { setLoadingAgentsMd(true); try { const dapi = (window as any).deskflowAPI; if (!dapi) return; const ar = await dapi.readAgentFileContent?.('agents.md', projectPath); if (ar?.success && ar.data) setAgentsMdContent(ar.data); const fr = await dapi.listAgentDirFiles?.(projectPath); if (fr?.success) setAgentFiles(fr.data || []); } catch {}; setLoadingAgentsMd(false); };
-
-  const verifySystem = useCallback(async (id: string) => {
-    setRefreshingId(id); const issuedAt = Date.now(); const r = await fetchSystems();
-    if (r.ok && r.data) { applyIfLatest(issuedAt, r.data); signalSeq.current += 1; setVerifySignal({ id, status: 'green', n: signalSeq.current }); }
-    else { setCtxSystemData((prev) => prev.map((s) => (s.id === id ? { ...s, error: s.error ?? 'Verification failed' } : s))); signalSeq.current += 1; setVerifySignal({ id, status: 'red', n: signalSeq.current }); }
-    setRefreshingId(null);
-  }, [fetchSystems, applyIfLatest]);
-
-  const buildPreview = async () => {
-    const previewContextConfig = {
-      total_token_budget: totalBudget, model_tier: modelTier,
-      systems: {
-        llm_wiki: { enabled: ctxLLMWiki, files: [], max_tokens: 2000 },
-        obsidian_skills: { enabled: ctxSkills, skills: [], max_tokens: 500 },
-        graphify: { enabled: ctxGraphify, include_graph: false, include_summary: true, max_tokens: 500 },
-        para: { enabled: ctxPara, areas: [], max_tokens: 300 },
-        qmd: { enabled: ctxQMD, templates: [], max_tokens: 200 },
-        automations: { enabled: ctxAutomations, max_tokens: 100 },
-        design_skills: { enabled: ctxDesignSkills, max_tokens: 800, skills: ['frontend-design', 'impeccable', 'ui-ux-pro-max', 'taste-skill'], levels: { design_variance: 5, motion_intensity: 5, visual_density: 7 }, include_references: true },
-      },
-      summarization: { enabled: ctxSummarization, message_threshold: 10, max_recent_messages: 5, summary_style: 'brief' as const },
-      deep_memory: { enabled: ctxDeepMemory, pattern_detection: true, max_patterns: 20, retention_days: 90 },
-    };
-    const content = await assembleContext(projectPath, previewContextConfig);
-    setPreviewContent(content); setShowPreview(true);
-  };
-
-  const handleCreate = async () => {
-    try {
-      const sessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const sessionName = name.trim() || (mode === 'setup' ? `Setup ${agentType}` : mode === 'new-agent' ? `${agentType} agent` : `${agentType} session`);
-      const config: SessionConfig = {
-        id: sessionId, name: sessionName, agentType, terminalMode, selectedTerminal,
-        resumeId: resumeSession?.resume_id || resumeSessionId || undefined,
-        initializeFile: customInitFile || undefined, customSystemPrompt: customSystemPrompt || undefined,
-        initContent: generalAdditions || undefined,
-        includeDefaultInit: mode === 'create' ? includeDefaultInit : false,
-        problemIds: [], requestIds: [],
-      };
-      if (mode !== 'create') {
-        config.contextConfig = {
-          total_token_budget: totalBudget, model_tier: modelTier,
-          systems: {
-            llm_wiki: { enabled: ctxLLMWiki, max_tokens: 2000 },
-            obsidian_skills: { enabled: ctxSkills, max_tokens: 500 },
-            graphify: { enabled: ctxGraphify, include_summary: true, max_tokens: 500 },
-            para: { enabled: ctxPara, max_tokens: 300 },
-            qmd: { enabled: ctxQMD, max_tokens: 200 },
-            automations: { enabled: ctxAutomations, max_tokens: 100 },
-            design_skills: { enabled: ctxDesignSkills, max_tokens: 800, skills: ['frontend-design', 'impeccable', 'ui-ux-pro-max', 'taste-skill'], levels: { design_variance: 5, motion_intensity: 5, visual_density: 7 }, include_references: true },
-          },
-          summarization: { enabled: ctxSummarization, message_threshold: 10 },
-          deep_memory: { enabled: ctxDeepMemory, pattern_detection: true },
-        };
-      }
-      onCreate(config); onClose();
-    } catch (err) { console.error('[NewSessionDialog] handleCreate error:', err); }
-  };
-
-  if (!open) return null;
-
-  const enabledById: Record<string, boolean> = { llm_wiki: ctxLLMWiki, obsidian_skills: ctxSkills, graphify: ctxGraphify, para: ctxPara, qmd: ctxQMD, automations: ctxAutomations, design_skills: ctxDesignSkills };
-  const toggleById: Record<string, () => void> = { llm_wiki: () => setCtxLLMWiki(!ctxLLMWiki), obsidian_skills: () => setCtxSkills(!ctxSkills), graphify: () => setCtxGraphify(!ctxGraphify), para: () => setCtxPara(!ctxPara), qmd: () => setCtxQMD(!ctxQMD), automations: () => setCtxAutomations(!ctxAutomations), design_skills: () => setCtxDesignSkills(!ctxDesignSkills) };
-  const firstLoadDone = ctxLastSynced !== null || ctxLoadFailed;
-  const globalError = ctxLoadFailed && ctxSystemData.length === 0;
-  const systems: SystemInfo[] = SYSTEM_DEFS.map((def) => {
-    const rec = ctxSystemData.find((d) => d.id === def.id) || null;
-    let health: Health; let lastError: string | null;
-    if (globalError) { health = 'error'; lastError = 'Failed to load system status'; }
-    else if (!firstLoadDone) { health = 'unknown'; lastError = null; }
-    else if (!rec) { health = 'missing'; lastError = null; }
-    else { health = deriveHealth(rec); lastError = rec.error; }
-    return { id: def.id, name: def.name, icon: def.icon, accentColor: def.accentColor, itemCount: rec?.itemCount ?? 0, itemLabel: rec?.itemLabel || def.defaultLabel, lastBuilt: rec?.lastBuilt ?? null, maxTokens: def.maxTokens, enabled: enabledById[def.id], onToggle: toggleById[def.id], health, lastSynced: ctxLastSynced, onVerify: () => verifySystem(def.id), refreshing: refreshingId === def.id, lastError };
-  });
-
+function PromptPreview({ title, content, defaultContent, maxChars = 2000 }: { title: string; content: string; defaultContent: string; maxChars?: number }) {
+  const [showFull, setShowFull] = useState(false);
+  const base = content.trim() || defaultContent;
+  const truncated = base.length > maxChars;
+  const shown = showFull || !truncated ? base : base.slice(0, maxChars) + '…';
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-50" onClick={onClose}>
-      <div style={NSD_ACCENT} className="bg-zinc-900/95 backdrop-blur-xl rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto border border-zinc-700/50 shadow-black/40" onClick={(e) => e.stopPropagation()}>
-        {/* Header */}
-        <div className="relative flex items-center justify-between mb-5">
-          <div className="absolute -top-6 -left-6 -right-6 h-1 bg-gradient-to-r from-cyan-500/30 via-cyan-400/10 to-transparent rounded-t-2xl pointer-events-none" />
-          <div className="flex items-center gap-2.5">
-            <div className="w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_4px_rgba(6,182,212,0.5)]" />
-            <h2 className="text-lg font-bold text-white">{mode === 'new-agent' ? 'New Agent' : mode === 'setup' ? 'Setup Agent Workspace' : 'Create New Session'}</h2>
-          </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-zinc-800/80 rounded-md text-zinc-500 hover:text-zinc-200 transition-all duration-150 active:scale-90">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    <div className="rounded-xl border border-zinc-800/60 bg-zinc-950/60 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] text-zinc-400 uppercase tracking-wider">{title}</span>
+        {truncated && (
+          <button type="button" onClick={() => setShowFull(!showFull)} className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors">
+            {showFull ? 'Show less' : `Show all (${base.length.toLocaleString()})`}
           </button>
-        </div>
-        {isWizard && <StepIndicator steps={wizardSteps} current={step} />}
-
-        {/* ─── STEP 0 / CREATE: Essentials ─── */}
-        {(!isWizard || step === 0) && (
-          <div style={{ animation: 'nsd-slideUp 200ms ease-out' }}>
-            <div className="mb-4">
-              <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Session Name</label>
-              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-white text-sm placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/40 transition-all duration-150" placeholder="e.g. Fix login bug" />
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs text-zinc-400 mb-1.5 font-medium">AI Agent</label>
-              <select value={agentType} onChange={(e) => setAgentType(e.target.value)} className="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40 transition-colors duration-150">
-                {SUPPORTED_AGENTS.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs text-zinc-400 mb-1.5 font-medium">Model Tier</label>
-              <select value={modelTier} onChange={(e) => setModelTier(e.target.value as 'top' | 'mid' | 'low')} className="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40 transition-colors duration-150">
-                <option value="top">Top (Opus 4, Gemini 2.5 Pro, Sonnet 4.5)</option>
-                <option value="mid">Mid (Sonnet 4, GPT-4o, Gemini 2.0 Flash)</option>
-                <option value="low">Low (mini, flash, haiku, small open-weights)</option>
-              </select>
-            </div>
-            <div className="mb-4">
-              <label className="block text-xs text-zinc-400 mb-2 font-medium">Terminal</label>
-              <div className="space-y-2">
-                <label onClick={() => setTerminalMode('create')} className="flex items-center gap-3 px-3.5 py-2.5 bg-zinc-900/60 backdrop-blur-sm rounded-lg border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/60 hover:border-zinc-600/50 transition-all duration-150">
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-150 ${terminalMode === 'create' ? 'border-cyan-400 bg-cyan-500/20' : 'border-zinc-600'}`}>{terminalMode === 'create' && <div className="w-2 h-2 rounded-full bg-cyan-400" />}</div>
-                  <div><span className="text-sm text-white font-medium">Create new terminal</span><p className="text-[10px] text-zinc-500 mt-0.5">Launches a new terminal with the selected agent</p></div>
-                </label>
-                <label onClick={() => setTerminalMode('select')} className="flex items-center gap-3 px-3.5 py-2.5 bg-zinc-900/60 backdrop-blur-sm rounded-lg border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/60 hover:border-zinc-600/50 transition-all duration-150">
-                  <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-all duration-150 ${terminalMode === 'select' ? 'border-cyan-400 bg-cyan-500/20' : 'border-zinc-600'}`}>{terminalMode === 'select' && <div className="w-2 h-2 rounded-full bg-cyan-400" />}</div>
-                  <div><span className="text-sm text-white font-medium">Use existing terminal</span><p className="text-[10px] text-zinc-500 mt-0.5">Attach session to a running terminal</p></div>
-                </label>
-              </div>
-              {terminalMode === 'select' && (
-                <select value={selectedTerminal} onChange={(e) => setSelectedTerminal(e.target.value)} className="w-full mt-2 bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40 transition-colors duration-150">
-                  <option value="">Select a terminal...</option>
-                  {Object.entries(terminalTabs).map(([id, tab]) => <option key={id} value={id}>{tab.name} ({tab.agent})</option>)}
-                </select>
-              )}
-            </div>
-            {/* Resume Session (create mode) */}
-            {mode === 'create' && (
-              <div className="mb-4 p-3 bg-zinc-900/60 backdrop-blur-sm rounded-xl border border-zinc-800/50">
-                <label className="text-[10px] text-zinc-500 font-medium">Resume Session ID <span className="text-zinc-600 font-normal">(optional)</span></label>
-                <input type="text" value={resumeSessionId} onChange={(e) => { setResumeSessionId(e.target.value); setResumeError(''); setResumeCliResult(null); }} placeholder="Paste session ID to resume..." className="w-full mt-1.5 bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-3 py-1.5 text-[11px] text-zinc-300 placeholder:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 transition-all duration-150" />
-                {resumeSessionId && (
-                  <div className="flex gap-2 mt-1">
-                    <button onClick={async () => { const dapi = (window as any).deskflowAPI; if (!dapi) return; try { const session = await dapi.getTerminalSessionById(resumeSessionId); if (session) { setAgentType(session.agent || 'claude'); setResumeSession(session); setResumeError(''); } else setResumeError('Session not found'); } catch { setResumeError('Failed to look up session'); } }} className="text-[10px] text-cyan-400 hover:text-cyan-300">Lookup DB</button>
-                    <button onClick={async () => { const dapi = (window as any).deskflowAPI; if (!dapi) return; setResumeChecking(true); setResumeCliResult(null); try { const result = await dapi.checkSessionExists(resumeSessionId); setResumeCliResult(result); } catch { setResumeCliResult({ exists: false, error: 'Failed to run opencode CLI check' }); } setResumeChecking(false); }} className="text-[10px] text-cyan-400 hover:text-cyan-300">{resumeChecking ? 'Checking...' : 'Check CLI'}</button>
-                  </div>
-                )}
-                {resumeSession && <div className="mt-1 text-[10px] text-emerald-400">Session found: {resumeSession.topic || resumeSession.id}</div>}
-                {resumeError && <div className="mt-1 text-[10px] text-red-400">{resumeError}</div>}
-                {resumeCliResult && <div className={`mt-1 text-[10px] ${resumeCliResult.exists ? 'text-emerald-400' : 'text-red-400'}`}>{resumeCliResult.exists ? 'CLI confirmed: session exists' : `CLI: session not found — ${resumeCliResult.error || 'unknown error'}`}</div>}
-              </div>
-            )}
-            {/* Advanced Configuration toggle */}
-            <div className="mb-3">
-              <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-2 text-xs text-zinc-400 hover:text-zinc-200 transition-all duration-150 px-2 py-1 rounded-md hover:bg-zinc-800/40">
-                <ChevronRight className={`w-3.5 h-3.5 transition-transform duration-200 ${showAdvanced ? 'rotate-90' : ''}`} />
-                <span className="font-medium">Advanced Configuration</span>
-              </button>
-            </div>
-            {showAdvanced && (
-              <div>
-                {resumeSessionId ? <div className="mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[10px] text-amber-300">Session ID entered — init options disabled for existing sessions</div> : null}
-                <label className={`flex items-center gap-2.5 mb-3 px-3 py-2 rounded-lg transition-all ${resumeSessionId ? 'opacity-40' : 'hover:bg-zinc-800/40 cursor-pointer'}`}>
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all duration-150 ${includeDefaultInit ? 'bg-cyan-500/30 border-cyan-400' : 'border-zinc-600'}`}>{includeDefaultInit && <svg className="w-2.5 h-2.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}</div>
-                  <input type="checkbox" checked={includeDefaultInit} onChange={(e) => setIncludeDefaultInit(e.target.checked)} disabled={!!resumeSessionId} className="sr-only" />
-                  <span className="text-sm text-zinc-300">Include default INITIALIZE.md</span>
-                </label>
-                <div className={`mb-3 ${resumeSessionId ? 'opacity-40' : ''}`}>
-                  <label className="block text-xs text-zinc-500 mb-1.5 font-medium">Custom Init File</label>
-                  <select value={customInitFile} onChange={(e) => setCustomInitFile(e.target.value)} disabled={!!resumeSessionId} className="w-full bg-zinc-900/60 border border-zinc-800 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500/40 transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-50">
-                    <option value="">None</option>
-                    {initFiles.map((f) => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
-              </div>
-            )}
-          </div>
         )}
-
-        {/* ─── STEP 1 / WIZARD: Context Systems ─── */}
-        {isWizard && step === 1 && (
-          <div style={{ animation: 'nsd-slideUp 200ms ease-out' }}>
-            <div className="mb-4 border-t border-zinc-700 pt-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-1 h-3 rounded-full bg-gradient-to-b from-zinc-400 to-zinc-600" />
-                <h3 className="text-sm font-medium text-white">Agent Context & Tools</h3>
-              </div>
-            </div>
-            {/* Context Systems toggle cards */}
-            <div className="mb-3 p-3 bg-zinc-900/70 backdrop-blur-sm rounded-xl border border-zinc-800/50">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-3 rounded-full bg-gradient-to-b from-cyan-400 to-blue-500" />
-                <h4 className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">Context Systems</h4>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {systems.map(s => <SystemToggleCard key={s.id} system={s} verifySignal={verifySignal} />)}
-              </div>
-            </div>
-            {/* Design Skills */}
-            {ctxDesignSkills && (
-              <div className="mb-3 p-3 bg-zinc-900/70 backdrop-blur-sm rounded-xl border border-pink-500/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-1 h-4 bg-gradient-to-b from-pink-500 to-rose-500 rounded-full" />
-                  <h4 className="text-[10px] font-semibold text-pink-400 uppercase tracking-wider">Design Intelligence</h4>
-                </div>
-                <p className="text-[10px] text-zinc-500 leading-relaxed">Configure design tastes (variance, motion, density) in Context Sidebar</p>
-              </div>
-            )}
-            {/* Context Map Visualization */}
-            {ctxShowMap && (
-              <div className="mb-3">
-                <button onClick={() => setCtxShowMap(false)} className="text-[10px] text-zinc-600 hover:text-zinc-400 mb-1 transition-colors px-1.5 py-0.5 rounded hover:bg-zinc-800/40">hide map</button>
-                <ContextMapVisualization systems={systems} totalBudget={totalBudget} />
-              </div>
-            )}
-            {/* Behavior toggles */}
-            <div className="mb-3 p-3 bg-zinc-900/70 backdrop-blur-sm rounded-xl border border-zinc-800/50">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-3 rounded-full bg-gradient-to-b from-amber-400 to-orange-500" />
-                <h4 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Behavior</h4>
-              </div>
-              <div className="flex items-center gap-5">
-                <label className="flex items-center gap-2 cursor-pointer group">
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all duration-150 ${ctxSummarization ? 'bg-cyan-500/30 border-cyan-400' : 'border-zinc-600 group-hover:border-zinc-500'}`}>{ctxSummarization && <svg className="w-2.5 h-2.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}</div>
-                  <input type="checkbox" checked={ctxSummarization} onChange={(e) => setCtxSummarization(e.target.checked)} className="sr-only" />
-                  <span className="text-[10px] text-zinc-400 group-hover:text-zinc-300 transition-colors">Auto-summarize</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer group">
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all duration-150 ${ctxDeepMemory ? 'bg-cyan-500/30 border-cyan-400' : 'border-zinc-600 group-hover:border-zinc-500'}`}>{ctxDeepMemory && <svg className="w-2.5 h-2.5 text-cyan-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}</div>
-                  <input type="checkbox" checked={ctxDeepMemory} onChange={(e) => setCtxDeepMemory(e.target.checked)} className="sr-only" />
-                  <span className="text-[10px] text-zinc-400 group-hover:text-zinc-300 transition-colors">Deep memory</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer group">
-                  <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all duration-150 ${includeAgentsMd ? 'bg-amber-500/30 border-amber-400' : 'border-zinc-600 group-hover:border-zinc-500'}`}>{includeAgentsMd && <svg className="w-2.5 h-2.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}</div>
-                  <input type="checkbox" checked={includeAgentsMd} onChange={(e) => setIncludeAgentsMd(e.target.checked)} className="sr-only" />
-                  <span className="text-[10px] text-zinc-400 group-hover:text-zinc-300 transition-colors">agents.md</span>
-                </label>
-              </div>
-            </div>
-            {/* Existing agent files */}
-            <div className="mb-3">
-              <label className="block text-[10px] text-zinc-500 mb-1.5 font-medium">Additional Agent Files</label>
-              <div className="max-h-24 overflow-y-auto space-y-0.5 bg-zinc-900/50 rounded-xl border border-zinc-800/50 p-1.5">
-                {agentFiles.length === 0 ? <div className="text-[10px] text-zinc-600 px-2 py-3 text-center">No files in agent/</div> : agentFiles.map((f) => (
-                  <label key={f.path} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-zinc-800/60 cursor-pointer transition-colors group">
-                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all duration-150 ${selectedAgentFiles.includes(f.name) ? 'bg-amber-500/30 border-amber-400' : 'border-zinc-600 group-hover:border-zinc-500'}`}>{selectedAgentFiles.includes(f.name) && <svg className="w-2.5 h-2.5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}</div>
-                    <input type="checkbox" checked={selectedAgentFiles.includes(f.name)} onChange={(e) => { if (e.target.checked) setSelectedAgentFiles([...selectedAgentFiles, f.name]); else setSelectedAgentFiles(selectedAgentFiles.filter(x => x !== f.name)); }} className="sr-only" />
-                    <span className="text-[10px] text-zinc-300 group-hover:text-zinc-200 transition-colors">{f.name}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <button onClick={buildPreview} className="w-full text-[10px] text-zinc-400 hover:text-zinc-200 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/30 hover:bg-zinc-700/60 hover:border-zinc-600/40 transition-all duration-150 active:scale-[0.98]">Preview Init Content</button>
-            {showPreview && (
-              <div className="mt-2 max-h-32 overflow-y-auto bg-zinc-900/80 rounded-xl p-3 border border-zinc-800/50">
-                <pre className="text-[10px] text-zinc-400 font-mono whitespace-pre-wrap leading-relaxed">{previewContent.substring(0, 1500)}{previewContent.length > 1500 ? '\n...' : ''}</pre>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ─── STEP 2 / WIZARD: Review ─── */}
-        {isWizard && step === 2 && (
-          <div style={{ animation: 'nsd-slideUp 200ms ease-out' }}>
-            {/* System Prompt — always visible */}
-            <div className="border-t border-zinc-700 pt-4 mt-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-1 h-3 rounded-full bg-gradient-to-b from-cyan-400 to-blue-500" />
-                  <h3 className="text-sm font-medium text-white">System Prompt</h3>
-                </div>
-                <span className="text-[10px] text-zinc-500 bg-zinc-800/60 border border-zinc-700/30 px-2 py-0.5 rounded-md">Live preview</span>
-              </div>
-              <p className="text-xs text-zinc-500 mb-3 leading-relaxed">The prompt sent to the AI merges: <span className="text-cyan-400 font-medium">default</span> + <span className="text-blue-400 font-medium">general</span> + <span className="text-purple-400 font-medium">project</span> + <span className="text-amber-400 font-medium">session</span> additions.</p>
-              <div className="bg-zinc-900/90 rounded-xl border border-zinc-800/50 overflow-hidden shadow-sm">
-                <div className="flex items-center gap-2 px-3 py-2 bg-zinc-800/60 border-b border-zinc-800/40">
-                  <div className="w-1.5 h-1.5 rounded-full bg-cyan-500 shadow-[0_0_4px_rgba(6,182,212,0.4)]" />
-                  <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-medium">Default (always included)</span>
-                  {generalAdditions && <><div className="w-1.5 h-1.5 rounded-full bg-blue-500 ml-1" /><span className="text-[10px] text-zinc-500">+ General</span></>}
-                  {projectPrompt && <><div className="w-1.5 h-1.5 rounded-full bg-purple-500 ml-1" /><span className="text-[10px] text-zinc-500">+ Project</span></>}
-                  {customSystemPrompt && <><div className="w-1.5 h-1.5 rounded-full bg-amber-500 ml-1" /><span className="text-[10px] text-zinc-500">+ Session</span></>}
-                </div>
-                <div className="p-3 max-h-48 overflow-y-auto">
-                  {(() => {
-                    const parts: { label: string; color: string; content: string }[] = [];
-                    parts.push({ label: 'Default', color: 'text-cyan-400', content: DEFAULT_SYSTEM_PROMPT });
-                    if (generalAdditions) parts.push({ label: 'General', color: 'text-blue-400', content: generalAdditions });
-                    if (projectPrompt) parts.push({ label: 'Project', color: 'text-purple-400', content: projectPrompt });
-                    if (customSystemPrompt) parts.push({ label: 'Session', color: 'text-amber-400', content: customSystemPrompt });
-                    return parts.map((part, i) => (
-                      <div key={i} className="mb-3 last:mb-0">
-                        {parts.length > 1 && <div className={`text-[10px] uppercase tracking-wider font-semibold ${part.color} mb-1`}>{part.label} Additions</div>}
-                        <div className="text-[11px] text-zinc-300 leading-relaxed font-sans whitespace-pre-wrap">{part.content.substring(0, 2000)}{part.content.length > 2000 && <span className="text-zinc-600">... [{part.content.length - 2000} more chars]</span>}</div>
-                        {i < parts.length - 1 && <div className="flex items-center gap-1 justify-center text-zinc-700 my-2"><span className="w-1 h-1 rounded-full bg-zinc-700" /><span className="w-1 h-1 rounded-full bg-zinc-700" /><span className="w-1 h-1 rounded-full bg-zinc-700" /></div>}
-                      </div>
-                    ));
-                  })()}
-                </div>
-              </div>
-              <div className="mt-3">
-                <label className="block text-xs text-zinc-500 mb-1.5 font-medium">Session Additions <span className="text-zinc-600 font-normal">(appended to merged prompt)</span></label>
-                <VoiceInputWrapper>
-                  <textarea value={customSystemPrompt} onChange={(e) => setCustomSystemPrompt(e.target.value)} className="w-full bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-white text-sm h-16 resize-none placeholder-zinc-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/40 transition-all duration-150" placeholder="Extra instructions for this specific session..." />
-                </VoiceInputWrapper>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ─── Footer ─── */}
-        <div className="flex gap-3 pt-4 border-t border-zinc-800/50 mt-4">
-          {isWizard && step > 0 && (
-            <button onClick={() => setStep(step - 1)} className="px-4 py-2 bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-400 hover:text-zinc-200 rounded-lg text-sm font-medium border border-zinc-700/50 transition-all duration-150 active:scale-[0.98] flex items-center gap-1.5">
-              <ChevronLeft className="w-3.5 h-3.5" /> Back
-            </button>
-          )}
-          <button onClick={onClose} className="flex-1 px-4 py-2 bg-zinc-800/60 hover:bg-zinc-700/80 text-zinc-400 hover:text-zinc-200 rounded-lg text-sm font-medium border border-zinc-700/50 transition-all duration-150 active:scale-[0.98]">Cancel</button>
-          {isWizard && step < wizardSteps.length - 1 ? (
-            <button onClick={() => setStep(step + 1)} className="flex-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition-all duration-150 active:scale-[0.98] hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 flex items-center justify-center gap-1.5">
-              Next <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <button onClick={handleCreate} className={`flex-1 px-4 py-2 text-white rounded-lg text-sm font-medium transition-all duration-150 active:scale-[0.98] hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] ${mode === 'setup' ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500' : 'bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500'}`}>
-              {mode === 'setup' ? 'Setup Agent' : mode === 'new-agent' ? 'Start Agent' : 'Create Session'}
-            </button>
-          )}
-        </div>
       </div>
-      <style>{`@keyframes nsd-slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+      <pre className="text-[10px] leading-relaxed text-zinc-400 font-mono whitespace-pre-wrap break-words max-h-40 overflow-y-auto pr-1">{shown}</pre>
     </div>
   );
 }
+
+function getPromptParts(projectPrompt: string | undefined, initContent: string | undefined, additions: string) {
+  const stack: Array<{ label: string; color: string; content: string }> = [
+    { label: 'default', color: '#2dd4bf', content: DEFAULT_SYSTEM_PROMPT },
+  ];
+  if (projectPrompt && projectPrompt.trim()) stack.push({ label: 'project', color: '#34d399', content: projectPrompt });
+  if (initContent && initContent.trim()) stack.push({ label: 'session', color: '#fbbf24', content: initContent });
+  const combined = stack.map((l) => l.content).join('\n\n');
+  const additionsBlock = additions.trim() ? `\n\n## Session Additions\n${additions.trim()}` : '';
+  const effective = combined + additionsBlock;
+  return { stack, combined, additionsBlock, effective };
+}
+
+/* ─── Main component ─── */
+export function NewSessionDialog({ open, mode = 'create', onClose, onCreate, projectPath, projectId, projectPrompt, terminalTabs, defaultAgent, initialTerminalMode = 'create', initialSelectedTerminal, defaultName }: NewSessionDialogProps) {
+  const [name, setName] = useState(defaultName ?? '');
+  const [agentType, setAgentType] = useState(defaultAgent || 'claude');
+  const [terminalMode, setTerminalMode] = useState<'create' | 'select'>(initialTerminalMode || 'create');
+  const [selectedTerminal, setSelectedTerminal] = useState(initialSelectedTerminal ?? '');
+  const [resumeId, setResumeId] = useState('');
+  const [initializeFile, setInitializeFile] = useState('INITIALIZE.md');
+  const [includeDefaultInit, setIncludeDefaultInit] = useState(true);
+  const [step, setStep] = useState(0);
+  const [stepDir, setStepDir] = useState<'next' | 'back'>('next');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [showReviewPrompt, setShowReviewPrompt] = useState(true);
+  const [initFiles, setInitFiles] = useState<string[]>([]);
+  const [initContent, setInitContent] = useState('');
+  const [ctxState, setCtxState] = useState<ContextState>({ items: [], graphNodes: [], usedTokens: 0, loading: true });
+  const [prevNode, setPrevNode] = useState<string | null>(null);
+  const [ctxLoadFailed, setCtxLoadFailed] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<'grid' | 'line' | 'radial'>('grid');
+  const [verifySignal, setVerifySignal] = useState<VerifySignal>(null);
+  const [enabledNodes, setEnabledNodes] = useState<Set<string>>(new Set(['user', 'chat']));
+  const [sessionAdditions, setSessionAdditions] = useState('');
+  const [showAll, setShowAll] = useState(false);
+  const [tokenBudget, setTokenBudget] = useState(2000);
+  const [modelTier, setModelTier] = useState<'top' | 'mid' | 'low'>('mid');
+  const [tierHint, setTierHint] = useState(false);
+  const lastReqRef = useRef<{ fn: string; data?: string } | null>(null);
+  const [refreshing, setRefreshing] = useState<string | null>(null);
+  const [backendSystems, setBackendSystems] = useState<Record<string, BackendSystem>>({});
+  const [agentsContext, setAgentsContext] = useState<any[]>([]);
+  const [showAgentsCtx, setShowAgentsCtx] = useState(false);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [workspaceConfig, setWorkspaceConfig] = useState<WorkspaceConfig | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(WORKSPACE_CONFIG_PREF_KEY);
+      if (raw) setWorkspaceConfig(JSON.parse(raw));
+    } catch { /* ignore */ }
+  }, []);
+
+  const applyIfLatest = useCallback((fn: string, data?: string, cb?: (d: any) => void) => {
+    const current = lastReqRef.current;
+    if (!current || current.fn !== fn || (data !== undefined && current.data !== data)) return;
+    if (cb) cb(data);
+  }, []);
+
+  const getModelTier = useCallback((t: 'top' | 'mid' | 'low') => {
+    const map: Record<'top' | 'mid' | 'low', { label: string; hint: string }> = {
+      top: { label: 'Top', hint: 'Best reasoning & quality' },
+      mid: { label: 'Mid', hint: 'Balanced speed & cost' },
+      low: { label: 'Low', hint: 'Fastest & cheapest' },
+    };
+    return map[t];
+  }, []);
+
+  const fetchSystems = useCallback(async () => {
+    if (!window.deskflowAPI?.system?.list) return;
+    try {
+      const res: any = await window.deskflowAPI.system.list();
+      if (res && res.ok && Array.isArray(res.systems)) setBackendSystems(Object.fromEntries(res.systems.map((s: any) => [s.id, s])));
+    } catch (e) { console.warn('NewSessionDialog: system.list failed', e); }
+  }, []);
+
+  const loadSystemStatus = useCallback(async () => {
+    if (!window.deskflowAPI?.system?.status) { setCtxState((s) => ({ ...s, loading: false })); return; }
+    const data = { projectPath, projectId, includeItems: true, agentType: mode === 'create' ? undefined : agentType };
+    try {
+      const res: any = await window.deskflowAPI.system.status(data);
+      applyIfLatest('status', data.projectPath + '|' + data.projectId + '|' + data.agentType, (d) => {
+        if (d && d.ok) {
+          const items: ContextItem[] = d.items || [];
+          setCtxState({ items, graphNodes: d.nodes || [], usedTokens: d.usedTokens || 0, loading: false });
+          setTokenBudget(d.total_token_budget ?? 2000);
+          setPrevNode(d.nodes?.[0] ?? null);
+          setCtxLoadFailed(false);
+        }
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      applyIfLatest('status', data.projectPath + '|' + data.projectId + '|' + data.agentType, () => {
+        setCtxLoadFailed(true);
+        setCtxState({ items: [], graphNodes: [], usedTokens: 0, loading: false, error: msg });
+      });
+    }
+  }, [projectPath, projectId, mode, agentType, applyIfLatest]);
+
+  const verifySystem = useCallback(async (systemId: string) => {
+    if (!window.deskflowAPI?.system?.verify || refreshing) return;
+    setRefreshing(systemId);
+    const data = { systemId, projectPath, projectId, agentType: mode === 'create' ? undefined : agentType };
+    const signal: VerifySignal = { id: systemId, status: 'green', n: Date.now() };
+    lastReqRef.current = { fn: 'verify', data: systemId };
+    setVerifySignal(signal);
+    try {
+      const res: any = await window.deskflowAPI.system.verify(data);
+      applyIfLatest('verify', systemId, (d: any) => {
+        setVerifySignal(d && d.ok ? { id: systemId, status: 'green', n: Date.now() } : { id: systemId, status: 'red', n: Date.now() });
+      });
+    } catch (e) {
+      applyIfLatest('verify', systemId, () => { setVerifySignal({ id: systemId, status: 'red', n: Date.now() }); });
+      console.warn('verify failed', systemId, e);
+    } finally {
+      setRefreshing((r) => (r === systemId ? null : r));
+      fetchSystems();
+    }
+  }, [refreshing, projectPath, projectId, mode, agentType, applyIfLatest, fetchSystems]);
+
+  const loadInitFiles = useCallback(async () => {
+    if (!window.deskflowAPI?.system?.listInitFiles) return;
+    try {
+      const res: any = await window.deskflowAPI.system.listInitFiles({ projectPath });
+      if (res && res.ok && Array.isArray(res.files)) {
+        setInitFiles(res.files.map((f: any) => f.name));
+        const init = res.files.find((f: any) => f.name === 'INITIALIZE.md');
+        if (init && init.content) setInitContent(init.content);
+      }
+    } catch (e) { console.warn('listInitFiles failed', e); }
+  }, [projectPath]);
+
+  const loadAgentsContext = useCallback(async () => {
+    if (!window.deskflowAPI?.system?.getAgentsContext || agentsLoading) return;
+    setAgentsLoading(true);
+    try {
+      const res: any = await window.deskflowAPI.system.getAgentsContext({ projectPath });
+      if (res && res.ok && Array.isArray(res.files)) {
+        setAgentsContext(res.files);
+        const index = res.files.findIndex((f: any) => f.name === 'AGENTS.md');
+        if (index >= 0) {
+          setAgentsContext((prev) => { const copy = [...prev]; copy.splice(index, 1); copy.unshift(res.files[index]); return copy; });
+        }
+      }
+    } catch (e) { console.warn('getAgentsContext failed', e); }
+    finally { setAgentsLoading(false); }
+  }, [projectPath, agentsLoading]);
+
+  const buildPreview = useCallback(() => {
+    if (!window.deskflowAPI?.system?.assemble) {
+      setAgentsContext([]);
+      const { effective } = getPromptParts(projectPrompt, includeDefaultInit ? initContent : '', sessionAdditions);
+      return { prompt: effective, contextConfig: undefined };
+    }
+    try {
+      const { stack, combined, additionsBlock } = getPromptParts(projectPrompt, includeDefaultInit ? initContent : '', sessionAdditions);
+      const params = {
+        projectPath, projectId,
+        agentType: mode === 'create' ? undefined : agentType,
+        initContent: includeDefaultInit ? initContent : '',
+        projectPrompt: projectPrompt ?? '',
+        stack: stack.map((s) => s.label),
+        additions: additionsBlock,
+        combined,
+      };
+      const res: any = window.deskflowAPI.system.assemble(params);
+      if (res && res.ok) {
+        return { prompt: res.prompt, contextConfig: res.contextConfig };
+      }
+      return { prompt: combined, contextConfig: undefined };
+    } catch (e) {
+      const { combined } = getPromptParts(projectPrompt, includeDefaultInit ? initContent : '', sessionAdditions);
+      console.warn('assemble failed, falling back', e);
+      return { prompt: combined, contextConfig: undefined };
+    }
+  }, [projectPath, projectId, mode, agentType, initContent, includeDefaultInit, projectPrompt, sessionAdditions]);
+
+  const handleCreate = useCallback(() => {
+    if (!name.trim() || !mountedRef.current) return;
+    let selectedId = '';
+    if (terminalMode === 'create') {
+      selectedId = `term-${Date.now()}`;
+    } else {
+      const tabs = terminalTabs || {};
+      if (!selectedTerminal && Object.keys(tabs).length === 1) selectedId = Object.keys(tabs)[0];
+      else selectedId = selectedTerminal;
+    }
+    if (!selectedId) return;
+    const { prompt, contextConfig } = buildPreview();
+    const config: SessionConfig = {
+      id: selectedId,
+      name: name.trim(),
+      agentType,
+      terminalMode,
+      selectedTerminal: selectedId,
+      resumeId: resumeId.trim() || undefined,
+      initializeFile: includeDefaultInit ? initializeFile : undefined,
+      customSystemPrompt: prompt || undefined,
+      includeDefaultInit,
+      initContent: includeDefaultInit ? initContent : undefined,
+      modelTier,
+      contextConfig,
+    };
+    onCreate(config);
+  }, [name, terminalMode, terminalTabs, selectedTerminal, buildPreview, agentType, resumeId, initializeFile, includeDefaultInit, initContent, modelTier, onCreate]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    if (!open) {
+      setStep(0); setName(defaultName ?? ''); setTerminalMode(initialTerminalMode || 'create');
+      setSelectedTerminal(initialSelectedTerminal ?? ''); setAgentType(defaultAgent || 'claude');
+      setShowAdvanced(false); setShowPrompt(false); setShowReviewPrompt(true); setShowAll(false);
+      setCtxState({ items: [], graphNodes: [], usedTokens: 0, loading: true }); setPrevNode(null);
+      setCtxLoadFailed(false); setVerifySignal(null); setSessionAdditions('');
+      setInitContent(''); setResumeId(''); setInitializeFile('INITIALIZE.md');
+      setIncludeDefaultInit(true); setLayoutMode('grid'); setModelTier('mid'); setTokenBudget(2000);
+      const ws = workspaceConfig;
+      if (ws?.systems) {
+        const seeded = new Set(['user', 'chat']);
+        Object.keys(ws.systems).forEach((k) => { if (SYSTEM_DEFS.some((d) => d.id === k)) seeded.add(k); });
+        setEnabledNodes(seeded);
+      } else {
+        setEnabledNodes(new Set(['user', 'chat']));
+      }
+      return;
+    }
+    if (!name && defaultName) setName(defaultName);
+    if (!agentType && defaultAgent) setAgentType(defaultAgent);
+    if (!selectedTerminal && initialSelectedTerminal) setSelectedTerminal(initialSelectedTerminal);
+    if (!terminalMode && initialTerminalMode) setTerminalMode(initialTerminalMode);
+    const req = { fn: 'status', data: (projectPath || '') + '|' + (projectId || '') + '|' + (mode === 'create' ? undefined : agentType) };
+    lastReqRef.current = req;
+    setCtxState({ items: [], graphNodes: [], usedTokens: 0, loading: true });
+    fetchSystems();
+    loadSystemStatus();
+    loadInitFiles();
+    if (mode !== 'create') loadAgentsContext();
+    const timer = window.setInterval(() => { loadSystemStatus(); }, 30000);
+    return () => { mountedRef.current = false; window.clearInterval(timer); lastReqRef.current = null; };
+  }, [open, projectPath, projectId, mode, agentType, fetchSystems, loadSystemStatus, loadInitFiles, loadAgentsContext, name, defaultName, defaultAgent, selectedTerminal, initialSelectedTerminal, terminalMode, initialTerminalMode]);
+
+  useEffect(() => { if (!open) return; const cb = () => { lastReqRef.current = null; };
+    window.addEventListener('deskflow:context-update', cb); return () => window.removeEventListener('deskflow:context-update', cb);
+  }, [open]);
+
+  const systems: SystemInfo[] = SYSTEM_DEFS.map((def) => {
+    const back = backendSystems[def.id];
+    const health = deriveHealth(back);
+    return {
+      id: def.id, name: def.name, icon: def.icon, accentColor: def.accentColor,
+      itemCount: back?.itemCount ?? 0,
+      itemLabel: back?.itemLabel ?? def.defaultLabel,
+      lastBuilt: back?.lastBuilt ?? null,
+      maxTokens: def.maxTokens,
+      enabled: enabledNodes.has(def.id),
+      onToggle: () => setEnabledNodes((prev) => { const next = new Set(prev); if (next.has(def.id)) next.delete(def.id); else next.add(def.id); return next; }),
+      health,
+      lastSynced: back?.lastBuilt ?? null,
+      onVerify: () => verifySystem(def.id),
+      refreshing: refreshing === def.id,
+      lastError: back?.error ?? null,
+    };
+  });
+
+  const findSystem = (n: string) => SYSTEM_DEFS.find((d) => d.id === n);
+  const getColor = (n: string) => {
+    if (n === 'user') return '#ffffff';
+    if (n === 'chat') return '#a1a1aa';
+    const sys = findSystem(n);
+    if (!sys) return '#3f3f46';
+    const map: Record<string, string> = { llm_wiki: '#60a5fa', obsidian_skills: '#a78bfa', graphify: '#22d3ee', para: '#2dd4bf', qmd: '#fbbf24', automations: '#fb7185', design_skills: '#f472b6' };
+    return map[n] || '#3f3f46';
+  };
+  const onNodeClick = (n: string) => {
+    if (n === 'user' || n === 'chat') return;
+    setEnabledNodes((prev) => { const next = new Set(prev); if (next.has(n)) next.delete(n); else next.add(n); return next; });
+  };
+  const allNodes = [...new Set([...(ctxState.graphNodes.length ? ctxState.graphNodes : SYSTEM_DEFS.map((d) => d.id)), 'user', 'chat'])];
+  const activeSystems = allNodes.filter((n) => n !== 'user' && n !== 'chat' && enabledNodes.has(n));
+  const ctxSystems = systems;
+  const totalNodes = ctxState.graphNodes.length || 0;
+  const { effective: effectivePrompt } = getPromptParts(projectPrompt, includeDefaultInit ? initContent : '', sessionAdditions);
+  const usedBudget = ctxState.usedTokens || 0;
+  const budgetPct = Math.min(100, Math.round((usedBudget / tokenBudget) * 100));
+  const totalTokens = ctxSystems.reduce((s, c) => s + (c.enabled ? c.maxTokens : 0), 0);
+  const systemCount = totalNodes || ctxState.items.length;
+  const agentsCtx = agentsContext;
+
+  const submitForm = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (step === 0) {
+      if (!name.trim()) return;
+      setStepDir('next'); setStep(1); return;
+    }
+    if (step === 1) {
+      setStepDir('next'); setStep(2); return;
+    }
+    handleCreate();
+  };
+
+  const goBack = () => { if (step === 0) return; setStepDir('back'); setStep(step - 1); };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-lg p-5 max-h-[85vh] overflow-y-auto" style={NSD_ACCENT}>
+        <DialogTitle className="sr-only">New session</DialogTitle>
+        <DialogDescription className="sr-only">Create a new AI agent session</DialogDescription>
+        <div className="relative">
+          <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-xl">
+            <Particles className="absolute inset-0" quantity={22} color="#22d3ee" opacity={0.16} />
+          </div>
+          <div className="relative">
+            <div className="flex items-center gap-3 pr-8 mb-4">
+              <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-cyan-400/10 border border-cyan-400/20 text-cyan-300">
+                <Terminal className="w-4 h-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-[15px] font-semibold text-zinc-100 leading-tight">New Session</h2>
+                <p className="text-[10px] text-zinc-500">{mode === 'create' ? 'Launch a fresh agent in this project' : mode === 'new-agent' ? 'Add an agent to an open terminal' : 'Initialize the workspace context'}</p>
+              </div>
+              {step > 0 && <span className="shrink-0 text-[10px] rounded-md bg-zinc-800/70 border border-zinc-700/50 px-1.5 py-0.5 text-zinc-400">Step {step + 1} of 3</span>}
+            </div>
+
+            <form onSubmit={submitForm}>
+              <div key={step} className={stepDir === 'next' ? 'nsd-slideInRight' : 'nsd-slideInLeft'}>
+                {step === 0 && (
+                  <div className="space-y-3.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Session name</label>
+                      <input
+                        autoFocus value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder={defaultName || 'e.g. Fix the login bug'}
+                        className="w-full rounded-xl border border-zinc-700/60 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none transition-all duration-150 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Agent</label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                        {SUPPORTED_AGENTS.map((a) => (
+                          <button key={a.id} type="button" onClick={() => setAgentType(a.id)}
+                            className={`rounded-xl border px-2 py-1.5 text-[11px] transition-all duration-150 ${agentType === a.id ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200' : 'border-zinc-700/50 bg-zinc-900/40 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                            {a.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Terminal</label>
+                      <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                        <button type="button" onClick={() => setTerminalMode('create')}
+                          className={`rounded-xl border px-2 py-1.5 text-[11px] transition-all duration-150 ${terminalMode === 'create' ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200' : 'border-zinc-700/50 bg-zinc-900/40 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                          Create new terminal
+                        </button>
+                        <button type="button" onClick={() => setTerminalMode('select')} disabled={!terminalTabs || Object.keys(terminalTabs).length === 0}
+                          className={`rounded-xl border px-2 py-1.5 text-[11px] transition-all duration-150 disabled:opacity-40 ${terminalMode === 'select' ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200' : 'border-zinc-700/50 bg-zinc-900/40 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'}`}>
+                          Use open terminal
+                        </button>
+                      </div>
+                      {terminalMode === 'select' && terminalTabs && Object.keys(terminalTabs).length > 0 ? (
+                        <select value={selectedTerminal} onChange={(e) => setSelectedTerminal(e.target.value)}
+                          className="w-full rounded-xl border border-zinc-700/60 bg-zinc-950/60 px-3 py-1.5 text-xs text-zinc-100 outline-none transition-all duration-150 focus:border-cyan-400/50">
+                          {Object.entries(terminalTabs).map(([id, t]) => <option key={id} value={id}>{t.name} ({t.agent})</option>)}
+                        </select>
+                      ) : terminalMode === 'select' ? (
+                        <p className="text-[10px] text-amber-400/80">No terminals are open right now. Pick "Create new terminal" above instead.</p>
+                      ) : null}
+                    </div>
+
+                    <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors duration-150">
+                      <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showAdvanced ? 'rotate-180' : ''}`} />
+                      Advanced Configuration
+                    </button>
+
+                    <button type="button" onClick={() => setShowPrompt(!showPrompt)} className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors duration-150">
+                      <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showPrompt ? 'rotate-180' : ''}`} />
+                      System prompt
+                    </button>
+                    {showPrompt && (
+                      <div className="nsd-fadein space-y-2">
+                        <LayerBar />
+                        <PromptPreview title="Effective system prompt" content={effectivePrompt} defaultContent={DEFAULT_SYSTEM_PROMPT} />
+                      </div>
+                    )}
+
+                    {showAdvanced && (
+                      <div className="nsd-fadein space-y-3 border-t border-zinc-800/60 pt-3">
+                        <div>
+                          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Model tier</label>
+                          <div className="flex items-center gap-1.5" onMouseEnter={() => setTierHint(true)}>
+                            {(['top', 'mid', 'low'] as const).map((t) => (
+                              <button key={t} type="button" onClick={() => setModelTier(t)}
+                                className={`flex-1 rounded-xl border px-2 py-1.5 text-[11px] transition-all duration-150 ${modelTier === t ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200' : 'border-zinc-700/50 bg-zinc-900/40 text-zinc-400 hover:border-zinc-600'}`}>
+                                {getModelTier(t).label}
+                              </button>
+                            ))}
+                          </div>
+                          <p className="mt-1 text-[10px] text-zinc-500">{tierHint ? getModelTier(modelTier).hint : 'Choose the model quality for this session'}</p>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Context systems</label>
+                          <div className="space-y-1.5">
+                            {systems.map((s, i) => (
+                              <SystemToggleCard key={s.id} system={s} verifySignal={verifySignal} index={i} />
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Init content</label>
+                          <div className="flex items-center gap-2">
+                            <label className="flex items-center gap-1.5 text-[11px] text-zinc-400 cursor-pointer">
+                              <input type="checkbox" checked={includeDefaultInit} onChange={(e) => setIncludeDefaultInit(e.target.checked)} className="accent-cyan-400" />
+                              Use default
+                            </label>
+                            {includeDefaultInit && initFiles.length > 0 && (
+                              <select value={initializeFile} onChange={(e) => setInitializeFile(e.target.value)} className="rounded-lg border border-zinc-700/60 bg-zinc-950/60 px-2 py-1 text-[11px] text-zinc-300 outline-none">
+                                {initFiles.map((f) => <option key={f} value={f}>{f}</option>)}
+                              </select>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {step === 1 && (
+                  <div className="space-y-3.5">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[11px] font-medium text-zinc-400">Context map</label>
+                        <div className="flex items-center gap-1">
+                          {(['grid', 'line', 'radial'] as const).map((m) => (
+                            <button key={m} type="button" onClick={() => setLayoutMode(m)}
+                              className={`rounded-md px-1.5 py-0.5 text-[10px] transition-all duration-150 ${layoutMode === m ? 'bg-cyan-400/10 text-cyan-300' : 'text-zinc-600 hover:text-zinc-400'}`}>
+                              {m}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="relative rounded-xl border border-zinc-800/60 bg-zinc-950/60 overflow-hidden">
+                        {ctxState.loading ? (
+                          <div className="h-44 flex items-center justify-center"><Skeleton className="h-3 w-1/3" /></div>
+                        ) : ctxLoadFailed ? (
+                          <div className="h-44 flex flex-col items-center justify-center gap-2 text-zinc-500">
+                            <AlertCircle className="w-4 h-4 text-red-400" />
+                            <span className="text-[11px]">Context status unavailable</span>
+                            <button type="button" onClick={() => { setCtxLoadFailed(false); loadSystemStatus(); }} className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors">Retry</button>
+                          </div>
+                        ) : (
+                          <ContextMapVisualization ctx={ctxState} prevNode={prevNode} allNodes={allNodes} toggleState={(n) => enabledNodes.has(n)} getColor={getColor} SYSTEM_DEFS={SYSTEM_DEFS} activeSystems={activeSystems} findSystem={findSystem} onNodeClick={onNodeClick} layoutMode={layoutMode} svgDim={{ w: 480, h: 170 }} />
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center justify-between">
+                        <span className="text-[10px] text-zinc-600">click nodes to toggle</span>
+                        <div className="flex items-center gap-3 text-[10px] text-zinc-500">
+                          <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />{totalNodes || systemCount} sources</span>
+                          <span className="flex items-center gap-1"><NumberTicker value={usedBudget} direction="up" className="text-cyan-300" />/{tokenBudget} tokens</span>
+                        </div>
+                      </div>
+                      <div className="mt-2 h-1 rounded-full bg-zinc-800 overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-cyan-500/60 to-cyan-400/80 transition-all duration-500" style={{ width: `${budgetPct}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-medium text-zinc-400">Context systems ({systems.filter((s) => s.enabled).length}/{systems.length})</label>
+                      <button type="button" onClick={() => setShowAll(!showAll)} className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors duration-150 underline underline-offset-2">{showAll ? 'Show less' : 'Show all'}</button>
+                    </div>
+                    <div className="space-y-1.5">
+                      {(showAll ? systems : systems.slice(0, 4)).map((s, i) => <SystemToggleCard key={s.id} system={s} verifySignal={verifySignal} index={i} />)}
+                    </div>
+                  </div>
+                )}
+
+                {step === 2 && (
+                  <div className="space-y-3.5">
+                    <div className="rounded-xl border border-zinc-800/60 bg-zinc-900/40 p-3">
+                      <div className="flex items-center gap-3 mb-2">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-zinc-800/60">
+                          <Brain className="w-4 h-4 text-cyan-300" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] text-zinc-100 font-medium truncate">{name.trim() || 'Untitled session'}</div>
+                          <div className="text-[10px] text-zinc-500">{SUPPORTED_AGENTS.find((a) => a.id === agentType)?.name || agentType} · {terminalMode === 'create' ? 'new terminal' : 'existing terminal'} · {getModelTier(modelTier).label}</div>
+                        </div>
+                        <span className="shrink-0 flex items-center gap-1 text-[10px] text-emerald-400"><Check className="w-3 h-3" />Ready</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+                        <span>{ctxState.items.length} context items</span><span className="text-zinc-700">·</span>
+                        <span>{systems.filter((s) => s.enabled).length} systems</span><span className="text-zinc-700">·</span>
+                        <span>{totalTokens}t budget</span>
+                      </div>
+                    </div>
+
+                    <button type="button" onClick={() => setShowReviewPrompt(!showReviewPrompt)} className="flex items-center justify-between w-full rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2">
+                      <span className="flex items-center gap-2 text-[11px] text-zinc-300 font-medium"><ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showReviewPrompt ? 'rotate-180' : ''}`} />System prompt</span>
+                      <LayerBar />
+                    </button>
+                    {showReviewPrompt && (
+                      <div className="nsd-fadein space-y-2">
+                        <PromptPreview title="Effective system prompt" content={effectivePrompt} defaultContent={DEFAULT_SYSTEM_PROMPT} />
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Session additions (optional)</label>
+                      <VoiceInputWrapper>
+                        <textarea value={sessionAdditions} onChange={(e) => setSessionAdditions(e.target.value)}
+                          placeholder="Extra instructions for this session only…" rows={2}
+                          className="w-full rounded-xl border border-zinc-700/60 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-600 outline-none transition-all duration-150 focus:border-cyan-400/50 focus:ring-2 focus:ring-cyan-400/20 resize-none" />
+                      </VoiceInputWrapper>
+                    </div>
+
+                    {agentsCtx.length > 0 && (
+                      <div>
+                        <button type="button" onClick={() => setShowAgentsCtx(!showAgentsCtx)} className="flex items-center justify-between w-full rounded-xl border border-zinc-800/60 bg-zinc-900/40 px-3 py-2">
+                          <span className="flex items-center gap-2 text-[11px] text-zinc-300 font-medium"><ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showAgentsCtx ? 'rotate-180' : ''}`} />Agent context ({agentsCtx.length})</span>
+                          <span className="text-[10px] text-zinc-500">{agentsLoading ? 'Loading…' : `${agentsCtx.length} files`}</span>
+                        </button>
+                        {showAgentsCtx && (
+                          <div className="nsd-fadein mt-1.5 space-y-1">
+                            {agentsCtx.map((f: any) => (
+                              <div key={f.id ?? f.name} className="flex items-center justify-between rounded-lg border border-zinc-800/50 bg-zinc-950/40 px-2 py-1">
+                                <span className="text-[10px] text-zinc-400 truncate">{f.name}</span>
+                                <span className="shrink-0 text-[10px] text-zinc-600">{(f.size ?? 0).toLocaleString()} B</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between mt-5 pt-4 border-t border-zinc-800/60">
+                <div className="flex items-center gap-2">
+                  {step > 0 && (
+                    <button type="button" onClick={goBack} className="flex items-center gap-1 rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-1.5 text-[11px] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-all duration-150">
+                      <ChevronLeft className="w-3 h-3" />Back
+                    </button>
+                  )}
+                  <button type="button" onClick={onClose} className="rounded-lg border border-zinc-700/50 bg-zinc-900/60 px-3 py-1.5 text-[11px] text-zinc-400 hover:border-zinc-600 hover:text-zinc-200 transition-all duration-150">Cancel</button>
+                </div>
+                <button type="submit"
+                  className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-[11px] font-medium transition-all duration-150 ${step < 2 ? 'bg-cyan-400/10 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-400/20' : 'bg-cyan-400 text-zinc-950 hover:bg-cyan-300'}`}>
+                  {step < 2 ? <>Next<ChevronRight className="w-3 h-3" /></> : <>Create session<ChevronRight className="w-3 h-3" /></>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+        <style>{`
+@keyframes nsd-slideUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes nsd-slideInRight { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes nsd-slideInLeft { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes nsd-fadein { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nsd-beam-flow { to { stroke-dashoffset: -18; } }
+.nsd-anim { animation: nsd-slideUp 0.3s ease-out both; }
+.nsd-slideInRight { animation: nsd-slideInRight 0.22s ease-out both; }
+.nsd-slideInLeft { animation: nsd-slideInLeft 0.22s ease-out both; }
+.nsd-fadein { animation: nsd-fadein 0.2s ease-out both; }
+.nsd-beam { animation: nsd-beam-flow 1.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .nsd-anim, .nsd-slideInRight, .nsd-slideInLeft, .nsd-fadein, .nsd-beam { animation: none !important; }
+}
+`}</style>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+

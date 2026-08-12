@@ -2,9 +2,121 @@
 
 **Purpose:** Complete inventory of every page and feature in DeskFlow app.
 
-**Last Updated:** 2026-08-09
+**Last Updated:** 2026-08-12
+
+## 2026-08-12 — Clement Overlay Studio (Video Intelligence)
+- **Route:** /studio (Sparkles icon, 'Overlay Studio')
+- **Full spec:** agent/docs/clement-overlay-studio-context.md (all3 versions)
+- **Pipeline:** video → ffmpeg → faster-whisper → transcript.json → Ollama → cut_plan.json → human approve → ffmpeg lossless cut → kept segments → Ollama → scene_dsl.json → renderer dispatch → cards/diagrams/timeline.json
+- **Built:** overlayStudio.ts (types/tokens), overlayPrompts.ts (3 prompts), overlayParser.ts (parse pipeline), IPC handler, preload wrapper
+- **Not built:** 4-tab page rewrite, transcript upload UI, cut plan timeline, scene DSL preview, Manual Bridge wizard, Python backend, renderer registry
+- **Manual Bridge:** copy prompt → paste into any web AI → paste back → app validates + repairs
+
+## 2026-08-12 — Feature Studio AI Director Pipeline
+- **Route:** /studio (App.tsx sidebar, Sparkles icon)
+- **Prompt Engine:** Director system prompt constrains AI to DynamicUIComponent JSON schema (7 renderable types: card/chart/list/form/stat/table/timeline)
+- **AI Provider Chain:** feature-studio:compile IPC handler runs buildChain + runWithFallback in main process; renderer calls via featureStudioCompile(script)
+- **JSON Extraction:** extractJsonFromAIResponse handles direct parse + \\\json fences + brace-matching fallback
+- **Validation:** validateDirectorOutput checks type/title/data.kind/accent/size per component with strict error messages
+- **Rendering:** DynamicCardRenderer handles all 7 types with charts, sparklines, tables, timelines, lists, forms, stats
+- **Modes:** AI Generate (script → IPC → parse → render) and Manual JSON (paste → validate → render)
+- **Export:** JSON file download + save to AI canvas component library
+
+## 2026-08-12 — AI Canvas Setup Context System (RESULT.md R1–R5, opencode-term-1-setup cycle 3)
+- **R1 Default Canvas Setup:** DefaultSetupConfig in types/canvas.ts, DefaultSetupDialog (LayoutTemplate, z-220), clearAll seeds from setup + canvasEpoch; New Canvas blank bug FIXED
+- **R2/R4 Card UX:** shared CardFrame + StateView (4 states each), 8 cards migrated + ReflectCard/AnnotationCard/DynamicCard states; digest error wiring (R3)
+- **R5 Knowledge Base:** knowledge-store.ts (deskflow-kb.json + BM25), kb:ingest/query/list/remove IPC, Settings import UI + test retrieval, AiPage KB context injection
 
 **Maintainer:** AI Development Team
+
+---
+
+## NEW: Workspace New Session trigger hardening — 2026-08-12
+
+| # | Feature | Status | Where |
+|---|---|---|---|
+| WS1 | Revamped workspace New Agent event accepts the embedded workspace's `propProjectId`; dialog receives the effective project ID/path | AI Attempted Fix (build OK, runtime NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
+| WS2 | Work → Sessions → New Session explicitly resets create mode before opening the shared dialog | AI Attempted Fix (build OK, runtime NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
+
+---
+
+## NEW: Default Canvas Setup + Card UX state pass — 2026-08-12 (session opencode-term-1-setup)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| DC1 | Default Canvas Setup dialog: 4-category card toggles (Core/Content/Tools/Special), smart layout (builtin pos/size else 4-col grid), Save/Reset-to-builtin, Esc/Enter, custom-styled (no browser dialogs), "Setup saved" feedback | Implemented (build OK, NOT LAUNCHED) | `src/components/ai/canvas/CanvasSetupDialog.tsx` |
+| DC2 | Persistence: saveDefaultSetup/loadDefaultSetup/clearDefaultSetup + CanvasSetupEntry {type,position,size,pinned} in localStorage `df-canvas-default-setup`; AiPage seeding prefers user setup over builtin layout; CanvasContainer toolbar Sliders button opens dialog | Implemented (build OK, NOT LAUNCHED) | `src/services/canvasPersistence.ts`, `src/pages/AiPage.tsx:752`, `src/components/ai/canvas/CanvasContainer.tsx:297` |
+| DC3 | Shared card state views: CardEmptyState/CardErrorState/CardLoadingState; FocusCard/PlanCard/FinanceCard/DigestCard upgraded to 4-state UX (empty icon+message, error, shimmer loading) | Implemented (build OK, NOT LAUNCHED) | `src/components/ai/canvas/cards/CardStates.tsx` + `cards.css` |
+
+## NEW: Lyceum visuals upgrade — MermaidBlock ZoomPan + PendingIllustrationsPanel checklist — 2026-08-11 (session opencode-term-1-gaia)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | ZoomPan.tsx rewritten: auto-fit-to-square on mount + ResizeObserver (content + container) resets fit unless user interacted; arrow buttons (↑↓←→) + arrow-key panning; wheel zoom (native passive:false); drag pan (5px threshold); +/-/fit/fullscreen toolbar | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/ZoomPan.tsx` |
+| F2 | MermaidBlock wrapped in ZoomPan; SVG max-width stripped (`removeProperty('max-width')` + `maxWidth='none'`); `preserveAspectRatio` preserved | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/MermaidBlock.tsx` |
+| F3 | mermaidLoader: `flowchart.useMaxWidth: false`, `sequence.useMaxWidth: false` — diagrams render at natural pixel width instead of locking to container | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/mermaidLoader.ts` |
+| F4 | PendingIllustrationsPanel: checklist UI — `CheckSquare`/`Square` icons per card (emerald checked = inserted, grey unchecked = pending); progress bar (amber pending, emerald when done); header shows "X/Y inserted" | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/PendingIllustrationsPanel.tsx` |
+| F5 | User request tracked: illustration workflow = show prompt with copy button + manual image insert + list of not-yet-inserted images + checklist of inserted vs not | Feature spec (tracked) | User request 2026-08-11 |
+
+## NEW: Life River Feature Overhaul — back-and-forth collaboration started 2026-08-11
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| LR1 | VoiceInputWrapper not connected to PhaseFormDialog text inputs — used in 25+ other places but zero in life-river | Bug / missing feature | `src/components/life-river/phase-form-dialog.tsx` |
+| LR2 | "Save as draft" button saves to DB immediately — no draft status column, no draft list UI, no resume flow | Missing feature | `src/components/life-river/phase-form-dialog.tsx` + DB schema |
+| LR3 | Lens switcher (Phases/Covenant/Gold/Memories) is LOCAL state in CoreSample — does not propagate to LifePage, so changing lens only affects RingCanvas | Architecture gap | `src/components/life-river/CoreSample.tsx` |
+| LR4 | No way to add memories/covenant/gold from River mode — must switch to Pages mode | Missing feature | `src/features/warmth/LifePage.tsx` |
+| LR5 | Lens switching should affect the entire page UI, not just the ring visualization | Design gap | CoreSample + LifePage |
+| LR6 | RiverCanvas visualization too small — needs to be bigger/more prominent | UI polish | `src/components/life-river/river-canvas.tsx` |
+| LR7 | No edit button on visualization elements — clicking rings scrolls to PhaseCard but no direct edit | UX gap | RingCanvas, RiverMap |
+| LR8 | Need unified add button that adapts based on active lens (phase/covenant/gold/memories) | New feature | LifePage + CoreSample |
+| — | Collaboration package created | In progress | `agent/docs/backandfourth-docs/life-river-overhaul/` |
+
+---
+
+## NEW: TUI prompt-insertion fix (Idle-Settle heuristic + verified writes) — 2026-08-10 (session opencode-term-1-nsdlg) — from RESULT.md tui-prompt-insertion-10082026
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | `isTuiSettled` replaces `hasEnoughAgentOutputToAcceptInput`: ≥150 bytes buffer + last line not shell + PTY idle ≥500ms (lastOutputAt reset on every chunk) — readiness no longer depends on fragile `>` regex or bracketed-paste config | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `isTuiSettled` (~L11183) |
+| F2 | Write verification: `agent:send` starts 2.5s timer after direct write; new PTY output while `busy` → `[AGENT-VERIFY] Write confirmed`, broadcast `agent:write-verified` + agent:idle + ai-task:updated, phase→ready; timeout → retry `\r`+payload once, then `[AGENT-VERIFY] Retry failed` → phase=error + `agent:write-failed` broadcast | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `agent:send` handler + both PTY data callbacks |
+| F3 | Launching transition = `detectAgentPrompt(...) \|\| isTuiSettled(st)` with `[AGENT-SETTLE]` log; handshake-based `isAgentReady`/`handshakeSeen` removed from callbacks | Implemented (build OK, NOT LAUNCHED) | src/main.ts — terminal:create + spawn-terminal data handlers |
+| F4 | Blind 5s force-ready REMOVED from `startAgentTimeout`; hard error timeout 30s→15s | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `startAgentTimeout` |
+| F5 | AgentState gains `lastOutputAt` + `verifyTimeout`; `agent:send` returns `{success, queued, written, verified, error?}` | Implemented (build OK, NOT LAUNCHED) | src/main.ts — AgentState, agent:send |
+| F6 | Renderer: DUMMY ENTER fallback removed from `initializeTerminal` (now 300ms settle only); init-prompt send no longer logs mode; waits on backend broadcast | Implemented (build OK, NOT LAUNCHED) | src/pages/TerminalPage.tsx (~L1130) |
+| F7 | `agentSend` declared in `src/types/deskflow-api.d.ts` with expanded return type (was missing entirely) | Implemented (build OK) | src/types/deskflow-api.d.ts |
+
+---
+
+## NEW: NewSessionDialog — 3-step wizard rebuild (name/agent → context map → review) — 2026-08-10 (session opencode-term-1-nsdlg)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | 3-step wizard: Step 0 name/agent/terminal + "System prompt" collapsible (LayerBar + PromptPreview of effectivePrompt); Step 1 ContextMapVisualization + system toggles with live health (system.status/verify IPC, 30s polling, applyIfLatest flash); Step 2 session review with prompt preview + session additions feeding getPromptParts | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
+| F2 | Backend contract preserved: system.status/verify, listInitFiles, getAgentsContext, assemble, `deskflow:context-update` listener, advanced config toggles; SessionConfig.customSystemPrompt carries assembled prompt (`prompt \|\| undefined`) | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
+| F3 | Named export `export function NewSessionDialog` + `export interface SessionConfig` — TerminalPage.tsx:10 imports `{ NewSessionDialog, type SessionConfig }` (default export breaks vite build) | Implemented (build OK) | `src/components/NewSessionDialog.tsx`, `src/pages/TerminalPage.tsx` |
+| F4 | Visual layer: base-ui Dialog shell, NSD_ACCENT (`--page-accent`) override, sr-only title/description, staggered nsd-* entrance animations (slideUp/slideInRight/Left/fadein/beam-flow) with prefers-reduced-motion guard; VoiceInputWrapper used as direct child (no render-prop) | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
+| F5 | Step 1 systems list honors `showAll` (slice(0,4) unless expanded); tier row onMouseEnter → tierHint; workspaceConfig seeds enabledNodes from WORKSPACE_CONFIG_PREF_KEY | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
+
+---
+
+## NEW: Multi-gap fill — select multiple gaps, fill with one composition scaled per gap — 2026-08-10 (session opencode-term-1-mojib)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Gaps list multi-select: per-row checkbox (aria-pressed, only when `onFillGaps` provided), sticky footer bar "N selected • Xm" with Select all / Clear / "Fill N gaps" (opens the composition editor once) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapsListModal.tsx` — `selected` Map state, `toggleGap`, footer bar |
+| F2 | GapFillModal multi-gaps mode (`multiGaps` prop): header "Fill N Gaps" + untracked total + "Same composition, scaled to each gap's length" hint; reference gap = `multiGaps[0]` for the editor; sequential submit with "Filling X/N…" progress; partial failures keep the modal open and RETRY targets only the failed gaps (no double-fill) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapFillModal.tsx` — `referenceGap`/`isMulti`, `fillProgress`, `failedGaps` retry list |
+| F3 | `scaleSegmentsToGap(segments, targetSeconds)` pure helper: drops null-activity segments, proportional scaling (floor ≥1 min, rounding remainder to LAST segment), never renormalizes; fillGapWithSegments clips overshoot | Implemented (build OK, node harness 10/10 PASS) | `src/lib/external/gaps.ts` |
+| F4 | ExternalPage wiring: `gapTargets` state, GapsListModal `onFillGaps` → close list → open GapFillModal with `multiGaps`; single-gap "Fill" flow unchanged | Implemented (build OK, NOT LAUNCHED) | `src/pages/ExternalPage.tsx` (~L3140-3180) |
+
+---
+
+## NEW: Finance Monthly Recap — Spending by Category section — 2026-08-09 (session opencode-term-1-hmap)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | `computeRecapStats` (main.ts:25810) now returns `spendingByCategory` — ALL categories (no LIMIT) via LEFT JOIN with `'Uncategorized'`/`'#888888'` fallbacks, alongside `topCategories`; AI prompt (`buildRecapUserMessage` ~25898) uses the full list when present, falls back to `topCategories` | Implemented (build OK, NOT LAUNCHED) | src/main.ts — spendingByCategory query + prompt injection |
+| F2 | RecapPanel "Spending by Category" section: doughnut (cutout 72%, hoverOffset 6) with center total overlay + "spent", animated horizontal bars (motion width, stagger 0.05*i, ease [0.16,1,0.3,1], h-1.5 tracks), top 6 + "Other" lump (#71717a), glass tooltip; legacy recaps fall back to `stats.topCategories`; empty → null | Implemented (build OK, NOT LAUNCHED) | src/components/finance/RecapPanel.tsx — `renderSpendingByCategory()` after `renderStatsGrid()`, before `renderOnBehalf()`; ArcElement + ChartTooltip registered locally |
 
 ---
 
@@ -1307,3 +1419,11 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - **Backend:** `finance_monthly_recaps` table (month UNIQUE), 5 IPC `finance:recap-{list,get,generate,delete,months-with-data}`, auto-gen `checkMonthlyRecaps` (prev calendar month, whenReady + every 6h)
 - **AI:** narrative via provider chain (`buildChain` feature 'monthlyRecap') or OpenRouter fallback (`ai_briefModel`); stats frozen in `stats_json` with generation-time display currency, converted live in UI
 - **Docs:** spec at `agent/docs/generate-prompt-docs/finance-monthly-recap-07082026/RESULT.md`
+
+## NEW: Speech-to-text engine fallback chain - 2026-08-10 (session opencode-term-1-stt1)
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| F1 | Engine chain: Cloud API (when ` sttApiKey ` pref set) -> Windows native (System.Speech via powershell.exe) -> browser webkit; resolved via one ` stt:get-status ` call | Implemented (build OK, NOT LAUNCHED) | src/main.ts ~L5580 (STT block), src/lib/stt.ts (new), src/hooks/useVoiceInput.ts, src/components/VoiceInputWrapper.tsx |
+| F2 | IPC: ` stt:get-status ` (engine/apiConfigured/nativeAvailable/label), ` stt:transcribe ` (FormData multipart to Groq-style endpoint, Bearer auth, min 512-byte audio = 'No speech detected'), ` stt:native-start `/` stt:native-stop ` (PS1 written to userData/stt-native.ps1, parsed JSON forwarded as ` stt-native-event `) | Implemented (build OK) | src/main.ts 5624-5714, src/preload.ts 97-101, src/types/deskflow-api.d.ts |
+| F3 | New free-form prefs ` sttApiKey `/` sttBaseUrl ` (default https://api.groq.com/openai/v1/audio/transcriptions)/` sttModel ` (default whisper-large-v3-turbo); Settings -> General -> Voice & Speech card (password eye-toggle, immediate save, fallback-chain explainer) | Implemented (build OK) | src/pages/SettingsPage.tsx (General tab, end of section) |

@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Clock, CheckCircle2, Monitor, Search } from 'lucide-react';
+import { Plus, X, Clock, CheckCircle2, Monitor, Search, Target } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Select, SelectItem } from '../ui/select';
+import { FocusGroupSelect } from './FocusGroupSelect';
 import type { GoalCategory, GoalTarget, GoalPeriod } from '../dashboard/types';
 
 export interface CriteriaForm {
@@ -18,7 +19,7 @@ export interface CriteriaForm {
   detectionMode: 'positive' | 'avoidance';
   detectionKeywords: string;
   detectionMinMinutes: number;
-  parentId: string;
+  parentIds: string[];
   links: { label: string; url: string }[];
 }
 
@@ -40,16 +41,52 @@ const CATEGORIES: { value: GoalCategory; label: string; color: string }[] = [
   { value: 'relationships', label: 'Relationships', color: 'text-rose-400' },
 ];
 
-const APP_CATEGORIES = [
-  { value: 'IDE', label: 'IDE / Code Editor' },
-  { value: 'AI Tools', label: 'AI Tools' },
-  { value: 'Browser', label: 'Browser' },
-  { value: 'Productivity', label: 'Productivity' },
-  { value: 'Communication', label: 'Communication' },
-  { value: 'Design', label: 'Design' },
-  { value: 'Entertainment', label: 'Entertainment' },
-  { value: 'Education', label: 'Education' },
-];
+export function LTGPicker({
+  longTermGoals, value, onChange,
+}: {
+  longTermGoals: { id: string; title: string }[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const toggle = (id: string) => {
+    onChange(value.includes(id) ? value.filter(v => v !== id) : [...value, id]);
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-[11px] text-zinc-500 block">
+        Link to long-term goals {value.length > 0 && <span className="text-violet-400">({value.length} selected)</span>}
+      </label>
+      <div className="space-y-1 max-h-[180px] overflow-y-auto pr-1">
+        {longTermGoals.map(ltg => {
+          const selected = value.includes(ltg.id);
+          return (
+            <button
+              type="button"
+              key={ltg.id}
+              onClick={() => toggle(ltg.id)}
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-left transition-colors ${
+                selected
+                  ? 'bg-violet-500/15 border-violet-500/40 text-violet-200'
+                  : 'bg-zinc-900/60 border-zinc-700/50 text-zinc-300 hover:border-zinc-600'
+              }`}
+            >
+              <span className={`w-3.5 h-3.5 rounded flex items-center justify-center shrink-0 border transition-colors ${
+                selected ? 'bg-violet-500 border-violet-500' : 'border-zinc-600'
+              }`}>
+                {selected && <CheckCircle2 size={9} className="text-white" />}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-[12px] truncate">{ltg.title}</span>
+              </span>
+              <Target size={11} className={`shrink-0 ${selected ? 'text-violet-400' : 'text-zinc-600'}`} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function CriteriaBuilder({ value, onChange, onSave, onCancel, longTermGoals, isEditing }: CriteriaBuilderProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -130,24 +167,22 @@ export function CriteriaBuilder({ value, onChange, onSave, onCancel, longTermGoa
 
       {value.targetType === 'time' && (
         <div>
-          <label className="text-[11px] text-zinc-500 mb-1 block">Track time spent in category:</label>
-          <Select value={value.matchCategory || ''} onValueChange={v => update({ matchCategory: v })} className="w-full">
-            <SelectItem value="">Any app (total tracked time)</SelectItem>
-            {APP_CATEGORIES.map(c => (
-              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-            ))}
-          </Select>
-          <p className="text-[10px] text-zinc-600 mt-1">Auto-track progress from foreground app usage.</p>
+          <FocusGroupSelect
+            label="Track time spent in focus group"
+            value={value.matchCategory || ''}
+            onValueChange={v => update({ matchCategory: v })}
+            className="w-full"
+          />
+          <p className="text-[10px] text-zinc-600 mt-1">Progress counts completed focus sessions of the group.</p>
         </div>
       )}
 
       {longTermGoals.length > 0 && (
-        <Select value={value.parentId} onValueChange={v => update({ parentId: v })} className="w-full">
-          <SelectItem value="">Link to long-term goal (optional)</SelectItem>
-          {longTermGoals.map(ltg => (
-            <SelectItem key={ltg.id} value={ltg.id}>{ltg.title}</SelectItem>
-          ))}
-        </Select>
+        <LTGPicker
+          longTermGoals={longTermGoals}
+          value={value.parentIds}
+          onChange={ids => update({ parentIds: ids })}
+        />
       )}
 
       <button

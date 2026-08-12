@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Code2, BookOpen, Edit3, Trash2, Copy, Check, ChevronDown, AlertCircle, Loader2, FileText } from 'lucide-react';
-import { CURRICULUM_BLUEPRINT } from '../../services/learn/curriculum';
+import { CURRICULUM_TOPICS, getTopic, getTopicsByBranch } from '../../services/learn/curriculum';
 import type { LessonSummary } from '../../shared/learn/types';
 
 const api = (window as any).deskflowAPI;
@@ -33,7 +33,7 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [existingChapters, setExistingChapters] = useState<string[]>([]);
 
-  const part = lesson ? CURRICULUM_BLUEPRINT.find(p => p.part === lesson.part) : undefined;
+  const part = lesson ? getTopic(lesson.part) : undefined;
 
   useEffect(() => {
     if (open && lesson) {
@@ -327,9 +327,9 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">Curriculum Part</label>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">Topic</label>
                   <div className="flex flex-wrap gap-1.5">
-                    {CURRICULUM_BLUEPRINT.map((p) => (
+                    {(lesson?.branch_id ? getTopicsByBranch(lesson.branch_id) : CURRICULUM_TOPICS).map((p) => (
                       <button
                         key={p.part}
                         onClick={() => setEditPart(p.part)}
@@ -339,7 +339,7 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
                             : 'bg-zinc-800/40 text-zinc-500 border-zinc-700/40 hover:border-zinc-600/60 hover:text-zinc-300'
                         }`}
                       >
-                        {p.emoji} {p.part}
+                        {p.emoji} {p.title}
                       </button>
                     ))}
                   </div>

@@ -5,6 +5,7 @@ import { ipcMain, dialog, app, BrowserWindow } from 'electron';
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 import type Database from 'better-sqlite3';
+import * as repo from './db/repo';
 import { runMigration } from './db/repo';
 import { ContentService } from './services/content.service';
 import { ImportService } from './services/import.service';
@@ -19,71 +20,20 @@ import { validateFull } from './validator/validate';
 import { toLdoc } from './lessonInput';
 import { LessonMarkdownError } from './parseLessonMarkdown';
 
-/** Pull the outermost {...} out of an LLM response, dropping fences/prose. */
-function extractJsonObject(raw: string): string {
-  let s = raw.trim();
-  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-  const first = s.indexOf('{');
-  const last = s.lastIndexOf('}');
-  if (first !== -1 && last !== -1 && last > first) s = s.slice(first, last + 1);
-  return s.trim();
-}
-
-/** Remove trailing commas before } or ]. */
-function stripTrailingCommas(s: string): string {
-  return s.replace(/,\s*([}\]])/g, '$1');
-}
-
-/** Defensive parse: raw → extracted → comma-stripped. Clear error on failure. */
-function parseLessonJson(raw: string):
-  | { ok: true; data: unknown }
-  | { ok: false; error: string } {
-  const attempts = [
-    raw,
-    extractJsonObject(raw),
-    stripTrailingCommas(raw),
-    stripTrailingCommas(extractJsonObject(raw)),
-  ];
-  for (const candidate of attempts) {
-    try {
-      return { ok: true, data: JSON.parse(candidate) };
-    } catch {
-      /* try next */
-    }
-  }
-  const cleaned = stripTrailingCommas(extractJsonObject(raw));
-  try {
-    return { ok: true, data: JSON.parse(cleaned) };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return {
-      ok: false,
-      error: `AI output was not valid JSON even after sanitisation: ${msg}. ` +
-        `Cleaned preview (first 200 chars): ${cleaned.slice(0, 200)}`,
-    };
-  }
-}
-
 /**
  * Accept either compiled .ldoc JSON or raw .lmd Markdown and return an LdocDocument.
- * Detection: JSON documents start with '{'. Everything else is treated as .lmd
- * (which by spec starts with a '---' frontmatter fence).
+ * Detection is delegated to lessonInput.toLdoc, which also strips a BOM, an outer
+ * code fence (```lmd ... ```), and any preamble before the frontmatter.
  */
 function toLdocDocument(raw: string):
   | { ok: true; data: import('../../shared/learn/types').LdocDocument }
   | { ok: false; error: string } {
-  const trimmed = raw.trimStart();
-  if (trimmed.startsWith('{')) {
-    const parsed = parseLessonJson(raw);
-    if (!parsed.ok) return parsed;
-    return { ok: true, data: parsed.data as import('../../shared/learn/types').LdocDocument };
-  }
   try {
-    const { parseLessonMarkdown } = require('./parseLessonMarkdown');
-    return { ok: true, data: parseLessonMarkdown(raw) };
+    const result = toLdoc(raw);
+    return { ok: true, data: result.doc };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: `Could not compile .lmd lesson: ${msg}` };
+    return { ok: false, error: `Could not compile lesson: ${msg}` };
   }
 }
 
@@ -202,19 +152,41 @@ export function registerLearnHandlers(
 
   // ── Content ──
 
-  ipcMain.handle('learn:listLessons', (_event, { part }: { part?: number } = {}) => {
-    return content.listLessons(part);
+  ipcMain.handle('learn:listLessons', (_event, { branchId, part, chapter, subtopic }: { branchId?: string; part?: number; chapter?: string; subtopic?: string } = {}) => {
+    return content.listLessons({ branchId, part, chapter, subtopic });
   });
 
-  ipcMain.handle('learn:listChapters', (_event, { part }: { part?: number } = {}) => {
+  ipcMain.handle('learn:listGroups', (_event, { branchId, part }: { branchId?: string; part?: number } = {}) => {
     try {
-      let rows: any[];
-      if (part != null) {
-        rows = db.prepare("SELECT DISTINCT chapter FROM learn_lessons WHERE part = ? AND chapter != '' ORDER BY chapter").all(part);
-      } else {
-        rows = db.prepare("SELECT DISTINCT chapter, part FROM learn_lessons WHERE chapter != '' ORDER BY part, chapter").all();
-      }
+      const rows = repo.listGroups(db, { branchId, part });
       return { ok: true, data: rows.map((r: any) => r.chapter) };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // Deprecated alias — kept for older renderer builds
+  ipcMain.handle('learn:listChapters', (_event, { branchId, part }: { branchId?: string; part?: number } = {}) => {
+    try {
+      const rows = repo.listGroups(db, { branchId, part });
+      return { ok: true, data: rows.map((r: any) => r.chapter) };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:listBranches', () => {
+    try {
+      return { ok: true, data: repo.listBranches(db) };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:getTopicsByBranch', (_event, { branchId }: { branchId: string }) => {
+    try {
+      const { getTopicsByBranch } = require('./curriculum');
+      return { ok: true, data: getTopicsByBranch(branchId) };
     } catch (e: any) {
       return { ok: false, error: e.message };
     }
@@ -228,8 +200,8 @@ export function registerLearnHandlers(
     return content.getNode(nodeId);
   });
 
-  ipcMain.handle('learn:getGraph', (_event, { part }: { part?: number } = {}) => {
-    return content.getGraph(part);
+  ipcMain.handle('learn:getGraph', (_event, { branchId, part }: { branchId?: string; part?: number } = {}) => {
+    return content.getGraph({ branchId, part });
   });
 
   // ── Tutor ──
@@ -386,6 +358,8 @@ export function registerLearnHandlers(
     numNodes?: number;
     masteryTargets?: string[];
     chapter?: string;
+    branchId?: string;
+    subtopic?: string;
   }) => {
     // Use composed prompt library when available
     const readResource = (rel: string) => {
@@ -394,13 +368,13 @@ export function registerLearnHandlers(
     };
 
     const { loadPromptLibrary, composeAuthorSystemPrompt, composeTopicUserPrompt, selectKnowledgeForTopic, composeKnowledgeContextBlock } = require('./promptLibrary');
-    const { CURRICULUM_BLUEPRINT } = require('./curriculum');
+    const { CURRICULUM_TOPICS, getTopicBySlug } = require('./curriculum');
 
     const lib = loadPromptLibrary(readResource);
 
     // Determine curriculum part from topic slug
     const part = params.topic
-      ? CURRICULUM_BLUEPRINT.find((p: any) => p.slug === params.topic || p.title === params.topic)
+      ? CURRICULUM_TOPICS.find((p: any) => p.slug === params.topic || p.title === params.topic)
       : undefined;
 
     const profile = loadLearnerProfile(db);
@@ -444,6 +418,25 @@ export function registerLearnHandlers(
       }
     }
 
+    // ── Hierarchy placement (branch → group → topic → subtopic) ──
+    const branchInfo = params.branchId
+      ? repo.listBranches(db).find((b: any) => b.id === params.branchId)
+      : undefined;
+    const branchLabel = branchInfo ? `${branchInfo.emoji} ${branchInfo.title}` : (params.branchId || 'cs-ai');
+    const topicLabel = part ? part.title : (params.topic || '');
+    const groupLabel = params.chapter?.trim() || '';
+    const subtopicLabel = params.subtopic?.trim() || '';
+
+    if (branchLabel || topicLabel || groupLabel || subtopicLabel) {
+      userPrompt += `\n\n--- HIERARCHY PLACEMENT (HARD REQUIREMENT) ---\nThe learner has chosen to place this lesson in the following hierarchy. Include ALL of these fields in the lesson metadata with EXACTLY these values:\n`;
+      userPrompt += `- branch: ${JSON.stringify(branchLabel)}\n`;
+      if (topicLabel) userPrompt += `- part: ${part?.part ?? ''} (topic: ${JSON.stringify(topicLabel)})\n`;
+      else if (part?.part != null) userPrompt += `- part: ${part.part} (topic: ${JSON.stringify(part.title)})\n`;
+      if (groupLabel) userPrompt += `- chapter (group): ${JSON.stringify(groupLabel)}\n`;
+      if (subtopicLabel) userPrompt += `- subtopic: ${JSON.stringify(subtopicLabel)}\n`;
+      userPrompt += `Do NOT invent a different branch, topic, group, or subtopic than the ones listed here. If a field is not listed, you may omit it or propose a fitting value.`;
+    }
+
     // Inject all published node IDs so the AI can use exact slugs in @prereq lines
     const allNodes = db.prepare(
       'SELECT n.id, n.title, l.part FROM learn_nodes n JOIN learn_lessons l ON n.lesson_id = l.id ORDER BY l.part, n.id'
@@ -456,24 +449,27 @@ export function registerLearnHandlers(
 
     if (params.chapter && params.chapter.trim()) {
       const chosen = params.chapter.trim();
-      userPrompt += `\n\n--- CHAPTER ASSIGNMENT (HARD REQUIREMENT) ---\nThe learner has explicitly chosen to place this lesson in the chapter/group: "${chosen}".\nIMPORTANT: Include a "chapter" field in the lesson metadata with EXACTLY this name: ${JSON.stringify(chosen)}. Do NOT use a different chapter name or invent one.`;
+      userPrompt += `\n\n--- GROUP ASSIGNMENT (HARD REQUIREMENT) ---\nThe learner has explicitly chosen to place this lesson in the group: "${chosen}".\nIMPORTANT: Include a "chapter" field in the lesson metadata with EXACTLY this name: ${JSON.stringify(chosen)}. Do NOT use a different chapter name or invent one.`;
     } else {
-      // Inject existing chapters so the AI can assign lessons to them or suggest new ones
-      const existingChapters = db.prepare(
-        "SELECT DISTINCT chapter, part FROM learn_lessons WHERE chapter != '' ORDER BY part, chapter"
-      ).all() as any[];
+      // Inject existing groups so the AI can assign lessons to them or suggest new ones
+      const existingChapters = repo.listGroups(db, { branchId: params.branchId, part: part?.part });
       if (existingChapters.length > 0) {
         const chapterList = existingChapters.map((c: any) => `  Part ${c.part}: "${c.chapter}"`).join('\n');
-        userPrompt += `\n\n--- EXISTING CHAPTERS (assign this lesson to one of these if it fits, otherwise create a new chapter name) ---\n${chapterList}\n`;
-        userPrompt += `\nIMPORTANT: Include a "chapter" field in the lesson metadata with the chapter name you chose.`;
+        userPrompt += `\n\n--- EXISTING GROUPS (assign this lesson to one of these if it fits, otherwise create a new group name) ---\n${chapterList}\n`;
+        userPrompt += `\nIMPORTANT: Include a "chapter" field in the lesson metadata with the group name you chose.`;
       } else {
-        userPrompt += `\n\nIMPORTANT: Include a "chapter" field in the lesson metadata with a descriptive chapter name for this lesson (e.g. "Introduction", "Core Concepts", "Advanced Topics").`;
+        userPrompt += `\n\nIMPORTANT: Include a "chapter" field in the lesson metadata with a descriptive group name for this lesson (e.g. "Introduction", "Core Concepts", "Advanced Topics").`;
       }
+    }
+
+    if (params.subtopic && params.subtopic.trim()) {
+      userPrompt += `\n\nIMPORTANT: Include a "subtopic" field in the lesson metadata with EXACTLY: ${JSON.stringify(params.subtopic.trim())}.`;
     }
 
     const fullPrompt = systemPrompt + '\n\n---\n\n' + userPrompt;
     return {
       ok: true, prompt: fullPrompt, systemPrompt, userPrompt,
+      hierarchy: { branch: branchLabel, part: part?.part ?? null, topic: topicLabel, chapter: groupLabel, subtopic: subtopicLabel },
       knowledgeUsed: {
         entries: knowledge.entries.map((e: any) => ({ id: e.id, statement: e.statement, topic: e.topic, level: e.level })),
         relatedTopics: knowledge.relatedParts.map((p: any) => ({ part: p.part, title: p.title, emoji: p.emoji })),
@@ -687,7 +683,7 @@ export function registerLearnHandlers(
     }
   });
 
-  ipcMain.handle('learn:updateLessonMeta', async (_event, args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string }) => {
+  ipcMain.handle('learn:updateLessonMeta', async (_event, args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string; branchId?: string; subtopic?: string }) => {
     try {
       const updates: string[] = ['updated_at = ?'];
       const params: any[] = [new Date().toISOString()];
@@ -695,18 +691,22 @@ export function registerLearnHandlers(
       if (args.part !== undefined) { updates.push('part = ?'); params.push(args.part); }
       if (args.summary !== undefined) { updates.push('summary = ?'); params.push(args.summary); }
       if (args.chapter !== undefined) { updates.push('chapter = ?'); params.push(args.chapter); }
+      if (args.branchId !== undefined) { updates.push('branch_id = ?'); params.push(args.branchId); }
+      if (args.subtopic !== undefined) { updates.push('subtopic = ?'); params.push(args.subtopic); }
       params.push(args.lessonId);
       db.prepare(`UPDATE learn_lessons SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
-      // Also update title in doc_json if changed
-      if (args.title !== undefined) {
-        const row = db.prepare('SELECT doc_json FROM learn_lessons WHERE id = ?').get(args.lessonId) as any;
-        if (row) {
-          const doc = JSON.parse(row.doc_json);
-          if (doc.lesson) doc.lesson.title = args.title;
+      // Also update metadata inside doc_json if anything changed
+      const row = db.prepare('SELECT doc_json FROM learn_lessons WHERE id = ?').get(args.lessonId) as any;
+      if (row) {
+        const doc = JSON.parse(row.doc_json);
+        if (doc.lesson) {
+          if (args.title !== undefined) doc.lesson.title = args.title;
           if (args.part !== undefined) doc.lesson.part = args.part;
           if (args.summary !== undefined) doc.lesson.summary = args.summary;
           if (args.chapter !== undefined) doc.lesson.chapter = args.chapter;
+          if (args.branchId !== undefined) doc.lesson.branch_id = args.branchId;
+          if (args.subtopic !== undefined) doc.lesson.subtopic = args.subtopic;
           db.prepare('UPDATE learn_lessons SET doc_json = ? WHERE id = ?').run(JSON.stringify(doc), args.lessonId);
         }
       }

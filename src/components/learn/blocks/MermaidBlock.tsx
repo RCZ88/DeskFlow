@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { MermaidBlock } from '../../../shared/learn/types';
 import { loadMermaid, renderMermaidWithTimeout } from './mermaidLoader';
+import { ZoomPan } from './ZoomPan';
 
 interface Props {
   block: MermaidBlock;
@@ -29,12 +30,27 @@ export function MermaidBlock({ block, onAsk }: Props) {
           containerRef.current.innerHTML = svg;
           const svgEl = containerRef.current.querySelector('svg');
           if (svgEl) {
+            const vb = svgEl.getAttribute('viewBox');
+            let nw = 800, nh = 400;
+            if (vb) {
+              const parts = vb.split(/\s+/).map(Number);
+              if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+                nw = parts[2];
+                nh = parts[3];
+              }
+            }
             svgEl.removeAttribute('height');
             svgEl.removeAttribute('width');
-            svgEl.style.width = '100%';
-            svgEl.style.height = 'auto';
-            svgEl.style.maxHeight = '500px';
+            svgEl.style.removeProperty('max-width');
+            svgEl.style.maxWidth = 'none';
+            svgEl.style.width = nw + 'px';
+            svgEl.style.height = nh + 'px';
             svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            const wrapper = containerRef.current;
+            if (wrapper) {
+              wrapper.setAttribute('data-nat-w', String(nw));
+              wrapper.setAttribute('data-nat-h', String(nh));
+            }
           }
           setLoading(false);
         }
@@ -77,9 +93,11 @@ export function MermaidBlock({ block, onAsk }: Props) {
           </details>
         </div>
       )}
-      {!error && !loading && (
-        <div className="p-4 overflow-x-auto">
-          <div ref={containerRef} />
+      {!error && (
+        <div className="p-4">
+          <ZoomPan>
+            <div ref={containerRef} />
+          </ZoomPan>
         </div>
       )}
       {block.caption && (

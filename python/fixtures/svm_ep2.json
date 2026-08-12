@@ -1,0 +1,13 @@
+{
+  "video_id": "svm_ep2",
+  "duration": 847.2,
+  "segments": [
+    {"id": 0, "start": 0.0, "end": 4.8, "text": "People think SVM is just a line. But it is actually a hyperplane in high-dimensional space."},
+    {"id": 1, "start": 5.2, "end": 12.8, "text": "Let me explain the kernel trick. When data is not linearly separable in 2D, we map it to higher dimensions."},
+    {"id": 2, "start": 13.1, "end": 22.5, "text": "The support vectors are the closest points to the hyperplane. They define the margin."},
+    {"id": 3, "start": 23.0, "end": 35.0, "text": "Now let me talk about something completely different. Yesterday I went to the grocery store."},
+    {"id": 4, "start": 35.5, "end": 50.0, "text": "The regularization parameter C controls the trade-off between margin size and misclassification."},
+    {"id": 5, "start": 50.5, "end": 65.0, "text": "For non-linear problems, we use the RBF kernel. It maps inputs to infinite-dimensional space."},
+    {"id": 6, "start": 65.5, "end": 78.0, "text": "In summary, SVM finds the optimal hyperplane by maximizing the margin between support vectors."}
+  ]
+}

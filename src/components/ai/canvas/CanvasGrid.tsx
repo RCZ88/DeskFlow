@@ -51,71 +51,91 @@ export function CanvasGrid({
   const cardsRef = useRef(cards)
   cardsRef.current = cards
 
-  // Global pointermove for drop-target detection via math (not elementFromPoint
-  // which fails when dragged card's zIndex covers everything)
-  // Uses the DRAGGED card's center point, not the cursor — so the target only
-  // highlights when the card itself overlaps, not just the cursor.
+  // Global pointermove for drop-target detection — throttled via rAF to avoid
+  // running the full card-scan on every sub-frame mouse event.
   useEffect(() => {
+    let rafId = 0
+    let pending = false
     const handler = (e: PointerEvent) => {
-      const draggingId = draggingCardId.current
-      if (!draggingId) {
-        if (dropTargetRef.current) {
+      if (pending) return
+      pending = true
+      rafId = requestAnimationFrame(() => {
+        pending = false
+        const draggingId = draggingCardId.current
+        if (!draggingId) {
+          if (dropTargetRef.current) {
+            dropTargetRef.current = null
+            setDropTargetId(null)
+          }
+          return
+        }
+
+        const currentCards = cardsRef.current
+
+        // Read the dragged card's visual position from the DOM
+        const draggedEl = document.querySelector(`[data-card-id="${draggingId}"]`) as HTMLElement | null
+        let dragCX: number, dragCY: number
+        let visX = 0, visY = 0
+        let draggedCardSize = { w: 4, h: 3 }
+        if (draggedEl) {
+          const computed = getComputedStyle(draggedEl).transform
+          if (computed && computed !== 'none') {
+            const m = new DOMMatrix(computed)
+            visX = m.m41
+            visY = m.m42
+          }
+          const draggedCard = currentCards.find(c => c.id === draggingId)
+          draggedCardSize = { w: draggedCard?.size.w || 4, h: draggedCard?.size.h || 3 }
+          dragCX = visX + draggedCardSize.w * CELL / 2
+          dragCY = visY + draggedCardSize.h * CELL / 2
+        } else {
+          draggingCardId.current = null
           dropTargetRef.current = null
           setDropTargetId(null)
+          gridLayerRef.current?.removeAttribute('data-card-dragging')
+          return
         }
-        return
-      }
 
-      const currentCards = cardsRef.current
-
-      // Read the dragged card's visual position from the DOM
-      const draggedEl = document.querySelector(`[data-card-id="${draggingId}"]`) as HTMLElement | null
-      let dragCX: number, dragCY: number
-      if (draggedEl) {
-        const computed = getComputedStyle(draggedEl).transform
-        let visX = 0, visY = 0
-        if (computed && computed !== 'none') {
-          const m = new DOMMatrix(computed)
-          visX = m.m41
-          visY = m.m42
-        }
+        // Grouping rules:
+        // 1. Only non-group cards can be grouped (dragging a group onto a card
+        //    does NOT absorb the card).
+        // 2. Require >= 30% area overlap to prevent "magnetic" grouping.
         const draggedCard = currentCards.find(c => c.id === draggingId)
-        const cardW = (draggedCard?.size.w || 4) * CELL
-        const cardH = (draggedCard?.size.h || 3) * CELL
-        dragCX = visX + cardW / 2
-        dragCY = visY + cardH / 2
-      } else {
-        // Dragged card left the DOM (dismissed/unmounted mid-drag) — clear the
-        // stuck drag state so the canvas doesn't stay in "dragging" mode.
-        draggingCardId.current = null
-        dropTargetRef.current = null
-        setDropTargetId(null)
-        gridLayerRef.current?.removeAttribute('data-card-dragging')
-        return
-      }
+        const isDraggedGroup = draggedCard?.type === 'group'
+        const dragLeft = visX
+        const dragTop = visY
+        const dragRight = visX + draggedCardSize.w * CELL
+        const dragBottom = visY + draggedCardSize.h * CELL
+        const dragArea = (dragRight - dragLeft) * (dragBottom - dragTop)
+        const MIN_OVERLAP = 0.3
 
-      // Target rects are in GRID coordinates — the dragged card's transform is
-      // inside the scaled layer (no zoom/pan applied to the element itself), so
-      // multiplying by zoom/pan here made drop targets wrong when zoomed/panned.
-      const targetCard = currentCards.find(c => {
-        if (c.id === draggingId) return false
-        const left = c.position.x
-        const top = c.position.y
-        const right = left + c.size.w * CELL
-        const bottom = top + c.size.h * CELL
-        return dragCX >= left && dragCX <= right &&
-               dragCY >= top && dragCY <= bottom
+        const targetCard = currentCards.find(c => {
+          if (c.id === draggingId) return false
+          if (isDraggedGroup) return false
+          if (c.type === 'group') return false
+          const tLeft = c.position.x
+          const tTop = c.position.y
+          const tRight = tLeft + c.size.w * CELL
+          const tBottom = tTop + c.size.h * CELL
+          const ixLeft = Math.max(dragLeft, tLeft)
+          const ixTop = Math.max(dragTop, tTop)
+          const ixRight = Math.min(dragRight, tRight)
+          const ixBottom = Math.min(dragBottom, tBottom)
+          if (ixRight <= ixLeft || ixBottom <= ixTop) return false
+          const overlapArea = (ixRight - ixLeft) * (ixBottom - ixTop)
+          return overlapArea >= dragArea * MIN_OVERLAP
+        })
+
+        const targetId = targetCard?.id || null
+        if (targetId !== dropTargetRef.current) {
+          dropTargetRef.current = targetId
+          setDropTargetId(targetId)
+        }
       })
-
-      const targetId = targetCard?.id || null
-      if (targetId !== dropTargetRef.current) {
-        dropTargetRef.current = targetId
-        setDropTargetId(targetId)
-      }
     }
 
     window.addEventListener('pointermove', handler)
-    return () => window.removeEventListener('pointermove', handler)
+    return () => { window.removeEventListener('pointermove', handler); cancelAnimationFrame(rafId) }
   }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent) => {

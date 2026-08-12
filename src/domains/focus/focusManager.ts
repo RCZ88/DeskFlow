@@ -80,7 +80,7 @@ export class FocusManager {
     const allowed = {
       apps: cfg.allowed?.apps ?? [],
       domains: cfg.allowed?.domains ?? [],
-      tiers: cfg.allowed?.tiers ?? ['productive', 'neutral'] as Tier[],
+      tiers: cfg.allowed?.tiers ?? (strictness === 'non_allowed' ? ['productive'] : ['productive', 'neutral']) as Tier[],
       categories: cfg.allowed?.categories ?? [],
     };
     const info = this.db.prepare(
@@ -103,18 +103,22 @@ export class FocusManager {
     return this.getPublicState();
   }
 
-  private isAllowed(tier: Tier, name: string, kind: 'app' | 'website') {
+  private isAllowed(tier: Tier, name: string, kind: 'app' | 'website', category?: string) {
     const a = this.state.allowed;
     if (kind === 'app' && a.apps.includes(name)) return true;
     if (kind === 'website' && a.domains.includes(name)) return true;
-    if (this.state.strictness === 'non_allowed') return a.tiers.includes(tier);
+    if (this.state.strictness === 'non_allowed') {
+      // Hard whitelist: only apps of the picked categories (or explicit list above).
+      if (a.categories.length > 0) return !!category && a.categories.includes(category);
+      return a.tiers.includes(tier);
+    }
     return tier !== 'distracting';
   }
 
   onForegroundApp(appName: string, category?: string) {
     if (!this.state.active || this.state.paused) return;
     const tier = this.classifyApp(appName, category);
-    if (this.isAllowed(tier, appName, 'app')) {
+    if (this.isAllowed(tier, appName, 'app', category)) {
       // Only hide overlay if no pending hide timer (user just returned)
       if (!this.overlayHideTimer) this.hideOverlay();
       return;
@@ -225,12 +229,39 @@ export class FocusManager {
 
   private pushState() { this.getMainWindow()?.webContents.send('focus:state', this.getPublicState()); }
 
+  getGoalConfig() {
+    const row = this.db.prepare('SELECT * FROM focus_goal_config WHERE id = 1').get() as
+      | { lenient_goal_sec: number; strict_goal_sec: number; updated_at: string | null }
+      | undefined;
+    return {
+      lenient_goal_sec: row?.lenient_goal_sec ?? 0,
+      strict_goal_sec: row?.strict_goal_sec ?? 0,
+      updated_at: row?.updated_at ?? null,
+    };
+  }
+
+  saveGoalConfig(cfg: { lenient_goal_sec?: number; strict_goal_sec?: number }) {
+    const current = this.getGoalConfig();
+    const lenient = Math.max(0, Math.round(Number(cfg?.lenient_goal_sec ?? current.lenient_goal_sec) || 0));
+    const strict = Math.max(0, Math.round(Number(cfg?.strict_goal_sec ?? current.strict_goal_sec) || 0));
+    this.db.prepare(
+      `INSERT INTO focus_goal_config (id, lenient_goal_sec, strict_goal_sec, updated_at)
+       VALUES (1, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET lenient_goal_sec = excluded.lenient_goal_sec,
+         strict_goal_sec = excluded.strict_goal_sec, updated_at = excluded.updated_at`
+    ).run(lenient, strict, new Date().toISOString());
+    return this.getGoalConfig();
+  }
+
   private registerIpc() {
     ipcMain.handle('focus:start', (_e, cfg: FocusConfig) => this.start(cfg));
     ipcMain.handle('focus:end', (_e, outcome?: 'aborted') => { this.end(outcome ?? 'aborted', 'user'); });
     ipcMain.handle('focus:get-state', () => this.getPublicState());
     ipcMain.handle('focus:history', (_e, opts?: { limit?: number }) =>
       this.db.prepare(`SELECT * FROM deep_focus_sessions ORDER BY started_at DESC LIMIT ?`).all(opts?.limit ?? 50));
+    ipcMain.handle('focusGoal:get', () => this.getGoalConfig());
+    ipcMain.handle('focusGoal:save', (_e, cfg: { lenient_goal_sec?: number; strict_goal_sec?: number }) =>
+      this.saveGoalConfig(cfg));
     ipcMain.on('focus:overlay-return', () => this.returnToFocus());
     ipcMain.on('focus:overlay-break', () =>
       this.breakFocus(this.current?.type ?? 'app', this.current?.name ?? 'unknown'));

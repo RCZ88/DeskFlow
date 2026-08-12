@@ -917,10 +917,13 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========== Lyceum Learn Module ==========
   learnImportLdoc: ({ json }: { json: unknown }) => ipcRenderer.invoke('learn:importLdoc', { json }),
   learnValidate: ({ json }: { json: unknown }) => ipcRenderer.invoke('learn:validate', { json }),
-  learnListLessons: (params?: { part?: number }) => ipcRenderer.invoke('learn:listLessons', params || {}),
+  learnListLessons: (params?: { branchId?: string; part?: number; chapter?: string; subtopic?: string }) => ipcRenderer.invoke('learn:listLessons', params || {}),
+  learnListGroups: (params?: { branchId?: string; part?: number }) => ipcRenderer.invoke('learn:listGroups', params || {}),
+  learnListBranches: () => ipcRenderer.invoke('learn:listBranches'),
+  learnGetTopicsByBranch: (params: { branchId: string }) => ipcRenderer.invoke('learn:getTopicsByBranch', params),
   learnGetLesson: ({ lessonId }: { lessonId: string }) => ipcRenderer.invoke('learn:getLesson', { lessonId }),
   learnGetNode: ({ nodeId }: { nodeId: string }) => ipcRenderer.invoke('learn:getNode', { nodeId }),
-  learnGetGraph: (params?: { part?: number }) => ipcRenderer.invoke('learn:getGraph', params || {}),
+  learnGetGraph: (params?: { branchId?: string; part?: number }) => ipcRenderer.invoke('learn:getGraph', params || {}),
   learnAskTutor: (params: { nodeId: string; blockId?: string; question: string }) => ipcRenderer.invoke('learn:askTutor', params),
   learnSubmitQuiz: (params: { nodeId: string; blockId: string; response: string }) => ipcRenderer.invoke('learn:submitQuiz', params),
   learnGetProgress: (params?: { nodeId?: string }) => ipcRenderer.invoke('learn:getProgress', params || {}),
@@ -929,7 +932,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   learnGetWorkedExample: () => ipcRenderer.invoke('learn:get-worked-example'),
   learnGetSchema: () => ipcRenderer.invoke('learn:get-schema'),
   learnGetAuthorGuide: () => ipcRenderer.invoke('learn:get-author-guide'),
-  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[] }) =>
+  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[]; chapter?: string; branchId?: string; subtopic?: string }) =>
     ipcRenderer.invoke('learn:buildPrompt', params),
   learnGenerateLdoc: (params: { prompt: string; systemPrompt: string }) =>
     ipcRenderer.invoke('learn:generateLdoc', params),

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo, useRef, useCallback, memo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, memo, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -42,6 +42,7 @@ import FocusPage from './pages/FocusPage';
 import ConductorPage from './pages/ConductorPage';
 
 import { AiPage } from './pages/AiPage';
+import { FeatureStudioPage } from './pages/FeatureStudioPage';
 import { AppBackground } from './components/AppBackground';
 
 import InsightsPage from './pages/InsightsPage';
@@ -65,7 +66,7 @@ import type { Period } from './lib/dateRange';
 const OrbitSystem = lazy(() => import('./components/OrbitSystem').then(module => ({ default: module.default })));
 
 // Life page combines Covenant (commitments/streaks) and Memories (photo/video
-// collage) under a single tabbed page — warm clay/sage/amber/sky palette
+// collage) under a single tabbed page � warm clay/sage/amber/sky palette
 const LifePage = lazy(() => import('./features/warmth/LifePage'));
 
 // --- Sidebar navigation (reorderable) ---
@@ -73,6 +74,7 @@ const DEFAULT_SIDEBAR_ITEMS = [
   { icon: Home, label: 'Dashboard', path: '/' },
   { icon: Activity, label: 'Activity', path: '/activity' },
   { icon: Brain, label: 'AI Assistant', path: '/ai' },
+  { icon: Sparkles, label: 'Feature Studio', path: '/studio' },
   { icon: GraduationCap, label: 'Learn', path: '/learn' },
   { icon: FileText, label: 'Resume', path: '/resume' },
   { icon: Code2, label: 'IDE Projects', path: '/ide' },
@@ -217,7 +219,7 @@ import {
 import { Pie, Bar } from 'react-chartjs-2';
 import { format } from 'date-fns';
 
-// Electron API types — see src/types/deskflow-api.d.ts for the Window interface
+// Electron API types � see src/types/deskflow-api.d.ts for the Window interface
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
@@ -226,7 +228,7 @@ interface ActivityLog {
   timestamp: Date;
   app: string;
   category: string;
-  duration: number; // seconds (NOT minutes â€” stores exact seconds for sub-minute precision)
+  duration: number; // seconds (NOT minutes — stores exact seconds for sub-minute precision)
   title?: string;
   project?: string;
   is_browser_tracking?: boolean;
@@ -336,7 +338,7 @@ function hslToHex(hsl: string): string {
 }
 
 // Map browser brand names to OS process names (what active-win returns)
-// Duplicated in DashboardPage.tsx and main.ts â€” keep in sync
+// Duplicated in DashboardPage.tsx and main.ts — keep in sync
 const BROWSER_PROCESS_NAMES_RENDERER: Record<string, string[]> = {
   'comet': ['chrome', 'comet', 'chromium'],
   'chrome': ['chrome', 'chromium'],
@@ -369,7 +371,7 @@ import TutorialOverlay from './components/TutorialOverlay';
 
 // DEBUG: Global hashchange listener
 window.addEventListener('hashchange', (e) => {
-  console.log('[HASHCHANGE]', e.oldURL, '→', e.newURL);
+  console.log('[HASHCHANGE]', e.oldURL, '?', e.newURL);
 });
 
 function App() {
@@ -949,7 +951,7 @@ function App() {
         if (window.deskflowAPI?.loadAfkQueue) {
           const persisted = await window.deskflowAPI.loadAfkQueue();
           if (Array.isArray(persisted) && persisted.length > 0) {
-            // Validate entries — only restore those that aren't stale (>2 hours old)
+            // Validate entries � only restore those that aren't stale (>2 hours old)
             const now = Date.now();
             const MAX_AGE_MS = 2 * 60 * 60 * 1000;
             const fresh = persisted.filter((e: any) => e.returnMs && (now - e.returnMs) < MAX_AGE_MS);
@@ -971,7 +973,7 @@ function App() {
       window.deskflowAPI.onSleepDetection(async (data: any) => {
         if (data?.gapMinutes >= 45) {
           sleepActiveRef.current = true;
-          // Keep existing AFK prompts — sleep and AFK can coexist
+          // Keep existing AFK prompts � sleep and AFK can coexist
           // AFK duration will be reduced by sleep period automatically
           const detResult = await window.deskflowAPI?.checkSleepDetection?.();
           if (detResult?.detected) {
@@ -1057,7 +1059,7 @@ function App() {
       const sleepEndMs = wokeUp.getTime();
       sleepPeriodRef.current = { startMs: sleepStartMs, endMs: sleepEndMs };
 
-      // Adjust existing AFK queue — subtract sleep overlap instead of clearing
+      // Adjust existing AFK queue � subtract sleep overlap instead of clearing
       setAfkPromptQueue(prev => adjustAfkForSleep(prev, sleepStartMs, sleepEndMs));
 
       if (window.deskflowAPI?.confirmSleep) {
@@ -1725,7 +1727,7 @@ function App() {
   useEffect(() => {
     idleReturnFnRef.current = async () => {
       if (afkPromptShownRef.current) return;
-      // Skip AFK prompt if user already has an external activity running — they're not AFK
+      // Skip AFK prompt if user already has an external activity running � they're not AFK
       if (timerStateRef.current?.externalRunning) {
         pendingIdleRangeRef.current = null;
         return;
@@ -1746,7 +1748,7 @@ function App() {
         elapsedSec = Math.max(0, elapsedSec - sleepOverlap);
       }
 
-      // Req 4: tiny idle → silent discard, no prompt
+      // Req 4: tiny idle ? silent discard, no prompt
       if (elapsedSec < 60) { pendingIdleRangeRef.current = null; return; }
 
       const duration = elapsedSec < 60 ? `${elapsedSec}s` : `${Math.floor(elapsedSec / 60)}m ${elapsedSec % 60}s`;
@@ -1755,7 +1757,7 @@ function App() {
         duration,
         idleStartMs,
         returnMs: nowMs,
-        // Req 4: moderate idle (1–15m) defaults to "I wasn't AFK"
+        // Req 4: moderate idle (1�15m) defaults to "I wasn't AFK"
         defaultNotAfk: elapsedSec <= 15 * 60,
       };
       setAfkPromptQueue(prev => [...prev, entry]);
@@ -1865,7 +1867,7 @@ function App() {
 
         // Idle check: Use OS-level system idle time (from main process heartbeat)
         // This correctly detects idle even when DeskFlow is in the background
-        // Skip idle check for entertainment/gaming (YouTube, Netflix, games — user is watching, not AFK)
+        // Skip idle check for entertainment/gaming (YouTube, Netflix, games � user is watching, not AFK)
         const PASSIVE_ACTIVE = new Set(['Entertainment', 'Gaming']);
         const isPassiveActive = currentCategoryRef.current && PASSIVE_ACTIVE.has(currentCategoryRef.current);
         const idleMs = idleThreshold * 60 * 1000; // Convert minutes to ms
@@ -2098,7 +2100,7 @@ function App() {
   }, [timeByCategory, tierAssignments]);
 
   // Compute focus time vs total time
-  // Total = ALL tracked activity for the period (apps + websites) — same source as the
+  // Total = ALL tracked activity for the period (apps + websites) � same source as the
   //         activity chart, so the top-bar clock always matches the chart.
   // Focus = productive tier only (apps + websites mapped via WEBSITE_CATEGORY_MAP)
   const focusAndTotalTime = useMemo(() => {
@@ -2254,18 +2256,18 @@ function App() {
     const summary = `Stats DeskFlow AI Analysis for ${format(new Date(), 'MMMM dd')}
 
 Hot Focus Summary: ${Math.floor(totalMin / 60)}h ${totalMin % 60}m tracked today
-   • Coding: ${codingPct}% (${codingTime}min) — Top Project: ${topProject}
-   • AI Tools: ${aiPct}% (${aiTime}min) — Smart prompting on Claude & ChatGPT
-   • Distractions: ${distPct}% — Minimal YouTube/Entertainment
+   � Coding: ${codingPct}% (${codingTime}min) � Top Project: ${topProject}
+   � AI Tools: ${aiPct}% (${aiTime}min) � Smart prompting on Claude & ChatGPT
+   � Distractions: ${distPct}% � Minimal YouTube/Entertainment
 
-⏰ Peak Productivity Window: ${peakHour}
+? Peak Productivity Window: ${peakHour}
    You averaged 92% focus during this window.
 
 Tip Insights:
-   • 87% of IDE time spent on actual editing (vs. idle)
-   • You completed 3 major tasks in PyCharm
-   • Browser time was 68% productive (docs, GitHub)
-   • Productivity Score: ${Math.floor(Math.random() * 15) + 83}/100
+   � 87% of IDE time spent on actual editing (vs. idle)
+   � You completed 3 major tasks in PyCharm
+   � Browser time was 68% productive (docs, GitHub)
+   � Productivity Score: ${Math.floor(Math.random() * 15) + 83}/100
 
 Trend: +14% vs. yesterday. Keep it up!`;
 
@@ -2370,7 +2372,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
       setShowUnsavedWarning(true);
     } else {
     navigate(path);
-    console.log('[NAV] navigate called — path:', path, 'window.location.hash:', window.location.hash, 'window.location.href:', window.location.href);
+    console.log('[NAV] navigate called � path:', path, 'window.location.hash:', window.location.hash, 'window.location.href:', window.location.href);
     }
   }, [navigate]);
 
@@ -2391,7 +2393,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
       navigate(pendingNavigation);
       setPendingNavigation(null);
     } else {
-      // Window close — allow Electron to close
+      // Window close � allow Electron to close
       (window as any).deskflowAPI?.workspaceAllowClose?.();
     }
   }, [navigate, pendingNavigation]);
@@ -2402,7 +2404,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
       navigate(pendingNavigation);
       setPendingNavigation(null);
     } else {
-      // Window close — allow Electron to close without saving
+      // Window close � allow Electron to close without saving
       (window as any).deskflowAPI?.workspaceAllowClose?.();
     }
   }, [navigate, pendingNavigation]);
@@ -2450,7 +2452,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
   useEffect(() => {
     const unsub = (window as any).deskflowAPI?.onWorkspaceRequestSave?.(() => {
       if ((window as any).__workspaceHasUnsavedChanges) {
-        setPendingNavigation(null); // not a navigation — it's a window close
+        setPendingNavigation(null); // not a navigation � it's a window close
         setShowWorkspaceWarning(true);
       } else {
         (window as any).deskflowAPI?.workspaceAllowClose?.();
@@ -2467,7 +2469,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
   };
 
   // Format duration in seconds to human-readable string
-  // < 60s â†’ "45s", 60s-3600s â†’ "2m 15s", â‰¥ 3600s â†’ "1h 23m"
+  // < 60s → "45s", 60s-3600s → "2m 15s", ≥ 3600s → "1h 23m"
   const formatDuration = (seconds: number): string => {
     if (seconds < 60) return `${seconds}s`;
     if (seconds < 3600) {
@@ -2542,7 +2544,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
     <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
       <AppBackground />
-      {/* Sidebar — hidden on workspace (/terminal) and during solar overlay */}
+      {/* Sidebar � hidden on workspace (/terminal) and during solar overlay */}
       {location.pathname !== '/terminal' && !solarOverlayActive && (
       <motion.div
         className="border-r border-zinc-800 flex flex-col h-full glass overflow-hidden shrink-0"
@@ -2598,7 +2600,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                     collapsed={sidebarCollapsed}
                     reorderMode={reorderMode}
                     isActive={location.pathname === item.path}
-                    onNavigate={() => { console.log('[NAV] fired — path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
+                    onNavigate={() => { console.log('[NAV] fired � path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
                   />
                 ))}
               </SortableContext>
@@ -2634,7 +2636,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               transition={{ duration: 0.2, ease: 'easeInOut' }}
               className="px-5 py-3 border-t border-zinc-800 flex items-center justify-between shrink-0 overflow-hidden"
             >
-              <span className="text-[10px] text-zinc-500">Local SQLite • Zero Cloud • Privacy-First</span>
+              <span className="text-[10px] text-zinc-500">Local SQLite � Zero Cloud � Privacy-First</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('open-pair-modal', { detail: { terminalId: '', label: 'Phone Pairing' } }))}
@@ -2667,7 +2669,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             />
           )}
         </AnimatePresence>
-        {/* Top Bar — workspace (/terminal) and solar overlay render their own headers */}
+        {/* Top Bar � workspace (/terminal) and solar overlay render their own headers */}
         {location.pathname !== '/terminal' && !solarOverlayActive && (
         <div className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 glass">
           <div className="flex items-center gap-4">
@@ -2883,9 +2885,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 />
               } />
               {/* Stats Page */}
-              {/* Activity Page — unified Apps/Websites/Productivity */}
+              {/* Activity Page � unified Apps/Websites/Productivity */}
               <Route path="/activity" element={<ActivityPage appStats={appStats} logs={filteredLogs} allLogs={allLogs} browserLogs={browserLogs} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} domainKeywordRules={domainKeywordRules} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} />} />
-              {/* Legacy routes — redirect to unified Activity page */}
+              {/* Legacy routes � redirect to unified Activity page */}
               <Route path="/stats" element={<Navigate to="/activity?tab=apps" replace />} />
               <Route path="/productivity" element={<Navigate to="/activity?tab=productivity" replace />} />
               <Route path="/browser" element={<Navigate to="/activity?tab=websites" replace />} />
@@ -2895,6 +2897,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/external" element={<ExternalPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} />} />
 
               <Route path="/ai" element={<AiPage />} />
+              <Route path="/studio" element={<FeatureStudioPage />} />
               <Route path="/finance" element={<FinancePage />} />
               {/* Resume Builder */}
               <Route path="/resume" element={<ResumePage />} />
@@ -2902,7 +2905,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <Route path="/resume/preview" element={<ResumePreviewPage />} />
               <Route path="/resume/import" element={<ResumeImportPage />} />
               <Route path="/resume/export" element={<ResumeExportPage />} />
-               {/* Legacy routes — kept as redirect for any bookmarked URLs */}
+               {/* Legacy routes � kept as redirect for any bookmarked URLs */}
                <Route path="/dashboard" element={<Navigate to="/" replace />} />
               <Route path="/old-dashboard" element={<Navigate to="/external" replace />} />
 
@@ -2929,6 +2932,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               />} />
               {/* Database Page */}
               <Route path="/database" element={<DatabasePage />} />
+              {/* Backup Center */}
               {/* Pricing Page */}
               <Route path="/pricing" element={<div className="glass rounded-3xl p-8 flex items-center justify-center h-96"><div className="text-center text-zinc-400"><div className="text-4xl mb-4">!</div><div className="text-lg font-medium">Not Yet Added Feature</div><div className="text-sm text-zinc-500 mt-1">Pricing plans are coming soon</div></div></div>} />
               {/* Settings Page */}
@@ -2938,7 +2942,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             </Routes>
           </ErrorBoundary>
 
-          {/* ── Unsaved Changes Warning Modal ── */}
+          {/* -- Unsaved Changes Warning Modal -- */}
           <AnimatePresence>
             {showUnsavedWarning && (
               <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-[65]" onClick={() => setShowUnsavedWarning(false)}>
@@ -2960,8 +2964,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 mb-6 space-y-1">
-                    <p>• Your category assignments and color customizations</p>
-                    <p>• will be lost if you navigate away without saving</p>
+                    <p>� Your category assignments and color customizations</p>
+                    <p>� will be lost if you navigate away without saving</p>
                   </div>
 
                   <div className="flex flex-col gap-2">
@@ -2989,7 +2993,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── Workspace Unsaved Warning Modal ── */}
+          {/* -- Workspace Unsaved Warning Modal -- */}
           <AnimatePresence>
             {showWorkspaceWarning && (
               <div className="fixed inset-0 bg-black/80 backdrop-blur flex items-center justify-center z-[66]" onClick={() => setShowWorkspaceWarning(false)}>
@@ -3039,7 +3043,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── Sleep Detection Modal ── */}
+          {/* -- Sleep Detection Modal -- */}
           <AnimatePresence>
             {showSleepDetection && sleepDetectionData && (
               <SleepDetectionModal
@@ -3080,9 +3084,9 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="p-3 rounded-xl bg-zinc-900/50 border border-zinc-700 text-xs text-zinc-400 mb-6">
-                    <p>• {logs.length} activity records will be exported</p>
-                    <p>• File format: <span className="text-zinc-200 uppercase">{showConfirmExport}</span></p>
-                    <p>• File stays on your device</p>
+                    <p>� {logs.length} activity records will be exported</p>
+                    <p>� File format: <span className="text-zinc-200 uppercase">{showConfirmExport}</span></p>
+                    <p>� File stays on your device</p>
                   </div>
 
                   <div className="flex gap-3">
@@ -3125,10 +3129,10 @@ Trend: +14% vs. yesterday. Keep it up!`;
                       </div>
                       <div>
                         <div className="font-semibold text-xl">SQLite Activity Logs</div>
-                        <div className="text-xs text-zinc-500">TABLE: activity_logs • {allLogs.length} rows • SQLite database</div>
+                        <div className="text-xs text-zinc-500">TABLE: activity_logs � {allLogs.length} rows � SQLite database</div>
                       </div>
                     </div>
-                    <button onClick={() => setShowDatabase(false)} className="text-zinc-400 hover:text-white text-xl">✕</button>
+                    <button onClick={() => setShowDatabase(false)} className="text-zinc-400 hover:text-white text-xl">?</button>
                   </div>
 
                   {/* Schema Info */}
@@ -3180,8 +3184,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                                 </span>
                               </td>
                               <td className="px-4 py-3 tabular-nums text-white">{log.duration} min</td>
-                              <td className="px-4 py-3 text-zinc-400">{log.project || '—'}</td>
-                              <td className="px-4 py-3 text-zinc-400 truncate max-w-[200px]">{log.title || '—'}</td>
+                              <td className="px-4 py-3 text-zinc-400">{log.project || '�'}</td>
+                              <td className="px-4 py-3 text-zinc-400 truncate max-w-[200px]">{log.title || '�'}</td>
                             </tr>
                           ))
                         )}
@@ -3190,7 +3194,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                   </div>
 
                   <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
-                    <div>Showing {Math.min(50, allLogs.length)} of {allLogs.length} records • Data persists in SQLite database</div>
+                    <div>Showing {Math.min(50, allLogs.length)} of {allLogs.length} records � Data persists in SQLite database</div>
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
@@ -3235,7 +3239,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                         <div className="text-xs text-emerald-400">Generated using local heuristics</div>
                       </div>
                     </div>
-                    <button onClick={() => setShowSummary(false)} className="text-zinc-400">✕</button>
+                    <button onClick={() => setShowSummary(false)} className="text-zinc-400">?</button>
                   </div>
 
                   <div className="font-mono text-sm whitespace-pre-wrap bg-zinc-950 p-6 rounded-2xl leading-relaxed border border-zinc-800">
@@ -3264,7 +3268,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             )}
           </AnimatePresence>
 
-          {/* ── AFK Activity Prompt ── */}
+          {/* -- AFK Activity Prompt -- */}
           {afkPromptQueue.length > 0 && (() => {
             const entry = afkPromptQueue[0];
             const periodStart = entry.idleStartMs ? new Date(entry.idleStartMs).toISOString() : new Date(entry.returnMs - 90000).toISOString();
@@ -3288,7 +3292,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             );
           })()}
 
-          {/* â”€â”€ Smart Gap Fill Drawer â”€â”€ */}
+          {/* ── Smart Gap Fill Drawer ── */}
           {showGapDrawer && (
             <GapFillDrawer
               open={showGapDrawer}

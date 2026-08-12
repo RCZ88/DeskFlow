@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Focus as FocusIcon, AlertTriangle } from 'lucide-react';
 import { SectionHeader } from '../../components/SectionHeader';
 import { LoadingState } from '../../components/LoadingState';
@@ -10,7 +10,7 @@ import { setActiveGroup } from '../../hooks/useActiveFocusGroup';
 import { useToasts } from '../../hooks/useToasts';
 import { FocusTimer } from './FocusTimer';
 import { FocusStats } from './FocusStats';
-import { FocusGroupProgress } from './FocusGroupProgress';
+import { FocusGoals } from './FocusGoals';
 import { FocusGroupsPanel } from './FocusGroupsPanel';
 import { FocusHistory } from './FocusHistory';
 import { FocusInsights } from './FocusInsights';
@@ -39,7 +39,6 @@ export function FocusSection() {
   const [distractions, setDistractions] = useState<Array<{ name: string; type: 'app' | 'website'; timestamp: number }>>([]);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<FocusGroup | null>(null);
-  const [usageMap, setUsageMap] = useState<Map<number, number[]>>(new Map());
   const pendingGroupRef = useRef<PendingGroupSession | null>(null);
 
   useEffect(() => {
@@ -57,32 +56,6 @@ export function FocusSection() {
   const rows = history as unknown as FocusHistoryRow[];
   const todayStats = computeTodayStats(rows);
   const streak = computeStreak(rows);
-
-  const refreshUsage = useCallback(async () => {
-    const api = (window as any).deskflowAPI;
-    if (!api?.focusGroup?.getUsage) return;
-    try {
-      const usageRows = await api.focusGroup.getUsage();
-      const map = new Map<number, number[]>();
-      if (Array.isArray(usageRows)) {
-        for (const r of usageRows) {
-          const gid = Number(r?.group_id);
-          const sid = Number(r?.session_id);
-          if (!gid || !sid) continue;
-          const arr = map.get(gid) ?? [];
-          arr.push(sid);
-          map.set(gid, arr);
-        }
-      }
-      setUsageMap(map);
-    } catch (e) {
-      console.error('[Focus] Failed to load group usage:', e);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshUsage();
-  }, [refreshUsage, groups]);
 
   const handleStart = () => start(mins * 60, strict);
   const handleStop = () => stop();
@@ -135,7 +108,6 @@ export function FocusSection() {
       } catch (e) {
         console.error('[Focus] linkUsage failed:', e);
       }
-      void refreshUsage();
       const minsDone = Math.max(1, Math.round(pending.plannedSec / 60));
       if (bestPct >= 100) {
         confetti({ particleCount: 120, spread: 75, startVelocity: 42, colors: ['#ec4899', '#a855f7', '#fbbf24', '#34d399'] });
@@ -234,7 +206,7 @@ export function FocusSection() {
           />
         </div>
         <div className="lg:col-span-1 space-y-4">
-          <FocusGroupProgress groups={groups} selectedId={selectedId} history={rows} usageMap={usageMap} />
+          <FocusGoals history={rows} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <FocusLeaderboard history={rows} />
             <FocusDistractionLog distractions={distractions} isActive={!!state?.active} />

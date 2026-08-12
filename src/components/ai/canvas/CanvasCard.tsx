@@ -1,10 +1,11 @@
 import { useRef, useState, useCallback, useEffect, Component, type ReactNode, type ErrorInfo } from 'react'
-import { Pin, PinOff, Maximize2, Minimize2 } from 'lucide-react'
+import { Maximize2, Minimize2 } from 'lucide-react'
 import { CanvasCardFallback } from './CanvasCardFallback'
 import { FocusCard } from './cards/FocusCard'
 import { PlanCard } from './cards/PlanCard'
 import { FinanceCard } from './cards/FinanceCard'
 import { DigestCard } from './cards/DigestCard'
+import { ReflectCard } from './cards/ReflectCard'
 import { ApprovalCard } from './cards/ApprovalCard'
 import { AnnotationCard } from './cards/AnnotationCard'
 import { ResponseCardContent } from './ResponseCardContent'
@@ -15,6 +16,7 @@ import { DeadlineTrackerCard } from './cards/DeadlineTrackerCard'
 import { DailyPlannerCard } from './cards/DailyPlannerCard'
 import { DynamicCard } from './cards/DynamicCard'
 import { AutomationCard } from '../automations/AutomationCard'
+import { CardFrame } from './shared/CardFrame'
 import type { CanvasCard as CanvasCardType, CanvasGroup } from '../../../types/canvas'
 import './cards/cards.css'
 
@@ -34,7 +36,7 @@ function renderCardContent(card: CanvasCardType, ctx: CardContentCtx) {
     case 'focus': return <FocusCard card={card} goals={card.data?.goals} loading={card.status === 'loading'} />
     case 'plan': return <PlanCard card={card} goals={card.data?.goals} notes={card.data?.notes} loading={card.status === 'loading'} />
     case 'finance': return <FinanceCard card={card} summary={card.data?.summary} loading={card.status === 'loading'} />
-    case 'digest': return <DigestCard card={card} topics={card.data?.topics} loading={card.status === 'loading'} />
+    case 'digest': return <DigestCard card={card} topics={card.data?.topics} loading={card.status === 'loading'} error={card.data?.error} />
     case 'approval': return <ApprovalCard card={card} />
     case 'transient': return <div style={{ fontSize: 12, color: '#71717a' }}>{card.data?.text || card.data?.message || 'Transient card'}</div>
     case 'annotation': return <AnnotationCard card={card} />
@@ -72,10 +74,7 @@ function renderCardContent(card: CanvasCardType, ctx: CardContentCtx) {
       )
     }
     case 'connectors': return <ConnectorsCard state={card.data?.state || 'loading'} connectors={card.data?.connectors || []} errorMessage={card.data?.errorMessage} onRetry={card.data?.onRetry} onAdd={card.data?.onAdd} onSync={card.data?.onSync} onRefresh={card.data?.onRefresh} syncing={card.data?.syncing} />
-    case 'reflect': {
-      const days = card.data?.days || []
-      return (<div style={{ fontSize: 13 }}>{days.length === 0 ? <p style={{ fontSize: 12, color: '#3f3f46', margin: 0 }}>No reflections yet</p> : <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>{days.slice(0, 5).map((d: any, i: number) => (<li key={i} style={{ padding: '5px 0', borderBottom: '1px solid rgba(63,63,70,0.15)', fontSize: 13, color: '#d4d4d8' }}><span style={{ fontWeight: 500 }}>{d.date || 'Today'}</span>{d.summary && <span style={{ display: 'block', fontSize: 12, color: '#52525b', marginTop: 2 }}>{d.summary.slice(0, 80)}...</span>}</li>))}</ul>}</div>)
-    }
+    case 'reflect': return <ReflectCard card={card} days={card.data?.days} loading={card.status === 'loading'} error={card.data?.error} />
     case 'schedule': return <WeeklyScheduleCard />
     case 'deadlines': return <DeadlineTrackerCard />
     case 'planner': return <DailyPlannerCard />
@@ -139,49 +138,22 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   // the card → auto-focus pans the camera to the just-dropped card, making the
   // drag look like it "snapped back". Suppress the click after a real drag.
   const suppressClickRef = useRef(false)
-
-  // ── Resize handlers (defined FIRST so drag handlers can reference them) ──
-  const handleResizeDown = useCallback((e: React.PointerEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: card.size.w, origH: card.size.h }
-    if (cardRef.current) {
-      cardRef.current.setPointerCapture(e.pointerId)
-    }
-  }, [card.size])
-
-  const handleResizeMove = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current || !cardRef.current) return
-    const dx = (e.clientX - resizeRef.current.startX) / zoom
-    const dy = (e.clientY - resizeRef.current.startY) / zoom
-    const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
-    const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
-    cardRef.current.style.width = `${newW * CELL}px`
-    cardRef.current.style.height = `${newH * CELL}px`
-  }, [zoom])
-
-  const handleResizeUp = useCallback((e: React.PointerEvent) => {
-    if (!resizeRef.current || !cardRef.current) return
-    const dx = (e.clientX - resizeRef.current.startX) / zoom
-    const dy = (e.clientY - resizeRef.current.startY) / zoom
-    const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
-    const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
-    resizeRef.current = null
-    try { cardRef.current.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
-    onResize?.(card.id, { w: newW, h: newH })
-  }, [card.id, onResize, zoom])
+  // Presses that land on form controls (input/button/select/link) must not
+  // claim the pointer until the user actually drags — otherwise pointer
+  // capture would swallow the control's click (dropdowns, toggles, caret).
+  const interactiveStartRef = useRef(false)
+  const dragEngagedRef = useRef(false)
 
   // ── Cancel any in-flight drag/resize and restore committed state ──
-  // Used on pointercancel, lost focus / window blur, and unmount — events
-  // where pointerup may never fire. Without this, the card stays stuck in
-  // the dragging class, z-index 1000, and the grid's draggingCardId is never
-  // cleared (card clicks die, resize stays armed, drop targets stay lit).
   const cleanupInteraction = useCallback(() => {
     const wasActive = dragRef.current || resizeRef.current
+    const engaged = dragEngagedRef.current
     dragRef.current = null
     resizeRef.current = null
     isDraggingRef.current = false
     hasMovedRef.current = false
+    interactiveStartRef.current = false
+    dragEngagedRef.current = false
     if (cardRef.current) {
       cardRef.current.classList.remove('dragging')
       cardRef.current.style.zIndex = String(card.zIndex)
@@ -189,16 +161,38 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
       cardRef.current.style.width = `${card.size.w * CELL}px`
       cardRef.current.style.height = `${card.size.h * CELL}px`
     }
-    if (wasActive) {
+    if (wasActive && engaged) {
       suppressClickRef.current = true
       onDragStop?.()
     }
   }, [card.zIndex, card.position.x, card.position.y, card.size.w, card.size.h, onDragStop])
 
-  // ── Drag handlers ──
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+  // Cleanup refs for window-level mouse listeners during drag/resize
+  const dragCleanupRef = useRef<(() => void) | null>(null)
+
+  // Ensure window listeners are cleaned up on unmount
+  useEffect(() => {
+    return () => { dragCleanupRef.current?.(); dragCleanupRef.current = null }
+  }, [])
+
+  // ── Engage drag: lift card visually and notify grid ──
+  const engageDrag = useCallback(() => {
+    if (dragEngagedRef.current || !cardRef.current) return
+    dragEngagedRef.current = true
+    cardRef.current.classList.add('dragging')
+    cardRef.current.style.zIndex = '1000'
+    const active = document.activeElement
+    if (active && (active as HTMLElement).closest && (active as HTMLElement).closest('input, textarea, select')) {
+      (active as HTMLElement).blur()
+    }
+    onDragStart?.()
+  }, [onDragStart])
+
+  // ── Mouse-down: start drag or resize, register window move/up ──
+  // Uses mousedown instead of pointerdown to bypass third-party libraries
+  // (dnd-kit, framer-motion) that intercept pointerdown in capture phase.
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
     suppressClickRef.current = false
-    if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"], [onClick]')) return
     if ((e.target as HTMLElement).closest('.dk-canvas-resize-handle')) return
 
     let startX = card.position.x
@@ -212,91 +206,130 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
       }
     }
 
+    interactiveStartRef.current = !!(e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"], [onClick]')
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX: startX, origY: startY }
     isDraggingRef.current = true
     hasMovedRef.current = false
-    if (cardRef.current) {
-      cardRef.current.classList.add('dragging')
-      cardRef.current.style.zIndex = '1000'
-      cardRef.current.setPointerCapture(e.pointerId)
-    }
-    onDragStart?.()
-  }, [onDragStart])
+    if (!interactiveStartRef.current) engageDrag()
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (resizeRef.current) {
-      hasMovedRef.current = true
-      handleResizeMove(e)
-      return
-    }
-    if (!dragRef.current || !cardRef.current) return
-    const dx = e.clientX - dragRef.current.startX
-    const dy = e.clientY - dragRef.current.startY
-    if (!hasMovedRef.current && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
-      hasMovedRef.current = true
-    }
-    const newX = dragRef.current.origX + dx / zoom
-    const newY = dragRef.current.origY + dy / zoom
-    cardRef.current.style.transform = `translate(${newX}px, ${newY}px)`
-  }, [zoom, handleResizeMove])
-
-  const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    if (resizeRef.current) {
-      handleResizeUp(e)
-      return
-    }
-    if (!dragRef.current) return
-    if (hasMovedRef.current) {
-      const dx = (e.clientX - dragRef.current.startX) / zoom
-      const dy = (e.clientY - dragRef.current.startY) / zoom
-      const rawX = dragRef.current.origX + dx
-      const rawY = dragRef.current.origY + dy
-      const snappedX = Math.round(rawX / CELL) * CELL
-      const snappedY = Math.round(rawY / CELL) * CELL
-      // FIX R3: Commit the snapped DOM transform BEFORE onDragEnd triggers a
-      // React re-render that removes .dragging. Without this, the 0.2s CSS
-      // transition on .dk-canvas-card animates the card from its dragged
-      // position to the committed position — a visible "sliding" snap-back.
-      if (cardRef.current) {
-        cardRef.current.style.transform = `translate(${snappedX}px, ${snappedY}px)`
+    // Window-level listeners replace setPointerCapture: receive move/up even
+    // when the cursor leaves the card during a fast drag.
+    const onMove = (me: MouseEvent) => {
+      if (!dragRef.current || !cardRef.current) return
+      const dx = me.clientX - dragRef.current.startX
+      const dy = me.clientY - dragRef.current.startY
+      if (!dragEngagedRef.current) {
+        if (Math.abs(dx) <= 2 && Math.abs(dy) <= 2) return
+        engageDrag()
+        hasMovedRef.current = true
+      } else if (!hasMovedRef.current && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) {
+        hasMovedRef.current = true
       }
-      onDragEnd(card.id, { x: snappedX, y: snappedY })
-      suppressClickRef.current = true
+      const newX = dragRef.current.origX + dx / zoom
+      const newY = dragRef.current.origY + dy / zoom
+      cardRef.current.style.transform = `translate(${newX}px, ${newY}px)`
     }
-    dragRef.current = null
-    isDraggingRef.current = false
-    hasMovedRef.current = false
-    if (cardRef.current) {
-      cardRef.current.classList.remove('dragging')
-      cardRef.current.style.zIndex = String(card.zIndex)
-      try { cardRef.current.releasePointerCapture(e.pointerId) } catch { /* ignore */ }
+
+    const onUp = (me: MouseEvent) => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      dragCleanupRef.current = null
+
+      if (!dragRef.current) return
+      const engaged = dragEngagedRef.current
+      if (engaged && hasMovedRef.current) {
+        const dx = (me.clientX - dragRef.current.startX) / zoom
+        const dy = (me.clientY - dragRef.current.startY) / zoom
+        const rawX = dragRef.current.origX + dx
+        const rawY = dragRef.current.origY + dy
+        const snappedX = Math.round(rawX / CELL) * CELL
+        const snappedY = Math.round(rawY / CELL) * CELL
+        if (cardRef.current) {
+          cardRef.current.style.transform = `translate(${snappedX}px, ${snappedY}px)`
+        }
+        onDragEnd(card.id, { x: snappedX, y: snappedY })
+        suppressClickRef.current = true
+      }
+      dragRef.current = null
+      isDraggingRef.current = false
+      hasMovedRef.current = false
+      interactiveStartRef.current = false
+      dragEngagedRef.current = false
+      if (engaged && cardRef.current) {
+        cardRef.current.classList.remove('dragging')
+        cardRef.current.style.zIndex = String(card.zIndex)
+        onDragStop?.()
+      }
     }
-    onDragStop?.()
-  }, [card.id, card.zIndex, onDragEnd, onDragStop, zoom, handleResizeUp])
 
-  const handlePointerCancel = useCallback(() => {
-    cleanupInteraction()
-  }, [cleanupInteraction])
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    dragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [card.id, card.position.x, card.position.y, card.zIndex, onDragEnd, onDragStop, engageDrag, zoom])
 
-  // Safety net: if pointerup is ever lost (alt-tab, pointercancel, window
-  // blur, card unmounted mid-drag), restore the card to its committed state
-  // and clear the grid's dragging state instead of leaving it stuck.
+  // ── Resize handle: mousedown starts resize, window move/up commits ──
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    resizeRef.current = { startX: e.clientX, startY: e.clientY, origW: card.size.w, origH: card.size.h }
+
+    const onMove = (me: MouseEvent) => {
+      if (!resizeRef.current || !cardRef.current) return
+      hasMovedRef.current = true
+      const dx = (me.clientX - resizeRef.current.startX) / zoom
+      const dy = (me.clientY - resizeRef.current.startY) / zoom
+      const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
+      const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
+      cardRef.current.style.width = `${newW * CELL}px`
+      cardRef.current.style.height = `${newH * CELL}px`
+    }
+
+    const onUp = (me: MouseEvent) => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      dragCleanupRef.current = null
+
+      if (!resizeRef.current || !cardRef.current) return
+      const dx = (me.clientX - resizeRef.current.startX) / zoom
+      const dy = (me.clientY - resizeRef.current.startY) / zoom
+      const newW = Math.max(4, Math.min(20, Math.round((resizeRef.current.origW * CELL + dx) / CELL)))
+      const newH = Math.max(4, Math.min(20, Math.round((resizeRef.current.origH * CELL + dy) / CELL)))
+      resizeRef.current = null
+      onResize?.(card.id, { w: newW, h: newH })
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    dragCleanupRef.current = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [card.id, card.size, onResize, zoom])
+
+  // Safety net: if blur/pointercancel is ever lost (alt-tab, window blur,
+  // card unmounted mid-drag), restore the card to its committed state.
+  // NOTE: mouseup is NOT included here — the drag's own window mouseup
+  // handler commits the position. Including mouseup here would fire
+  // cleanupInteraction BEFORE the drag handler (safety net registered first),
+  // resetting the transform before commit — the "snap-back" bug.
   useEffect(() => {
     const onWindow = () => {
-      if (dragRef.current || resizeRef.current) cleanupInteraction()
+      if (dragRef.current || resizeRef.current) {
+        cleanupInteraction()
+        dragCleanupRef.current?.()
+        dragCleanupRef.current = null
+      }
     }
-    window.addEventListener('pointerup', onWindow)
-    window.addEventListener('pointercancel', onWindow)
     window.addEventListener('blur', onWindow)
     return () => {
-      window.removeEventListener('pointerup', onWindow)
-      window.removeEventListener('pointercancel', onWindow)
       window.removeEventListener('blur', onWindow)
-      cleanupInteraction()
     }
   }, [cleanupInteraction])
 
-  const handleCardClick = useCallback((e: React.PointerEvent) => {
+  const handleCardClick = useCallback((e: React.MouseEvent) => {
     // A click that immediately follows a real drag must not select the card —
     // otherwise auto-focus pans the camera away from where the card was dropped.
     if (suppressClickRef.current) {
@@ -315,6 +348,14 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
   const isTransient = !card.pinned && card.source === 'ai'
   const isGroupCard = card.type === 'group'
 
+  // Track whether this card was JUST created (for mount-only animation)
+  const [isNew, setIsNew] = useState(true)
+  useEffect(() => {
+    // Clear the "new" flag after the animation completes so re-renders don't replay it
+    const t = setTimeout(() => setIsNew(false), 350)
+    return () => clearTimeout(t)
+  }, [])
+
   return (
     <CardErrorBoundary cardType={card.type} onRetry={() => {}} onDismiss={() => onDismiss(card.id)}>
       <div
@@ -322,42 +363,28 @@ export function CanvasCard({ card, onDragEnd, onDismiss, onPin, onResize, onDrag
         className={`dk-canvas-card ${isTransient ? 'transient' : ''} ${isFocused ? 'focused' : ''} ${isDropTarget ? 'drop-target' : ''} status-${card.status}`}
         data-card-id={card.id}
         data-tutorial="ai.card-types"
+        data-new={isNew ? 'true' : undefined}
         style={{
           position: 'absolute', left: 0, top: 0,
           width: card.size.w * CELL, height: card.size.h * CELL,
           transform: `translate(${card.position.x}px, ${card.position.y}px)`,
           zIndex: card.zIndex,
         }}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
+        onMouseDown={handleMouseDown}
         onClick={handleCardClick}
       >
-        <div
-          className="dk-canvas-card-header"
-          style={{ cursor: 'grab' }}
+        <CardFrame
+          type={card.type}
+          pinned={card.pinned}
+          onPin={onPin ? () => onPin(card.id) : undefined}
+          onDismiss={isGroupCard ? undefined : () => onDismiss(card.id)}
+          hideHeader={card.type === 'response'}
         >
-          <span className="dk-canvas-card-type">{card.type}</span>
-          <div className="dk-canvas-card-actions">
-            <button
-              className={`dk-canvas-pin-btn ${card.pinned ? 'pinned' : ''}`}
-              onClick={(e) => { e.stopPropagation(); onPin?.(card.id) }}
-              title={card.pinned ? 'Unpin card' : 'Pin card'}
-            >
-              {card.pinned ? <PinOff size={13} /> : <Pin size={13} />}
-            </button>
-            {!isGroupCard && (
-              <button className="dk-canvas-dismiss" onClick={(e) => { e.stopPropagation(); onDismiss(card.id) }} title="Dismiss">✕</button>
-            )}
-          </div>
-        </div>
-        <div className="dk-canvas-card-body">
           {renderCardContent(card, { onUpdateCard, onDismiss, groups, onUpdateGroup, onUngroup, onRemoveFromGroup })}
-        </div>
+        </CardFrame>
         <div
           className="dk-canvas-resize-handle"
-          onPointerDown={handleResizeDown}
+          onMouseDown={handleResizeMouseDown}
         />
       </div>
     </CardErrorBoundary>

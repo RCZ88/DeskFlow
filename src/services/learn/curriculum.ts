@@ -6,7 +6,26 @@ export interface CurriculumTrailer {
   where: string;
 }
 
-export interface CurriculumPart {
+export interface CurriculumBranch {
+  id: string;
+  emoji: string;
+  title: string;
+  color: string;
+  ord: number;
+}
+
+export const CURRICULUM_BRANCHES: CurriculumBranch[] = [
+  { id: 'cs-ai',     emoji: '\uD83E\uDD16', title: 'Computer Science & AI',   color: 'clay',  ord: 0 },
+  { id: 'languages', emoji: '\uD83D\uDDE3\uFE0F', title: 'Language Learning', color: 'sage',  ord: 1 },
+  { id: 'music',     emoji: '\uD83C\uDFB5', title: 'Music Theory & Practice', color: 'amber', ord: 2 },
+  { id: 'math',      emoji: '\u2211',  title: 'Mathematics',            color: 'sky',   ord: 3 },
+];
+
+export function getBranch(id: string): CurriculumBranch | undefined {
+  return CURRICULUM_BRANCHES.find((b) => b.id === id);
+}
+
+export interface CurriculumTopic {
   part: number;
   slug: string;
   emoji: string;
@@ -17,11 +36,15 @@ export interface CurriculumPart {
   intro: string;
   defaultMasteryTarget: MasteryLevel;
   checklist: string[];
+  branchId: string;
+  parentSlug?: string;
+  prereqSlugs?: string[];
 }
 
-export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
+export const CURRICULUM_TOPICS: CurriculumTopic[] = [
   {
     part: 0,
+    branchId: 'cs-ai',
     slug: 'what-ai-engineers-do',
     emoji: '\uD83E\uDDED',
     title: 'What AI Engineers Actually Do',
@@ -43,6 +66,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 1,
+    branchId: 'cs-ai',
     slug: 'cs-systems-foundations',
     emoji: '\uD83C\uDFDB\uFE0F',
     title: 'CS & Systems Foundations',
@@ -67,6 +91,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 2,
+    branchId: 'cs-ai',
     slug: 'software-design-architecture',
     emoji: '\uD83C\uDFA8',
     title: 'Software Design & Architecture',
@@ -92,6 +117,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 3,
+    branchId: 'cs-ai',
     slug: 'performance-efficiency',
     emoji: '\u26A1',
     title: 'Performance & Efficiency',
@@ -117,6 +143,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 4,
+    branchId: 'cs-ai',
     slug: 'databases-deep',
     emoji: '\uD83D\uDDC4\uFE0F',
     title: 'Databases, Deep',
@@ -142,6 +169,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 5,
+    branchId: 'cs-ai',
     slug: 'security',
     emoji: '\uD83D\uDD10',
     title: 'Security (app + data + AI)',
@@ -167,6 +195,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 6,
+    branchId: 'cs-ai',
     slug: 'ml-dl-math-theory',
     emoji: '\u2797',
     title: 'ML/DL Math & Theory',
@@ -192,6 +221,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 7,
+    branchId: 'cs-ai',
     slug: 'pytorch-dl-engineering',
     emoji: '\uD83D\uDD25',
     title: 'PyTorch & DL Engineering',
@@ -217,6 +247,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 8,
+    branchId: 'cs-ai',
     slug: 'applied-ai-llm-engineering',
     emoji: '\uD83E\uDD16',
     title: 'Applied AI / LLM Engineering',
@@ -241,6 +272,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 9,
+    branchId: 'cs-ai',
     slug: 'mlops-production-ml',
     emoji: '\uD83D\uDEA2',
     title: 'MLOps & Production ML',
@@ -264,6 +296,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 10,
+    branchId: 'cs-ai',
     slug: 'meta-skills',
     emoji: '\uD83E\uDDE0',
     title: 'The Meta-Skills',
@@ -287,6 +320,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 11,
+    branchId: 'cs-ai',
     slug: 'vision-multimodal-ai',
     emoji: '\uD83D\uDC41\uFE0F',
     title: 'Vision & Multimodal AI',
@@ -312,6 +346,7 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
   {
     part: 12,
+    branchId: 'cs-ai',
     slug: 'training-finetuning-adaptation',
     emoji: '\uD83D\uDEE0\uFE0F',
     title: 'Training, Fine-Tuning & Adaptation',
@@ -337,12 +372,23 @@ export const CURRICULUM_BLUEPRINT: CurriculumPart[] = [
   },
 ];
 
-export function getPart(part: number): CurriculumPart | undefined {
-  return CURRICULUM_BLUEPRINT.find((p) => p.part === part);
+export function getTopic(part: number, branchId?: string): CurriculumTopic | undefined {
+  if (branchId != null) {
+    return CURRICULUM_TOPICS.find((t) => t.part === part && t.branchId === branchId);
+  }
+  return CURRICULUM_TOPICS.find((t) => t.part === part);
 }
 
-export function getPartBySlug(slug: string): CurriculumPart | undefined {
-  return CURRICULUM_BLUEPRINT.find((p) => p.slug === slug);
+export function getTopicBySlug(slug: string): CurriculumTopic | undefined {
+  return CURRICULUM_TOPICS.find((t) => t.slug === slug);
+}
+
+export function getTopicsByBranch(branchId: string): CurriculumTopic[] {
+  return CURRICULUM_TOPICS.filter((t) => t.branchId === branchId).sort((a, b) => a.part - b.part);
+}
+
+export function getTopicChildren(parentSlug: string): CurriculumTopic[] {
+  return CURRICULUM_TOPICS.filter((t) => t.parentSlug === parentSlug).sort((a, b) => a.part - b.part);
 }
 
 export function rarityStars(rarity: number): string {

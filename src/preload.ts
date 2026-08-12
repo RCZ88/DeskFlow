@@ -93,6 +93,19 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Set user preference
   setPreference: (key: string, value: any) => ipcRenderer.invoke('set-preference', key, value),
 
+  // Speech-to-Text (API primary + Windows native fallback)
+  sttGetStatus: () => ipcRenderer.invoke('stt:get-status'),
+  sttTranscribe: (payload: { audioBase64: string; mime?: string; lang?: string }) => ipcRenderer.invoke('stt:transcribe', payload),
+  sttNativeStart: (lang?: string) => ipcRenderer.invoke('stt:native-start', lang),
+  sttNativeStop: () => ipcRenderer.invoke('stt:native-stop'),
+  onSttNativeEvent: (callback: (ev: { type: string; text?: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('stt-native-event', handler);
+    return () => {
+      ipcRenderer.removeListener('stt-native-event', handler);
+    };
+  },
+
   // Get custom AI agent storage paths
   getAIAgentCustomPaths: () => ipcRenderer.invoke('get-ai-agent-custom-paths'),
 
@@ -219,6 +232,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getInterestTopics: () => ipcRenderer.invoke('get-interest-topics'),
   addInterestTopic: (topic: string) => ipcRenderer.invoke('add-interest-topic', topic),
   removeInterestTopic: (topic: string) => ipcRenderer.invoke('remove-interest-topic', topic),
+
+  // Knowledge Base (R5: self-contained context/RAG — deskflow-kb.json + BM25)
+  kbIngest: (file: { name: string; type: string; content: string }) => ipcRenderer.invoke('kb:ingest', file),
+  kbQuery: (query: string, limit?: number) => ipcRenderer.invoke('kb:query', query, limit),
+  kbList: () => ipcRenderer.invoke('kb:list'),
+  kbRemove: (docId: string) => ipcRenderer.invoke('kb:remove', docId),
+
+  // Feature Studio: AI Director pipeline (runs provider chain via main process)
+  featureStudioCompile: (script: string) => ipcRenderer.invoke('feature-studio:compile', { script }),
 
   // File operations
   saveFile: (options: { content: string; filename: string; fileType: string }) => ipcRenderer.invoke('save-file', options),
@@ -1182,11 +1204,14 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========== Lyceum Learn Module ==========
   learnImportLdoc: (payload: { source?: string; json?: unknown }) => ipcRenderer.invoke('learn:importLdoc', payload),
   learnValidate: (payload: { source?: string; json?: unknown }) => ipcRenderer.invoke('learn:validate', payload),
-  learnListLessons: (params?: { part?: number }) => ipcRenderer.invoke('learn:listLessons', params || {}),
-  learnListChapters: (params?: { part?: number }) => ipcRenderer.invoke('learn:listChapters', params || {}),
+  learnListLessons: (params?: { branchId?: string; part?: number; chapter?: string; subtopic?: string }) => ipcRenderer.invoke('learn:listLessons', params || {}),
+  learnListChapters: (params?: { branchId?: string; part?: number }) => ipcRenderer.invoke('learn:listChapters', params || {}),
+  learnListGroups: (params?: { branchId?: string; part?: number }) => ipcRenderer.invoke('learn:listGroups', params || {}),
+  learnListBranches: () => ipcRenderer.invoke('learn:listBranches'),
+  learnGetTopicsByBranch: (params: { branchId: string }) => ipcRenderer.invoke('learn:getTopicsByBranch', params),
   learnGetLesson: ({ lessonId }: { lessonId: string }) => ipcRenderer.invoke('learn:getLesson', { lessonId }),
   learnGetNode: ({ nodeId }: { nodeId: string }) => ipcRenderer.invoke('learn:getNode', { nodeId }),
-  learnGetGraph: (params?: { part?: number }) => ipcRenderer.invoke('learn:getGraph', params || {}),
+  learnGetGraph: (params?: { branchId?: string; part?: number }) => ipcRenderer.invoke('learn:getGraph', params || {}),
   learnAskTutor: (params: { nodeId: string; blockId?: string; question: string }) => ipcRenderer.invoke('learn:askTutor', params),
   learnSubmitQuiz: (params: { nodeId: string; blockId: string; response: string }) => ipcRenderer.invoke('learn:submitQuiz', params),
   learnGetProgress: (params?: { nodeId?: string }) => ipcRenderer.invoke('learn:getProgress', params || {}),
@@ -1195,7 +1220,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   learnGetWorkedExample: () => ipcRenderer.invoke('learn:get-worked-example'),
   learnGetSchema: () => ipcRenderer.invoke('learn:get-schema'),
   learnGetAuthorGuide: () => ipcRenderer.invoke('learn:get-author-guide'),
-  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[]; chapter?: string }) =>
+  learnBuildPrompt: (params: { userInput?: string; topic?: string; description?: string; contextDoc?: string; numNodes?: number; masteryTargets?: string[]; chapter?: string; branchId?: string; subtopic?: string }) =>
     ipcRenderer.invoke('learn:buildPrompt', params),
   learnGenerateLdoc: (params: { prompt: string; systemPrompt: string }) =>
     ipcRenderer.invoke('learn:generateLdoc', params),
@@ -1288,7 +1313,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // ========== Lesson Management ==========
   learnGetLessonSource: (args: { lessonId: string }) => ipcRenderer.invoke('learn:getLessonSource', args),
-  learnUpdateLessonMeta: (args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string }) => ipcRenderer.invoke('learn:updateLessonMeta', args),
+  learnUpdateLessonMeta: (args: { lessonId: string; title?: string; part?: number; summary?: string; chapter?: string; branchId?: string; subtopic?: string }) => ipcRenderer.invoke('learn:updateLessonMeta', args),
   learnUpdateLessonDoc: (args: { lessonId: string; docJson: string }) => ipcRenderer.invoke('learn:updateLessonDoc', args),
   learnDeleteLesson: (args: { lessonId: string }) => ipcRenderer.invoke('learn:deleteLesson', args),
 
@@ -1335,6 +1360,25 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     restore: (name: string) => ipcRenderer.invoke('backup:restore', name),
     exportJSON: () => ipcRenderer.invoke('backup:exportJSON'),
     exportCSV: (tables: string[]) => ipcRenderer.invoke('backup:exportCSV', tables),
+    status: () => ipcRenderer.invoke('backup:status'),
+    verify: (name: string) => ipcRenderer.invoke('backup:verify', name),
+    settingsGet: () => ipcRenderer.invoke('backup:settings:get'),
+    settingsSet: (patch: Record<string, unknown>) => ipcRenderer.invoke('backup:settings:set', patch),
+    pickMirrorDir: () => ipcRenderer.invoke('backup:pickMirrorDir'),
+  },
+
+  // ========== Project file backup ==========
+  projectBackup: {
+    create: (projectId: string, projectPath: string, label?: string, extra?: Record<string, unknown>) =>
+      ipcRenderer.invoke('projectBackup:create', projectId, projectPath, label, extra),
+    list: (projectId?: string) => ipcRenderer.invoke('projectBackup:list', projectId),
+    get: (backupId: string) => ipcRenderer.invoke('projectBackup:get', backupId),
+    delete: (backupId: string, projectId: string) => ipcRenderer.invoke('projectBackup:delete', backupId, projectId),
+    restore: (projectId: string, backupId: string) => ipcRenderer.invoke('projectBackup:restore', projectId, backupId),
+    diff: (projectId: string, backupId: string) => ipcRenderer.invoke('projectBackup:diff', projectId, backupId),
+    schedule: (projectId: string, minutes: number, projectPath?: string) =>
+      ipcRenderer.invoke('projectBackup:schedule', projectId, minutes, projectPath),
+    getSchedules: () => ipcRenderer.invoke('projectBackup:getSchedules'),
   },
 
   // ========== Workspace close guard ==========
@@ -1395,6 +1439,11 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
       ipcRenderer.on('focus:ended', handler);
       return () => { ipcRenderer.removeListener('focus:ended', handler); };
     },
+  },
+
+  focusGoal: {
+    get: () => ipcRenderer.invoke('focusGoal:get'),
+    save: (cfg: { lenient_goal_sec?: number; strict_goal_sec?: number }) => ipcRenderer.invoke('focusGoal:save', cfg || {}),
   },
 
   focusGroup: {

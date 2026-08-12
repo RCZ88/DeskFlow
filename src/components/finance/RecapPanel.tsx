@@ -1,15 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Doughnut } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip as ChartTooltip } from 'chart.js';
+import type { ChartOptions } from 'chart.js';
 import {
   Sparkles, TrendingUp, TrendingDown, Percent, Receipt, CalendarDays,
   ArrowDownLeft, ArrowUpRight, RefreshCw, Trash2, LoaderCircle, BookOpenText,
   CheckCircle2, AlertTriangle, RotateCcw, Handshake, Zap, CircleDollarSign,
-  Wallet,
+  Wallet, PieChart,
 } from 'lucide-react';
 import { NumberTicker } from '../ui/number-ticker';
 import { AnimatedGradientText } from '../ui/animated-gradient-text';
 import { convertAmount, formatCurrency } from './currency-data';
 import { cleanRecapSummary } from '../../shared/recap';
+
+ChartJS.register(ArcElement, ChartTooltip);
 
 type RecapGenStage = 'reading' | 'analyzing' | 'writing' | 'saving' | 'done';
 
@@ -234,6 +239,105 @@ export function RecapPanel({ dataSection, displayCurrency, onNotify }: RecapPane
             <NumberTicker value={c.value} formatter={c.formatter} className={`text-lg font-semibold font-mono ${c.accent || 'text-zinc-100'}`} />
           </motion.div>
         ))}
+      </div>
+    );
+  };
+
+  const renderSpendingByCategory = () => {
+    if (!stats) return null;
+    const source = stats.spendingByCategory?.length ? stats.spendingByCategory : (stats.topCategories || []);
+    if (!source.length) return null;
+    const items = source
+      .map((c: any) => ({
+        name: String(c.name ?? c.categoryName ?? 'Uncategorized'),
+        amount: Number(c.amount) || 0,
+        color: String(c.color ?? c.categoryColor ?? '#888888'),
+      }))
+      .filter((c: any) => c.amount > 0);
+    if (!items.length) return null;
+    const total = items.reduce((s: number, c: any) => s + c.amount, 0);
+    const top = items.slice(0, 6);
+    const topSum = top.reduce((s: number, c: any) => s + c.amount, 0);
+    const rows = topSum < total ? [...top, { name: 'Other', amount: total - topSum, color: '#71717a' }] : top;
+
+    const donutData = {
+      labels: rows.map((r: any) => r.name),
+      datasets: [{
+        data: rows.map((r: any) => conv(r.amount)),
+        backgroundColor: rows.map((r: any) => r.color),
+        hoverBackgroundColor: rows.map((r: any) => r.color),
+        hoverOffset: 6,
+        borderWidth: 0,
+      }],
+    };
+
+    const donutOptions: ChartOptions<'doughnut'> = {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '72%',
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(24,24,27,0.95)',
+          titleColor: '#fff',
+          bodyColor: '#a1a1aa',
+          borderColor: 'rgba(113,113,122,0.3)',
+          borderWidth: 1,
+          padding: 10,
+          callbacks: {
+            title: (items: any[]) => (items[0]?.label ? String(items[0].label) : ''),
+            label: (ctx: any) => {
+              const value = Number(ctx.parsed) || 0;
+              const pct = total > 0 ? ((Number(ctx.parsed) || 0) / conv(total) * 100).toFixed(1) : '0.0';
+              return `${fmt(value)} (${pct}%)`;
+            },
+          },
+        },
+      },
+    };
+
+    return (
+      <div className="rounded-xl border border-zinc-800/80 bg-[rgba(24,24,27,0.60)] backdrop-blur-xl p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <PieChart className="w-4 h-4 text-violet-400" />
+          <h3 className="text-sm font-bold font-caslon text-zinc-200">Spending by Category</h3>
+          <span className="text-[10px] text-zinc-500 ml-auto" style={MONO}>top {rows.length} of {items.length}</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+          {/* Donut + center total */}
+          <div className="md:col-span-2 relative w-full max-w-[240px] h-[220px] mx-auto">
+            <Doughnut data={donutData} options={donutOptions} />
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-lg font-semibold font-mono text-zinc-100">{fmt(total)}</span>
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500">spent</span>
+            </div>
+          </div>
+          {/* Animated bars */}
+          <div className="md:col-span-3 space-y-3 self-center">
+            {rows.map((r: any, i: number) => {
+              const pct = total > 0 ? (r.amount / total) * 100 : 0;
+              return (
+                <div key={r.name}>
+                  <div className="flex items-baseline justify-between mb-1">
+                    <span className="text-xs text-zinc-300 truncate">{r.name}</span>
+                    <span className="text-[11px] font-medium text-zinc-400" style={MONO}>
+                      {fmt(r.amount)} <span className="text-zinc-600">· {pct.toFixed(1)}%</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full"
+                      style={{ backgroundColor: r.color }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 0.6, delay: 0.05 * i, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     );
   };
@@ -481,6 +585,7 @@ export function RecapPanel({ dataSection, displayCurrency, onNotify }: RecapPane
           </div>
 
           {stats && renderStatsGrid()}
+          {stats && renderSpendingByCategory()}
           {stats && renderOnBehalf()}
           {renderNarrative()}
           {stats && renderInsights()}

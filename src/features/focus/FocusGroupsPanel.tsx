@@ -1,9 +1,9 @@
-import { Layers, Plus, Pencil, Trash2, Target, AppWindow, Globe } from 'lucide-react';
+import { Layers, Plus, Pencil, Trash2, AppWindow, Globe, Tag } from 'lucide-react';
 import { GlassCard } from '../../components/GlassCard';
 import { MagicCard } from '../../components/ui/magic-card';
 import { Badge } from '../../components/ui/badge';
 import type { FocusGroup } from '../../hooks/useFocusGroups';
-import { fmtDuration, groupAccent } from './focusHelpers';
+import { groupAccent } from './focusHelpers';
 
 interface FocusGroupsPanelProps {
   groups: FocusGroup[];
@@ -29,6 +29,7 @@ function GroupCard({
 }) {
   const appCount = group.allowed_apps.length;
   const siteCount = group.allowed_domains.length;
+  const categoryCount = group.allowed_categories.length;
   const accent = groupAccent(group.name);
 
   return (
@@ -88,17 +89,16 @@ function GroupCard({
             <Globe className="w-3 h-3" style={{ color: accent }} />
             {siteCount} {siteCount === 1 ? 'site' : 'sites'}
           </span>
-          {group.strictness === 'non_allowed' && (
-            <Badge variant="secondary" className="text-[9px] bg-amber-500/15 text-amber-300">strict</Badge>
-          )}
+          <span className="flex items-center gap-1 text-[10px] text-zinc-400">
+            <Tag className="w-3 h-3" style={{ color: accent }} />
+            {categoryCount} {categoryCount === 1 ? 'category' : 'categories'}
+          </span>
         </div>
 
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-1 text-[10px] text-zinc-500">
-            <Target className="w-3 h-3" style={{ color: accent }} />
-            {group.daily_goal_sec
-              ? `${fmtDuration(group.daily_goal_sec)}/day${group.goal_category ? ` · ${group.goal_category}` : ''}`
-              : 'No daily goal'}
+            <AppWindow className="w-3 h-3" style={{ color: accent }} />
+            Strictness picked at session start
           </span>
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity">
             <button

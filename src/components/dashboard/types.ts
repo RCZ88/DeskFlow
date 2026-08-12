@@ -42,6 +42,7 @@ export interface Goal {
   progressSeconds?: number;
   completedAt?: string;
   parentId?: string;
+  parentIds?: string[];
   streak?: number;
   createdAt: string;
   // Habit/Covenant features

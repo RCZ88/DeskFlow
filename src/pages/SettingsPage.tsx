@@ -5,7 +5,8 @@ import {
   Settings, Database, Clock, Download, Trash2, RefreshCw, Terminal,
   ChevronRight, X, Plus, GripVertical, Palette, Check, ChevronDown, Globe,
   ChevronLeft, Search, AlertTriangle, Sparkles, ChevronUp, Loader2,
-  Eye, EyeOff, DollarSign, Shield, Key, Save, Lock, LockOpen, History, Undo2, Pencil
+  Eye, EyeOff, DollarSign, Shield, Key, Save, Lock, LockOpen, History, Undo2, Pencil,
+  Upload, FileText, SearchX
 } from 'lucide-react';
 import {
   DndContext,
@@ -650,6 +651,13 @@ export default function SettingsPage({
           if (topics?.length > 0) setInterestTopics(topics);
         } catch { /* ignore */ }
       }
+      // Load Knowledge Base documents (R5)
+      if (window.deskflowAPI?.kbList) {
+        try {
+          const docs = await window.deskflowAPI.kbList();
+          if (Array.isArray(docs)) setKbDocs(docs);
+        } catch { /* ignore */ }
+      }
       // Load OpenRouter API key from preferences
       if (window.deskflowAPI?.getPreferences) {
         try {
@@ -664,6 +672,15 @@ export default function SettingsPage({
           }
           if (prefs?.promptHistoryLimit !== undefined) {
             setPromptHistoryLimit(prefs.promptHistoryLimit);
+          }
+          if (typeof prefs?.sttApiKey === 'string') {
+            setSttApiKey(prefs.sttApiKey.replace(/^["']|["']$/g, ''));
+          }
+          if (typeof prefs?.sttModel === 'string') {
+            setSttModel(prefs.sttModel);
+          }
+          if (typeof prefs?.sttBaseUrl === 'string') {
+            setSttBaseUrl(prefs.sttBaseUrl);
           }
         } catch { /* ignore */ }
       }
@@ -1369,8 +1386,20 @@ export default function SettingsPage({
   const [apiKeyTestStatus, setApiKeyTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [apiKeyTestMessage, setApiKeyTestMessage] = useState('');
 
+  // Voice & Speech state
+  const [sttApiKey, setSttApiKey] = useState('');
+  const [sttModel, setSttModel] = useState('whisper-large-v3-turbo');
+  const [sttBaseUrl, setSttBaseUrl] = useState('https://api.groq.com/openai/v1/audio/transcriptions');
+  const [showSttKey, setShowSttKey] = useState(false);
+
   // AI Assistant state
   const [interestTopics, setInterestTopics] = useState<string[]>([]);
+  const [kbDocs, setKbDocs] = useState<Array<{ id: string; name: string; type: string; addedAt: number }>>([]);
+  const [kbIngesting, setKbIngesting] = useState(false);
+  const [kbQueryText, setKbQueryText] = useState('');
+  const [kbResults, setKbResults] = useState<Array<{ docName: string; content: string }>>([]);
+  const [kbQuerying, setKbQuerying] = useState(false);
+  const kbFileInputRef = useRef<HTMLInputElement>(null);
   const [newTopic, setNewTopic] = useState('');
   const [aiUsageStats, setAiUsageStats] = useState<{ totalCalls: number; totalCost: number }>({ totalCalls: 0, totalCost: 0 });
   const [showApiKey, setShowApiKey] = useState(false);
@@ -2146,6 +2175,8 @@ export default function SettingsPage({
                             setLocalExternalTiers(updated);
                             localStorage.setItem('deskflow-external-activity-tiers', JSON.stringify(updated));
                             onExternalActivityTiersChange?.(updated);
+                            setSavedNotice(true);
+                            setTimeout(() => setSavedNotice(false), 2500);
                           }}
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${isSelected ? 'ring-2 ring-white/30' : 'hover:bg-zinc-800'
                             }`}
@@ -4199,6 +4230,86 @@ export default function SettingsPage({
             </div>
           </GlassCard>
           </SearchableSection>
+
+          {/* Voice & Speech Section */}
+          <SearchableSection terms={['voice', 'speech', 'dictation', 'microphone', 'stt', 'speech api key', 'whisper', 'windows speech']} search={settingsSearch}>
+          <GlassCard className="space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold mb-1">Voice & Speech</h2>
+              <p className="text-xs text-zinc-500">Dictation engine order: Cloud API → Windows speech → Browser speech</p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-zinc-400 mb-2 block">Speech API Key</label>
+              <div className="relative">
+                <input
+                  type={showSttKey ? 'text' : 'password'}
+                  placeholder="gsk_..."
+                  value={sttApiKey}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSttApiKey(v);
+                    if (window.deskflowAPI?.setPreference) {
+                      window.deskflowAPI.setPreference('sttApiKey', v.trim());
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSttKey(prev => !prev)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+                  tabIndex={-1}
+                >
+                  {showSttKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-xs text-zinc-500 mt-1.5">Any OpenAI-compatible speech-to-text API key (Groq, OpenAI, etc.). When set, dictation uses the cloud API first — this is the most accurate engine.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-zinc-400 mb-2 block">Model</label>
+                <input
+                  type="text"
+                  placeholder="whisper-large-v3-turbo"
+                  value={sttModel}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSttModel(v);
+                    if (window.deskflowAPI?.setPreference) {
+                      window.deskflowAPI.setPreference('sttModel', v.trim() || 'whisper-large-v3-turbo');
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-zinc-400 mb-2 block">API URL</label>
+                <input
+                  type="text"
+                  placeholder="https://api.groq.com/openai/v1/audio/transcriptions"
+                  value={sttBaseUrl}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSttBaseUrl(v);
+                    if (window.deskflowAPI?.setPreference) {
+                      window.deskflowAPI.setPreference('sttBaseUrl', v.trim());
+                    }
+                  }}
+                  className="w-full px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-zinc-800/40 border border-zinc-700/40 p-3 space-y-1.5">
+              <p className="text-xs text-zinc-400 font-medium">Fallback chain</p>
+              <p className="text-xs text-zinc-500"><span className="text-emerald-400">1. Cloud API</span> — used when an API key is set. Best accuracy.</p>
+              <p className="text-xs text-zinc-500"><span className="text-blue-400">2. Windows speech</span> — built-in Windows recognition, used when no API key is set. Works fully offline.</p>
+              <p className="text-xs text-zinc-500"><span className="text-amber-400">3. Browser speech</span> — last resort. Can be unreliable in this app.</p>
+            </div>
+          </GlassCard>
+          </SearchableSection>
         </div>
       )}
 
@@ -4569,6 +4680,134 @@ export default function SettingsPage({
                   <p className="text-xs text-zinc-500 italic">No topics added yet</p>
                 )}
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-zinc-700/50" />
+
+            {/* Knowledge Base (R5: self-contained RAG) */}
+            <div>
+              <label className="text-sm font-medium text-zinc-400 mb-2 block">Knowledge Base</label>
+              <p className="text-xs text-zinc-500 mb-3">
+                Upload notes or documents (txt/md) — the AI assistant retrieves the most relevant sections when answering you.
+              </p>
+              <input
+                type="file"
+                accept=".txt,.md,text/plain,text/markdown"
+                multiple
+                ref={kbFileInputRef}
+                onChange={async (e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = '';
+                  if (files.length === 0) return;
+                  setKbIngesting(true);
+                  let ingested = 0;
+                  for (const file of files) {
+                    try {
+                      const content = await file.text();
+                      const ext = file.name.split('.').pop()?.toLowerCase();
+                      const type = ext === 'md' ? 'md' : ext === 'txt' ? 'txt' : 'txt';
+                      if (window.deskflowAPI?.kbIngest) {
+                        const r = await window.deskflowAPI.kbIngest({ name: file.name, type, content });
+                        if (r?.success) ingested++;
+                      }
+                    } catch (err) {
+                      console.error('[Settings] KB ingest failed:', err);
+                    }
+                  }
+                  setKbIngesting(false);
+                  if (ingested > 0) {
+                    setHasChanges(true);
+                    onHasChangesChange(true);
+                    if (window.deskflowAPI?.kbList) {
+                      try {
+                        const docs = await window.deskflowAPI.kbList();
+                        if (Array.isArray(docs)) setKbDocs(docs);
+                      } catch { /* ignore */ }
+                    }
+                  }
+                }}
+                className="hidden"
+              />
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  onClick={() => kbFileInputRef.current?.click()}
+                  disabled={kbIngesting}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 disabled:opacity-40 transition-colors"
+                >
+                  {kbIngesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                  {kbIngesting ? 'Importing…' : 'Import files'}
+                </button>
+                {kbDocs.length > 0 && (
+                  <span className="text-xs text-zinc-500">{kbDocs.length} document{kbDocs.length === 1 ? '' : 's'}</span>
+                )}
+              </div>
+              {kbDocs.length > 0 && (
+                <div className="space-y-1.5 mb-4">
+                  {kbDocs.map(doc => (
+                    <div key={doc.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-700/30">
+                      <FileText className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+                      <span className="text-xs text-zinc-300 truncate flex-1" title={doc.name}>{doc.name}</span>
+                      <span className="text-[10px] text-zinc-500 uppercase shrink-0">{doc.type}</span>
+                      <button
+                        onClick={async () => {
+                          if (window.deskflowAPI?.kbRemove) {
+                            await window.deskflowAPI.kbRemove(doc.id);
+                            setKbDocs(prev => prev.filter(d => d.id !== doc.id));
+                          }
+                        }}
+                        className="shrink-0 text-zinc-500 hover:text-rose-400 transition-colors"
+                        title={`Remove ${doc.name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={kbQueryText}
+                  onChange={(e) => setKbQueryText(e.target.value)}
+                  onKeyDown={async (e) => {
+                    if (e.key === 'Enter' && kbQueryText.trim() && window.deskflowAPI?.kbQuery) {
+                      setKbQuerying(true);
+                      try {
+                        const results = await window.deskflowAPI.kbQuery(kbQueryText.trim(), 3);
+                        setKbResults(results || []);
+                      } catch { setKbResults([]); }
+                      setKbQuerying(false);
+                    }
+                  }}
+                  placeholder="Test retrieval — type a question about your notes…"
+                  className="flex-1 px-3 py-2 text-sm bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+                />
+                <button
+                  onClick={async () => {
+                    if (!kbQueryText.trim() || !window.deskflowAPI?.kbQuery) return;
+                    setKbQuerying(true);
+                    try {
+                      const results = await window.deskflowAPI.kbQuery(kbQueryText.trim(), 3);
+                      setKbResults(results || []);
+                    } catch { setKbResults([]); }
+                    setKbQuerying(false);
+                  }}
+                  disabled={!kbQueryText.trim() || kbQuerying}
+                  className="px-3 py-2 rounded-lg text-xs font-medium text-violet-300 bg-violet-500/10 border border-violet-500/20 hover:bg-violet-500/20 disabled:opacity-40 transition-colors"
+                >
+                  {kbQuerying ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <SearchX className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              {kbResults.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {kbResults.map((r, i) => (
+                    <div key={i} className="px-3 py-2 rounded-lg bg-zinc-900/40 border border-zinc-700/30">
+                      <div className="text-[10px] text-violet-400 mb-1 truncate">{r.docName}</div>
+                      <p className="text-xs text-zinc-400 leading-relaxed line-clamp-3">{r.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="pt-4 border-t border-zinc-700/50" />

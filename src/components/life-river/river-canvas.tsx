@@ -13,7 +13,7 @@ import {
 } from '@/lib/riverMath'
 import { ZoomIn, ZoomOut } from 'lucide-react'
 
-const RIVER_H = 240
+const RIVER_H = 420
 const BASELINE = RIVER_H - 52
 const PAD_X = 30
 const MAX_HEIGHT = 116
@@ -116,13 +116,13 @@ export function RiverCanvas({ phases, activePhaseId, onPhaseClick, className, zo
     <div
       ref={containerRef}
       data-lifephase="river-canvas"
-      className={cn('relative w-full overflow-hidden', className)}
-      style={{ height: RIVER_H }}
+      data-river-canvas
+      className={cn('relative h-[420px] min-h-[420px] w-full overflow-hidden sm:h-[480px]', className)}
     >
       {width > 0 && (
         <svg
-          width={width}
-          height={RIVER_H}
+          width="100%"
+          height="100%"
           viewBox={`0 0 ${width} ${RIVER_H}`}
           className="block"
           role="img"

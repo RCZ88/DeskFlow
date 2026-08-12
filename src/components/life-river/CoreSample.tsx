@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 
 import type { LifePhase } from '@/lib/riverMath'
@@ -28,6 +28,8 @@ interface CoreSampleProps {
   selectedPhaseId: string | null
   onPhaseClick: (phaseId: string) => void
   onOpenMemories: (phaseId: string) => void
+  lens: LensId
+  onLensChange: (lens: LensId) => void
 }
 
 export function CoreSample({
@@ -38,8 +40,9 @@ export function CoreSample({
   selectedPhaseId,
   onPhaseClick,
   onOpenMemories,
+  lens,
+  onLensChange,
 }: CoreSampleProps) {
-  const [lens, setLens] = useState<LensId>('phases')
 
   const grainByPhase = useMemo(() => {
     const out: Record<string, number> = {}
@@ -66,8 +69,8 @@ export function CoreSample({
       {/* ambient glow */}
       <div className="pointer-events-none absolute inset-0 opacity-40" style={{ background: 'radial-gradient(circle at 50% 40%, rgba(251,191,36,0.08), transparent 60%)' }} />
 
-      <div className="flex flex-col items-center px-6 pt-5 pb-4">
-        <div className="relative h-52 w-52 sm:h-64 sm:w-64">
+      <div className="flex flex-col items-center px-6 pb-6 pt-6">
+        <div data-core-sample-stage className="relative h-72 w-72 sm:h-[420px] sm:w-[420px] lg:h-[460px] lg:w-[460px]">
           <RingCanvas
             phases={phases}
             lens={lens}
@@ -82,11 +85,11 @@ export function CoreSample({
         </div>
 
         {/* Lens switcher */}
-        <div className="mt-4 flex flex-wrap items-center justify-center gap-1 rounded-lg bg-zinc-800/50 p-0.5">
+        <div data-lens-switcher className="mt-4 flex flex-wrap items-center justify-center gap-1 rounded-lg bg-zinc-800/50 p-0.5">
           {LENSES.map(l => (
             <button
               key={l.id}
-              onClick={() => setLens(l.id)}
+              onClick={() => onLensChange(l.id)}
               className={cn(
                 'relative flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] transition-colors min-h-[30px]',
                 lens === l.id ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'

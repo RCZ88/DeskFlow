@@ -9,18 +9,41 @@ import {
   Tooltip,
   Legend,
 } from "chart.js";
-import { Zap, TrendingUp, Calendar, Wallet } from "lucide-react";
+import { Zap, TrendingUp, Calendar, Wallet, AlertTriangle } from "lucide-react";
 import { useNumberMask } from "../../context/NumberMaskContext";
 import { maskNumber } from "../../utils/maskNumber";
 
 ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend);
 
-interface Subscription {
+interface RadarAxis {
+  axes: string[];
+  values: number[];
+  colors: string[];
+}
+
+interface SubscriptionDetail {
   id: number;
   name: string;
-  amount: number;
-  frequency: "monthly" | "yearly" | "weekly";
-  category?: string;
+  price: number;
+  currency: string;
+  billingCycle: string;
+  monthlyEquivalent: number;
+  nextRenewalDate: string;
+  daysUntilRenewal: number;
+  isUrgent: boolean;
+  isWarning: boolean;
+}
+
+interface SubIntelligence {
+  totalMonthlyCost: number;
+  burdenPercentage: number;
+  monthlyIncome: number;
+  subscriptionCount: number;
+  growthTrend: number;
+  upcomingRenewals: number;
+  urgentRenewals: number;
+  radarData?: RadarAxis;
+  subscriptions: SubscriptionDetail[];
 }
 
 const COLORS = {
@@ -30,22 +53,27 @@ const COLORS = {
   tick: "#71717a",
 };
 
-function toMonthly(amount: number, freq: string): number {
-  switch (freq) {
-    case "weekly": return amount * 4.33;
-    case "yearly": return amount / 12;
-    default: return amount;
+function axisCaption(axis: string, val: number, d: SubIntelligence | null): string {
+  switch (axis) {
+    case "Burden %":
+      return `${val.toFixed(1)}% of monthly income`;
+    case "Upcoming":
+      return `${d?.upcomingRenewals ?? 0} renewal(s) within 30 days`;
+    case "Cancellation Opp":
+      return `${d?.subscriptionCount ?? 0} active subscription(s) to review`;
+    default:
+      return `${axis}: ${Math.round(val)}`;
   }
 }
 
 export default function SubscriptionBurdenRadar() {
   const { showNumbers, maskMode, maskFixedValue } = useNumberMask();
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [monthlyIncome, setMonthlyIncome] = useState(0);
+  const [data, setData] = useState<SubIntelligence | null>(null);
   const [loading, setLoading] = useState(true);
 
   const rp = (n: number) => {
-    const s = `Rp${n.toLocaleString("id-ID")}`;
+    const safe = Number.isFinite(n) ? n : 0;
+    const s = `Rp${safe.toLocaleString("id-ID")}`;
     return showNumbers ? s : maskNumber(s, maskMode, maskFixedValue);
   };
 
@@ -54,8 +82,7 @@ export default function SubscriptionBurdenRadar() {
       try {
         const result = await (window as any).deskflowAPI?.financeGetSubscriptionIntelligence?.();
         if (result?.success && result?.data) {
-          setSubscriptions(result.data.subscriptions || []);
-          setMonthlyIncome(result.data.monthlyIncome || 0);
+          setData(result.data);
         }
       } catch { /* ignore */ }
       setLoading(false);
@@ -63,43 +90,28 @@ export default function SubscriptionBurdenRadar() {
     fetchData();
   }, []);
 
-  const safeSubs = useMemo(() => {
-    if (!subscriptions) return []
-    return Array.isArray(subscriptions) ? subscriptions : []
-  }, [subscriptions])
+  const count = data?.subscriptionCount ?? (Array.isArray(data?.subscriptions) ? data!.subscriptions.length : 0);
 
   const chartData = useMemo(() => {
-    if (safeSubs.length === 0) return null;
-    const cats = ["Streaming", "Software", "Utilities", "Insurance", "Other"];
-    const totals = cats.map((c) =>
-      safeSubs
-        .filter((s) => (s.category || "Other") === c)
-        .reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0)
-    );
-    const maxVal = Math.max(...totals, 1);
+    const radar = data?.radarData;
+    if (!radar || !Array.isArray(radar.axes) || radar.axes.length === 0) return null;
+    const values = (radar.values || []).map((v) => (Number.isFinite(Number(v)) ? Number(v) : 0));
     return {
-      labels: cats,
+      labels: radar.axes,
       datasets: [{
-        label: "Monthly Cost",
-        data: totals.map((t) => (t / maxVal) * 100),
+        label: "Index",
+        data: values,
         backgroundColor: COLORS.primary,
         borderColor: COLORS.stroke,
         borderWidth: 2,
-        pointBackgroundColor: COLORS.stroke,
+        pointBackgroundColor: Array.isArray(radar.colors) && radar.colors.length === radar.axes.length ? radar.colors : COLORS.stroke,
         pointBorderColor: "#fff",
         pointHoverBackgroundColor: "#fff",
         pointHoverBorderColor: COLORS.stroke,
+        pointRadius: 3,
       }],
     };
-  }, [safeSubs]);
-
-  const totalMonthly = useMemo(
-    () => safeSubs.reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0),
-    [safeSubs]
-  );
-
-  const burdenPct = monthlyIncome > 0 ? (totalMonthly / monthlyIncome) * 100 : 0;
-  const count = safeSubs.length;
+  }, [data]);
 
   if (loading) {
     return (
@@ -126,6 +138,11 @@ export default function SubscriptionBurdenRadar() {
     );
   }
 
+  const totalMonthly = Number.isFinite(data?.totalMonthlyCost) ? data!.totalMonthlyCost : 0;
+  const burdenPct = Number.isFinite(data?.burdenPercentage) ? data!.burdenPercentage : 0;
+  const upcoming = Number.isFinite(data?.upcomingRenewals) ? data!.upcomingRenewals : 0;
+  const urgent = Number.isFinite(data?.urgentRenewals) ? data!.urgentRenewals : 0;
+
   return (
     <div className="rounded-xl border border-zinc-700/30 p-5 overflow-hidden">
       <div className="flex items-center justify-between mb-4">
@@ -133,12 +150,19 @@ export default function SubscriptionBurdenRadar() {
           <Zap className="w-4 h-4 text-amber-500" />
           <h3 className="text-sm font-semibold text-white">Subscription Intelligence</h3>
         </div>
-        <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500">
-          {count} active
-        </span>
+        <div className="flex items-center gap-1.5">
+          {urgent > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-500/10 text-red-400">
+              <AlertTriangle className="w-3 h-3" /> {urgent} urgent
+            </span>
+          )}
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500">
+            {count} active
+          </span>
+        </div>
       </div>
 
-      {chartData && (
+      {chartData ? (
         <div className="relative w-full aspect-square max-h-[280px]">
           <Radar
             data={chartData}
@@ -165,17 +189,22 @@ export default function SubscriptionBurdenRadar() {
                   borderWidth: 1,
                   padding: 10,
                   callbacks: {
+                    title: (items) => (items[0]?.label ? String(items[0].label) : ""),
                     label: (ctx) => {
-                      const val = safeSubs
-                        .filter((s) => (s.category || "Other") === ctx.label)
-                        .reduce((sum, s) => sum + toMonthly(s.amount, s.frequency), 0);
-                      return rp(val);
+                      const val = Number(ctx.parsed?.r) || 0;
+                      const axis = ctx.label ? String(ctx.label) : "";
+                      return axisCaption(axis, val, data);
                     },
                   },
                 },
               },
             }}
           />
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-10 text-zinc-500">
+          <Zap className="w-10 h-10 mb-2 opacity-30" />
+          <p className="text-xs">No burden signals to chart yet</p>
         </div>
       )}
 
@@ -199,9 +228,9 @@ export default function SubscriptionBurdenRadar() {
         <div className="text-center">
           <div className="flex items-center justify-center gap-1 mb-1">
             <Calendar className="w-3 h-3 text-zinc-500" />
-            <span className="text-xs text-zinc-500">Count</span>
+            <span className="text-xs text-zinc-500">Renewals</span>
           </div>
-          <p className="text-sm font-semibold text-white">{count}</p>
+          <p className="text-sm font-semibold text-white">{upcoming}</p>
         </div>
       </div>
     </div>

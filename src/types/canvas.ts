@@ -89,6 +89,21 @@ export const DEFAULT_STATE: CanvasState = {
   zoom: 1,
 }
 
+export interface DefaultSetupCard {
+  type: CardType
+  enabled: boolean
+  defaultData?: Record<string, any>
+  position: { x: number; y: number }
+  size: { w: number; h: number }
+  pinned: boolean
+}
+
+export interface DefaultSetupConfig {
+  version: 1
+  cards: DefaultSetupCard[]
+  updatedAt: number
+}
+
 export function canvasReducer(state: CanvasState, action: CanvasAction): CanvasState {
   switch (action.type) {
     case 'ADD_CARD':

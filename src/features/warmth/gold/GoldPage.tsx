@@ -127,7 +127,7 @@ export const defaultCriteria: CriteriaForm = {
   title: '', description: '', category: 'work', period: 'daily',
   targetType: 'completion', targetHours: 0, targetMinutes: 30, matchCategory: '',
   detectionEnabled: false, detectionMode: 'positive', detectionKeywords: '',
-  detectionMinMinutes: 5, parentId: '', links: [],
+  detectionMinMinutes: 5, parentIds: [], links: [],
 };
 
 function goalToCriteria(g: Goal): CriteriaForm {
@@ -141,7 +141,8 @@ function goalToCriteria(g: Goal): CriteriaForm {
     detectionMode: g.detection?.mode || 'positive',
     detectionKeywords: g.detection?.keywords?.join(', ') || '',
     detectionMinMinutes: g.detection?.minMinutes || 5,
-    parentId: g.parentId || '', links: g.links || [],
+    parentIds: g.parentIds?.length ? g.parentIds : (g.parentId ? [g.parentId] : []),
+    links: g.links || [],
   };
 }
 
@@ -158,7 +159,8 @@ export function criteriaToGoal(c: CriteriaForm, date: string, existingId?: strin
     },
     period: c.period, status: 'active', date, source: 'manual',
     links: c.links, progressSeconds: 0, createdAt: new Date().toISOString(),
-    parentId: c.parentId || undefined,
+    parentId: c.parentIds[0] || undefined,
+    parentIds: c.parentIds.length ? c.parentIds : undefined,
     detection: c.detectionEnabled ? {
       enabled: true, mode: c.detectionMode,
       keywords: c.detectionKeywords.split(',').map(k => k.trim()).filter(Boolean),
@@ -593,7 +595,7 @@ function TheVault({ longTermGoals, todayGoals, onSave, onDelete }: {
       ) : (
         <div className="space-y-2">
           {longTermGoals.map(ltg => {
-            const serving = todayGoals.filter(g => g.parentId === ltg.id).length;
+            const serving = todayGoals.filter(g => g.parentIds?.includes(ltg.id) || g.parentId === ltg.id).length;
             const du = ltg.deadline ? daysUntil(ltg.deadline) : null;
             return (
               <div key={ltg.id} className="group flex items-center gap-3 p-2.5 rounded-lg bg-zinc-900/40 border border-zinc-800/40 hover:border-zinc-700/50 transition-colors">
@@ -1028,7 +1030,8 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
         targetSeconds: editCriteria.targetType === 'time' ? editCriteria.targetHours * 3600 + editCriteria.targetMinutes * 60 : undefined,
         matchCategory: editCriteria.matchCategory || undefined,
       },
-      parentId: editCriteria.parentId || undefined,
+      parentId: editCriteria.parentIds[0] || undefined,
+      parentIds: editCriteria.parentIds.length ? editCriteria.parentIds : undefined,
       detection: editCriteria.detectionEnabled ? {
         enabled: true, mode: editCriteria.detectionMode,
         keywords: editCriteria.detectionKeywords.split(',').map(k => k.trim()).filter(Boolean),

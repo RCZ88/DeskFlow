@@ -1,29 +1,36 @@
 import type { CanvasCard } from '../../../../types/canvas'
+import { StateView, type ViewState } from '../shared/StateView'
+import { Newspaper } from 'lucide-react'
 
 interface DigestCardProps {
   card: CanvasCard
   topics?: any[]
   loading?: boolean
+  error?: string
+  onGenerate?: () => void
+  onConfigure?: () => void
 }
 
-export function DigestCard({ card, topics = [], loading }: DigestCardProps) {
+export function DigestCard({ card, topics = [], loading, error, onGenerate, onConfigure }: DigestCardProps) {
   const data = card.data || {}
   const items = data.topics || topics
 
-  if (loading) {
-    return (
-      <div className="card-digest">
-        <div className="card-focus-skeleton" />
-        <div className="card-focus-skeleton short" />
-      </div>
-    )
-  }
+  const state: ViewState = loading ? 'loading' : error ? 'error' : items.length === 0 ? 'empty' : 'populated'
 
   return (
-    <div className="card-digest">
-      {items.length === 0 ? (
-        <p className="card-focus-empty">No digest topics</p>
-      ) : (
+    <StateView
+      state={state}
+      loadingType="chart"
+      emptyProps={{
+        icon: Newspaper,
+        title: 'No research topics',
+        description: 'Configure research topics, then ask the AI for a daily digest.',
+        ctaLabel: 'Configure in Settings',
+        onCta: onConfigure,
+      }}
+      errorProps={{ message: error || data.error || 'Digest generation failed' }}
+    >
+      <div className="card-digest">
         <ul className="card-digest-list">
           {items.slice(0, 5).map((t: any, i: number) => (
             <li key={i} className="card-digest-item">
@@ -32,7 +39,7 @@ export function DigestCard({ card, topics = [], loading }: DigestCardProps) {
             </li>
           ))}
         </ul>
-      )}
-    </div>
+      </div>
+    </StateView>
   )
 }

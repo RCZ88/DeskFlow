@@ -3,7 +3,6 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal as TerminalIcon } from 'lucide-react';
-import { getDefaultAgent } from '../lib/defaults';
 import '@xterm/xterm/css/xterm.css';
 
 function debounce<T extends (...args: any[]) => void>(fn: T, ms: number) {
@@ -532,6 +531,7 @@ function PaneRenderer({
   path,
   agentStatuses,
   onRetryInit,
+  capturedSessionIds,
 }: {
   node: PaneNode;
   activeTerminalId: string | null;
@@ -721,8 +721,8 @@ export function TerminalLayout({
     spawnedTerminalsRef.current.add(newTerminalId);
     onLayoutChange(splitPane(layout, terminalId, newTerminalId, direction));
     
-    const agentType = getDefaultAgent();
-    spawnTerminal(newTerminalId, projectPath, agentType).then(() => {
+    // Split panes are plain terminals — no agent (tools open only via New Session dialog / existing session)
+    spawnTerminal(newTerminalId, projectPath, undefined).then(() => {
       window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newTerminalId } }));
     });
   }, [layout, spawnTerminal, onLayoutChange, projectPath]);
@@ -765,9 +765,9 @@ export function TerminalLayout({
     const finalCols = termInst?.cols || 80;
     const finalRows = termInst?.rows || 24;
 
-    const agentType = getDefaultAgent();
+    // Plain terminal spawn (no agent) — agents launch only via explicit session flows
     console.log(`[FIT] Spawning terminal ${terminalId} at ${finalCols}x${finalRows}`);
-    const result = await spawnTerminal(terminalId, projectPath, agentType, finalCols, finalRows);
+    const result = await spawnTerminal(terminalId, projectPath, undefined, finalCols, finalRows);
     console.log('[DEBUG:TW] handleTerminalReady: spawnTerminal result:', terminalId, JSON.stringify(result));
 
     // CRITICAL: Refit after PTY spawn — verify dimensions match
@@ -787,11 +787,11 @@ export function TerminalLayout({
           <button
             onClick={() => {
               const newId = `term-${Date.now()}`;
-              const agentType = getDefaultAgent();
               const { cols, rows } = measureSpawnSize(newId);
               spawnedTerminalsRef.current.add(newId);
               onLayoutChange({ type: 'leaf', terminalId: newId });
-              spawnTerminal(newId, projectPath, agentType, cols, rows).then(() => {
+              // "+ Open Terminal" = plain shell (no agent)
+              spawnTerminal(newId, projectPath, undefined, cols, rows).then(() => {
                 window.dispatchEvent(new CustomEvent('terminal-created', { detail: { terminalId: newId } }));
               });
             }}

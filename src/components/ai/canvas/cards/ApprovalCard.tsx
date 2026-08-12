@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { CanvasCard } from '../../../../types/canvas'
+import { Check, X } from 'lucide-react'
 
 interface ApprovalCardProps {
   card: CanvasCard
@@ -24,7 +25,7 @@ export function ApprovalCard({ card, onApprove, onReject }: ApprovalCardProps) {
   if (status === 'approved') {
     return (
       <div className="card-approval card-approval-approved">
-        <span className="card-approval-icon">✓</span>
+        <Check size={14} className="card-approval-icon" />
         <span>Approved</span>
       </div>
     )
@@ -33,7 +34,7 @@ export function ApprovalCard({ card, onApprove, onReject }: ApprovalCardProps) {
   if (status === 'rejected') {
     return (
       <div className="card-approval card-approval-rejected">
-        <span className="card-approval-icon">✕</span>
+        <X size={14} className="card-approval-icon" />
         <span>Rejected</span>
       </div>
     )

@@ -1,11 +1,103 @@
 ﻿# PROBLEMS.md
 
 > **Purpose:** Issue tracker for AI agents and humans - all known bugs, feature requests, and their resolution status.
-> **Last Updated:** 2026-08-09 (Lyceum round-02: CSP unsafe-eval + finchart v5 API + sankey CSV grammar + insertNode upsert)
-> **Total Issues:** 145
+> **Last Updated:** 2026-08-10 (Subscription duplicate transactions + stuck Failed/Retry + FT repayment tags mismatch fixed)
+> **Total Issues:** 153
 > **Parse Priority:** High
 
 ---
+
+## 🐛 2026-08-10 — Subscription duplicate transactions + stuck Failed/Retry + FT repayment tags mismatch (session opencode-term-1-finbug)
+
+> User reports: (1) "subscription feature keeps repeating like 9 times on the same day making multiple of the same date transaction subscription"; (2) "even when its paid, the date is exactly the same, IT STILL SAYS RETRY"; (3) "repayment feature always says FAIL when it doesn't even fail".
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| 1 | All 4 subscription dedup queries use `WHERE description = subDesc` but writers store `description = sub.name` + `note = subDesc` → existingDates always empty → generate-due creates duplicates on every fetchData; stillFailedDates never clears → status stuck 'failed' → Retry buttons persist | AI Attempted Fix | **ROOT CAUSE:** `subscriptions:create` (L28927), `generate-due-transactions` (L29100), `retry-payment` (L29292), `record-payment` (L29375) all INSERT with `description = sub.name, note = subDesc`. But all 4 dedup/existence lookups (generate existingTxns L29044, stillFailedDates L29141, retry existing L29270, record existing L29356) search `WHERE description = ?` with `subDesc` → never matches → duplicates + stuck failed. **FIX:** Changed all 4 queries to `WHERE (description = ? OR note = ?)` with subDesc for both params. Rebuilt main.cjs (1.3MB). Backup at agent/backups/20260810-215705-main-ts-pre. |
+| 2 | FT repayment: main writes `metadata.repayment_for` on repayment txn + `metadata.ft_repaid = true` on original, but renderer's `getRepaymentStatus` matches on `tags` column (`ft_repaid:{id}`) → repayments never detected → UI always shows "still owed" | AI Attempted Fix | **FIX:** Added `UPDATE finance_transactions SET tags = 'ft_repaid:{originalTxId}'` after repayment INSERT in `finance:ft-person-record-repayment` (main.ts ~28512). |
+| 3 | After fix, generate-due-transactions stillFailedDates will auto-clear stale failed_dates for subs 6/7/8/9 → payment_status updates correctly on next page load | Pending | No manual DB migration needed — the fixed query auto-corrects on next fetchData. |
+
+**Verification:** User must fully close + relaunch Electron app, then: (1) open Finance → Subscriptions tab → confirm "Failed" badge clears for paid dates; (2) Record Payment on a subscription → no duplicate; (3) Retry → clears failed date; (4) People tab → Record Repayment → confirm person shows as repaid.
+
+---
+
+## 🐛 2026-08-10 — Lyceum learn blocks round 2: mermaid spinner stuck + chart NaN true root cause (session opencode-term-1-gaia)
+
+> User reports after relaunching with the previous bundle: (1) mermaid diagrams "still stuck in loading — maybe it's not the mermaid itself that errors, but when it's done loading the loading screen is not releasing itself"; (2) the SAME vega NaN errors persist (`WARN ... Vega-Lite v6.4.3`, `<svg> attribute width: Expected length, "NaN"`, `viewBox "0 0 NaN 242"`, `<line> attribute x2 NaN`).
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| R7 | Mermaid + Flow blocks stuck on spinner forever — loading never releases | Fixed | **ROOT CAUSE (EXACTLY the user's hypothesis):** the container `<div ref={containerRef} />` was conditionally mounted ONLY when `!error && !loading`. While loading (spinner visible) the ref div did NOT exist → when `renderMermaidWithTimeout` resolved, `containerRef.current` was **null** → the success branch (`innerHTML = svg` + `setLoading(false)`) was silently SKIPPED → spinner stayed forever. **FIX (MermaidBlock.tsx + FlowBlock.tsx):** container now mounts whenever `!error` (i.e. it exists during loading too) → ref non-null → SVG injected + `setLoading(false)` runs → spinner releases. Verified in bundle: `!error3 && jsx("div", { className: "p-4 overflow-x-auto", ... ref: containerRef })` in dist/assets/index.BFJqypr4.js. |
+| R8 | Vega chart NaN — TRUE root cause (supersedes R1) | Fixed | **ROOT CAUSE: the `width: 'container'` EMBED OPTION.** vega-embed 7.1.0 removed container handling for the `width` option (zero `clientWidth`/container logic anywhere in its bundle — grep-verified) and just runs `if (opts.width != null) view.width(opts.width)` (embed.js:2836). `view.width('container')` → vega `View.signal('width', 'container')` → width signal = STRING → all downstream width arithmetic → NaN. **Node repro with the REAL stored spec** (vega-lite 6.4.3 + vega 6.3.1, spec from DB with `width: 400, height: 200`): WITH the option → `viewBox="0 0 NaN 242"`, 9 NaN occurrences (identical to user's error); WITHOUT → `viewBox="0 0 448 242"`, 0 NaNs. R1's hidden-container fix was still correct/necessary (container must be measurable) — but the option itself was the NaN source. **FIX (ChartBlock.tsx):** removed `width:'container'` from `vegaEmbed.default` options; stored specs carry explicit width; the post-embed CSS (`svgEl.style.width='100%'`) stretches to the container. Verified in bundle: `vegaEmbed.default(..., { actions: false, renderer: "svg", theme: "dark" })` — no width key. |
+| R9 | FinChartBlock creates chart with width 0 (same class of bug) | Fixed | Container div was `hidden` while loading → `lwc.createChart` measured `clientWidth` = 0 → zero-width chart until a resize. **FIX (FinChartBlock.tsx):** container now `hidden` ONLY on error; `createChart` + resize handler use `Math.max(clientWidth, 300)` fallback. |
+
+**BUILD GATE (round 2):** `npx vite build` OK — dist/assets/index.BFJqypr4.js (13,574 KB, 1m36s). First attempt failed `EPERM ... dist\cyber_assets` (running app held the dist dir lock — user closed the app, re-run passed). RUNTIME NOT VERIFIED — needs full relaunch + Learn page check: mermaid/flow spinner must release, charts must render without NaN.
+
+---
+
+## 🐛 2026-08-10 — Prompts sidebar: Total/Processing/Completed/Failed stat tiles keep flickering in/out (session opencode-term-1-gaia)
+
+> User report: in the workspace sidebar Insights → Prompts subtab, the 4 stat tiles at the top (grid grid-cols-4, "Total / Processing / Completed / Failed") constantly flicker - appearing and disappearing. DOM showed the tiles stuck at `style="opacity: 0; transform: none;"` - a framer-motion fade-in replayed forever.
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | Stat tiles + prompt rows remount every re-render → motion fade-in replays → flicker | AI Attempted Fix | **ROOT CAUSE:** `StatTile` and `Row` were defined INSIDE the `PromptHistoryTab` component body (React.FC consts at old lines 270/288). Every render of the tab created NEW component types → React unmounted + remounted the whole StatTile/Row subtree on EVERY render (tab re-renders constantly: PTY data through TerminalPage → WorkspaceShell `render()` + live ai-task events debounced 500ms + file watcher). Each remount replayed `initial="hidden"` → opacity 0 → 1 = the flicker. **FIX (src/components/PromptHistoryTab.tsx):** moved `StatTile` + `Row` to MODULE level; all closures (expanded set, getStatus, deleting set, handleDelete, toggleExpand, onNavigateToSession) passed as explicit props; usage sites updated (grouped + flat rows). Build: vite OK 2m01s → dist/assets/index.BFJqypr4.js (13.5MB), tsc clean for the file (only pre-existing aiAgentService.test.ts errors). RUNTIME NOT LAUNCHED - requires full app relaunch. |
+
+---
+## 🐛 2026-08-10 — Lyceum learn blocks round: chart NaN + v5/v6 warning + book hover jank + analytics margin (session opencode-term-1-gaia)
+
+> User reports: (1) vega chart error `<svg> attribute width: Expected length, "NaN"` + `WARN The input spec uses Vega-Lite v5, but the current version of Vega-Lite is v6.4.3`; (2) "is there a system for those that you MISS OR IS THE SYSTEM lacks those stuff?" about illustration + mermaid blocks; (3) Study Analytics sits too close to the "Learning Dashboard" title; (4) book hover animation on the library is not smooth (broken frames).
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| R1 | Vega chart renders `<svg width="NaN">` — ChartBlock crash in lesson render | AI Attempted Fix | **ROOT CAUSE:** ChartBlock kept the container `className="h-full w-full hidden"` while `loading` was true and called `vegaEmbed.default` in the SAME effect that set loading — vega measured the hidden (display:none) container = 0 width → NaN width/height attributes on the SVG. **FIX (src/components/learn/blocks/ChartBlock.tsx):** container is never hidden during load (`className={error ? 'hidden' : ''}` only), spinner is now an `absolute inset-0 z-10 bg-zinc-900/50` overlay inside the always-measurable `relative min-h-[220px]` wrapper. Verified in bundle: `border-t-clay-400` overlay spinner present in dist/assets/index.C7OQZYfj.js. |
+| R2 | `WARN The input spec uses Vega-Lite v5, but the current version is v6.4.3` | Won't Fix | **NOT AN ERROR — benign:** vega-embed ^7.1.0 bundles vega-lite 6.4.3; vega-lite 6 auto-upgrades v5 specs with a warning. Charts still render. Could silence by stripping/updating `$schema` before embed, but v5→v6 syntax differences make that risky for zero benefit — documented as acceptable noise. |
+| R3 | Mermaid blocks "still not fixed" (user report) | User Testing | **System EXISTS and is fully wired** — parser emits mermaid blocks (63 in stored lesson), MermaidBlock/FlowBlock use the `blocks/mermaidLoader.ts` singleton (initialize EXACTLY once per session) + 15s render timeout + error UI with source + auto-heal, sankey CSV (RFC 4180) grammar fix committed (R3 of round-02). **All prior fix rounds ended "runtime NOT LAUNCHED"** — never verified in a running app. The running app also predates today's bundle. VERIFY AFTER FULL RELAUNCH: open a lesson with mermaid blocks; if spinner never resolves or error UI appears, capture it and report — remaining failures need a live repro against the new bundle. |
+| R4 | Illustration block absent in rendered lesson | Not Started (user action) | RE-SCANNED the DB today: `testing-the-lyceum-parser` still has ZERO `"type":"illustration"` blocks (63 mermaid / 6 chart / 274 prose / 145 leaf / 103 quiz / 95 code). System EXISTS (parser emits 1 illustration block from lesson.txt; IllustrationBlock.tsx full UI: Generate with AI / Upload / Copy prompt / Regenerate, wired with nodeId + onIllustrationGenerated). **FIX PATH unchanged:** re-import lesson.txt via Learn → Import → Validate & Import (R5's `ON CONFLICT(id) DO UPDATE` makes the upsert safe now). Needs explicit user permission (DB write). |
+| R5 | Book hover animation on library — "broken frames", not smooth | AI Attempted Fix | **ROOT CAUSE:** `.lyceum-book-cloth` carried `0 30px 60px -28px rgba(0,0,0,0.7)` — a 60px-blur drop shadow on the cover while the framer-motion spring (`y:-8, rotateZ:-0.4`, stiffness 320) re-rasterized the blur EVERY frame; no `will-change` hint → janky frames. **FIX:** (1) blur reduced to `0 16px 36px -22px rgba(0,0,0,0.65)` (src/styles/lyceum-learn-features.css); (2) `style={{ willChange: 'transform' }}` added to the motion.article (BookCard.tsx) so the transform animates on its own compositor layer. Verified in bundle (16px 36px in index.B39QJwsE.css; willChange in index.C7OQZYfj.js). |
+| R6 | Study Analytics too close to "Learning Dashboard" title | Fixed | `TutorDashboardSection` wrapper in LessonLibrary.tsx had `mb-8` but ZERO top margin — Study Analytics sat flush against the Learning Dashboard title. **FIX:** wrapper now `mt-8 mb-8` (32px gap). |
+
+**BUILD GATE (this round):** `npx vite build` OK — dist/assets/index.C7OQZYfj.js (13,574 KB, 63s). First attempt failed transiently with `"NewSessionDialog" is not exported by src/components/NewSessionDialog.tsx` — root cause: the parallel session's editor was mid-write on NewSessionDialog.tsx (saved 19:52, my build ran ~19:55); file is valid (esbuild + tsc parse clean, rollup parses transformed output fine), re-run passed. ⚠ **ALL renderer fixes require FULL app close + relaunch** — the running app (launched 18:27) predates every bundle since. RUNTIME NOT VERIFIED — needs relaunch + Learn page check (charts render without NaN, mermaid blocks render, illustration still absent until re-import, hover smooth, margin 32px).
+
+---
+## 🐛 2026-08-09 — opencode session-capture binds the WRONG (last/stale) session as resume_id (session opencode-term-1-sesscap)
+
+> User report: when starting a new opencode terminal session, the app grabs the LAST opencode session from `~/.local/share/opencode/opencode.db` even though the new session's row does not exist yet (opencode creates the session row LAZILY, only after the first message is sent) — so the wrong `resume_id`/session id gets bound, and the conversation is tied to the previous session.
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | capture-opencode-session-id matches stale session: `String(time_created) >= sinceISO` is ALWAYS false (epoch-millis int vs ISO string), so every TIMESTAMPED capture never matched; untimestamped call sites (TerminalPage 1504/1636/4211/4228) fell back to bare-directory = most-recent-session-in-dir regardless of age | AI Attempted Fix | **ROOT CAUSE:** (1) main.ts compared `String(r.time_created) >= sinceISO` — epoch-millis vs `2026-08-09T...` ISO string, always false → any explicit-bound capture silently returned no match; (2) no explicit bound → defaulted to a bare-directory "last session" grab, no recency check. DB probe confirmed the bug: newest App Tracker session row was 04:20 UTC while the live conversation had NO row yet (lazy creation). **FIX (main.ts ~12370):** `hasBound = typeof sinceTimestamp === 'number' && > 0`; `sinceMs = hasBound ? sinceTimestamp : Date.now() - 15min`; numeric compare `r.time_created >= sinceMs`; bounded cross-directory fallback ONLY when an explicit bound is passed (never on a bare-dir guess); pid-alive check kept. **FIX (TerminalPage.tsx):** all 4 untimestamped call sites now pass `cwd, Date.now() - 10000`. Build verified: vite OK (index.oCpOD9RI.js 13.5MB), preload.cjs 97KB, main.cjs 1.3MB (hasBound/sinceMs compiled at ~13414), dist gates pass. Runtime NOT LAUNCHED — no RHEO.exe/electron.exe running; user must fully close + relaunch, then start a new opencode session and confirm the bound resume_id is the NEW ses_ id. |
+| P2 | Renderer build broken (pre-existing, unrelated to P1): LessonDetailModal.tsx imports renamed export `CURRICULUM_BLUEPRINT` (now `CURRICULUM_TOPICS`) + calls unimported `getTopicsByBranch` | Fixed | **FIX:** import line corrected to `import { CURRICULUM_TOPICS, getTopicsByBranch } from '../../services/learn/curriculum';`; two usages renamed (both only need `.part`/`.emoji`). vite build passes. Stale symbol was left mid-Architect-refactor (Learn hierarchy round). |
+
+---
+
+## 🐛 2026-08-09 — Activity Mosaic: "subtle" mode still shows a card REALLY huge (session opencode-term-1-mojib, cycle 6)
+
+> User report: even in Subtle mode the mosaic displays a card really huge; there should be a HARD LIMIT on how big a box can expand — subtle = the most non-exaggerated mode. No card may swallow the page.
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | applyMaxShare cap broken for ≤4 cards: subtle n=2 → [0.5, 0.5], n=3 → [0.33×3], n=4 → [0.25×4] — every card at 50%/33%/25% in "subtle" | AI Attempted Fix | **ROOT CAUSE:** `applyMaxShare` (src/lib/external/grid.ts) clamped the giant, dumped the excess ON TOP of under-cap cards (pushing them past the cap), then when nothing was "under" it RENORMALIZED back to sum=1 — re-inflating everything. With n·cap < 1 the cap never held. **FIX:** rewrite — clamp EVERY over-cap card; redistribute excess proportionally to remaining room only (never past cap); any leftover mass is DISCARDED (no renormalization). Layout now computes `fill = sum(capped weights)`, treemap container height = `height*fill`, rendered `aspectRatio = aspect/fill` → every card's ON-SCREEN share is exactly its weight ≤ cap. subtle n=2 → [0.18, 0.18] + mosaic takes 36% of the section height. `true` scale untouched (cap lifted, fill≈1 → exact aspect). Verified via esbuild+node harness (TEMP/opencode/grid-cap-test.js): 9 scenarios × 3 hierarchies × 4 scales ALL PASS (max≤cap, sum≤1, aspect=aspect/fill). tsc clean (grid.ts), vite build OK (index.D93GJcwS.js), dist gates OK, preload/main untouched. Runtime NOT LAUNCHED — app running without --remote-debugging-port; needs full relaunch + External page → mosaic mode toggle. |
+
+## 2026-08-09 - Finance page broken charts + wallet-health display bugs (session opencode-term-1-hmap)
+
+> User report: Finance page — SpendingCategoryChart shows "undefined" labels; SubscriptionBurdenRadar renders NaN/nothing; WalletHealth "Daily" shows NaN; (Recap spending-by-category asked as a feature — see FEATURE_TRACKER).
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | SpendingCategoryChart labels "undefined" | AI Attempted Fix | **ROOT CAUSE:** backend `finance:get-spending-by-category` (main.ts:27764) returns `categoryName/categoryColor` (LEFT JOIN, `'Uncategorized'`/`'#888888'` fallbacks, no `percentage` field) but the chart read `item.category`/`item.color` → undefined label. **FIX:** interface accepts both; label = `item.categoryName || item.category || 'Uncategorized'`; color falls back to palette; tooltip returns `item.label` + `fmtMoney(v) (pct%)`; pct computed renderer-side. |
+| P2 | SubscriptionBurdenRadar shows NaN / renders nothing | AI Attempted Fix | **ROOT CAUSE:** chart read `amount/frequency/category` but backend `finance:get-subscription-intelligence` (main.ts:30020) sends `price/billingCycle/radarData{axes,values,colors}` → NaN dataset. **FIX:** component rewritten to consume the backend contract directly: single radar dataset (amber rgba fill), per-axis point colors, `axisCaption()` tooltips (Burden % / Upcoming ≤30d / Cancellation Opp), stats tiles (Monthly/Burden/Renewals), urgent `AlertTriangle` badge when `urgentRenewals > 0`, number masking via `rp()`. |
+| P3 | WalletHealth "Daily" NaN + overall score undefined + "Fees" formatted as currency | AI Attempted Fix | **ROOT CAUSE:** backend `finance:get-wallet-health` never returned `avgDailySpend`/`overallScore`; `feeBurden` (a %) was rendered via `fmtMoney` → "Rp" nonsense. **FIX (backend):** txns query selects `is_adjustment`; adds `expenseTotal` (excl. adjustments), `avgDailySpend = expenseTotal/30`, `lastActivity = txns[0].date`, per-day `transactionFrequency = txnCount/30`, top-level `overallScore` (mean healthScores) + `totalBalance`. **FIX (renderer):** NaN guards, title tooltips explaining metrics, Fees rendered as `%.` |
+
+---
+
+## 2026-08-09 - AI Tools heatmap empty on All Time + All Tools (session opencode-term-1-hmap)
+
+> User report: "for the heatmap of the ai tools page, the all time timeline alongside with the all tools mode, produces no heatmap."
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| P1 | Heatmap blank in All Time + All Tools mode; Model/Tool Usage Timelines + Multi-Agent Comparison + tool-detail chart also mis-anchored in All Time | AI Attempted Fix | **ROOT CAUSE:** 15 codex `ai_usage` rows carry garbage dates (e.g. `+058462-06-04`, year 58462) — `CodexPlugin.parseSQLite` multiplied ms timestamps from `~/.codex/logs_2.sqlite` by 1000 (main.ts). String-sort puts `'+...'` before `'2...'` → heatmap `days[0]` = year 58462 → `gridStart > gridEnd` → 0 weeks → empty heatmap. The `isNaN` guard misses it because `+058462-06-04` parses as a VALID extended-ISO date. Week/month periods exclude those rows via `date >= ?` so only All Time breaks. **FIX:** (1) renderer — `isSaneDay()` year guard (2000 ≤ y ≤ now+1) at all 6 date-math sites in AIToolsTab.tsx (heatmap, Model Usage Timeline, Tool Usage Timeline, Multi-Agent Comparison, tool-detail modal anchor, model `lastUsed` maps, agentChartsData span); (2) parser — `rawTs > 1e11 ? rawTs : rawTs*1000` normalization, ms end-to-end (main.ts parseSQLite) + defensive guard on history.jsonl path. Verified via DB-replay harness: heatmap weeks 0 → 27, timelines 60d → 196d. Build OK (vite 2m11s, preload 99KB, main.cjs 1.3MB), tsc clean (only pre-existing aiAgentService.test.ts errors). Runtime NOT LAUNCHED — user chose to skip runtime verification this cycle. **DB cleanup (user-approved):** 15 garbage rows deleted 2026-08-09 after physical backup `agent/backups/20260809-111620-db-pre/` (integrity ok, contains the 15 rows for restore); ai_usage 2146 → 2131 rows. |
 
 ## 🚨 2026-08-09 — Lyceum Learn round-02: CZ-verified runtime failures (session opencode-term-1-lyc2)
 
@@ -36,6 +128,16 @@
 | # | Issue | Status | Notes |
 |---|-------|--------|-------|
 | P10 | Every `learn:*` IPC (listLessons, getTutorConfig, getProfile, setProfile) errors "No handler registered"; TopicDigest returns empty cached brief | AI Attempted Fix | **ROOT CAUSE:** my 8/8 4:52 PM manual recompile of `dist-electron/services/learn/index.js` used `esbuild --bundle`, inlining `db/repo.js`'s `runMigration` — its `path.join(__dirname, 'migrations')` then resolved against the BUNDLE dir (`dist-electron/services/learn`) instead of `.../learn/db` → `readdirSync` ENOENT → `registerLearnHandlers` threw inside main.ts:3673's catch → zero handlers registered. Same class of bug for `validator/validate.ts`'s `../../../schemas/ldoc-1.0.json`. **FIX:** recompiled per-file WITHOUT `--bundle` (build.mjs Step-3 style) for index.ts, validator/validate.ts, parseLessonMarkdown.ts (was also stale 16:48 src vs 15:47 dist). Verified: index.js now requires sibling files (`./db/repo`, `./validator/validate`…), migrations dir resolves to 7 .sql files, schema exists, main.cjs still external-requires `./services/learn/index`. MEMORY.md lesson corrected (was instructing --bundle, which CAUSED this). **App must be FULLY relaunched to pick up fixed dist files.**
+
+---
+
+## 🐛 2026-08-12 — Workspace New Session button does not open dialog
+
+> User reports that the New Session/New Agent action in the revamped Terminal Workspace does nothing.
+
+| # | Issue | Status | Notes |
+|---|---|---|---|
+| WS-NEW-SESSION | Revamped workspace entry point relied on TerminalPage's internal selectedProject even when the embedded workspace supplied projectId via props; the Sessions button also did not reset the dialog to create mode | AI Attempted Fix | Added `propProjectId || selectedProject` fallback, passed the same project ID into NewSessionDialog, used `projectPath` from the workspace, and made the Sessions button explicitly select create mode. Backup: `agent/backups/20260812-new-session-pre/`. Build passed; runtime requires relaunch because the running app has no debug port. |
 
 ---
 
@@ -84,7 +186,7 @@
 
 | # | Issue | Status | Notes |
 |---|-------|--------|-------|
-| C1 | Dragging automation cards (`auto-*`) doesn't work — card snaps back | AI Attempted Fix | Implemented: `SYNC_AUTOMATIONS` reducer action promotes automation cards to first-class store citizens (canvas.ts). `syncAutomations()` dispatcher (useCanvasState.ts). AiPage syncs automations via useEffect + injects live closures via enrichedCards memo. Needs CZ runtime verification |
+| C1 | Dragging automation cards (`auto-*`) doesn't work — card snaps back | AI Attempted Fix | Implemented: `SYNC_AUTOMATIONS` reducer action promotes automation cards to first-class store citizens (canvas.ts). `syncAutomations()` dispatcher (useCanvasState.ts). AiPage syncs automations via useEffect + injects live closures via enrichedCards memo. Added direct native capture listeners on each CanvasCard so trusted Electron pointer events reach the drag lifecycle even when React's delegated root listener is bypassed. Needs CZ runtime verification |
 | C2 | Drop-to-group silently no-ops when target is an automation card | AI Attempted Fix | Fixed by C1: automation cards now live in `state.cards`, so `canvas.allCards[id]` + `createGroup` find them. Same package |
 | C3 | Grouping must SHOW the real card and must NOT change how the grouped card displays (user HARD requirement) | AI Attempted Fix | GroupCard now wraps children with full `.dk-canvas-card` frame (header + type label + dismiss + body) at real positions/sizes. Internal pointer events stopped. CSS cleaned up (dead flex-column/max-height rules removed). Needs CZ visual verification |
 
@@ -1047,3 +1149,12 @@
   7. Less collapsible nesting, more immediate info-at-a-glance
 - **Research area:** Investigate how modern digests (The Browser, TLDR, Techmeme, Feedly, terminal-based news readers) present information and adapt best practices to DeskFlow's digest system.
 - **Files:** `src/components/ai/digest/DailyDigestBoard.tsx`, `src/components/ai/chat/renderers/DigestTopicCard.tsx`, `src/services/AIService.ts` (digest generation prompt)
+
+## 2026-08-10 - Speech-to-text unreliable: dictation fails in Electron (session opencode-term-1-stt1)
+
+> User report: App Tracker's speech-to-text uses ` webkitSpeechRecognition ` which requires internet + Google speech API keys that Chromium builds lack - dictation is unreliable and fails silently. Fix shipped: engine fallback chain Cloud API -> Windows native speech -> browser speech, wired main->preload->renderer with a new Settings card.
+
+| # | Issue | Status | Notes |
+|---|-------|--------|-------|
+| V1 | webkitSpeechRecognition unreliable in Electron (no Google API keys) | AI Attempted Fix | 3-engine fallback chain implemented: **Cloud API** (Groq/OpenAI-compatible; IPC ` stt:transcribe `; prefs ` sttApiKey `/` sttBaseUrl `/` sttModel `) -> **Windows native** (PowerShell System.Speech dictation; ` stt:native-start `/` stt:native-stop `; events over ` stt-native-event `) -> **browser** (existing webkit path, untouched fallback). Both consumers rewired (VoiceInputWrapper.tsx + useVoiceInput.ts). Settings -> General -> Voice & Speech card added. Builds OK (vite renderer + preload.cjs + main.cjs), tsc clean on changed files (only pre-existing aiAgentService.test.ts errors). RUNTIME NOT VERIFIED - needs full app relaunch + dictation test (mic button in chat/terminal input). |
+| V2 | No offline dictation path on Windows | AI Attempted Fix | Windows native engine via PowerShell System.Speech (DictationGrammar, 8s recognize loop, JSON lines on stdout, idle after 3 empty rounds). Script written to userDataPath/stt-native.ps1 at native-start. No API key needed. See V1 notes. |

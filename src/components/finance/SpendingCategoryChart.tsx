@@ -8,7 +8,7 @@ import { maskNumber } from "../../utils/maskNumber";
 
 ChartJS.register(ArcElement, Tooltip);
 
-interface SpendingByCategory { category: string; amount: number; color?: string; }
+interface SpendingByCategory { category?: string; categoryName?: string; amount: number; color?: string; }
 interface Transaction { id: number; type: string; amount: number; on_behalf_of?: number; on_behalf_of_label?: string; description?: string; }
 interface Props { data: SpendingByCategory[]; baseCurrency: string; displayCurrency: string; convertAmount: (amount: number, from: string, to: string) => number; allTransactions?: Transaction[]; }
 
@@ -22,7 +22,7 @@ export default function SpendingCategoryChart({ data, baseCurrency, displayCurre
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return { labels: [], data: [], bgColors: [], isFtFlags: [] };
     const labels: string[] = []; const values: number[] = []; const bgColors: string[] = []; const isFtFlags: boolean[] = [];
-    data.forEach((item, idx) => { labels.push(item.category); values.push(convert(item.amount, baseCurrency, displayCurrency)); bgColors.push(PALETTE[idx % PALETTE.length]); isFtFlags.push(false); });
+    data.forEach((item, idx) => { labels.push(item.categoryName || item.category || 'Uncategorized'); values.push(convert(item.amount, baseCurrency, displayCurrency)); bgColors.push(item.color || PALETTE[idx % PALETTE.length]); isFtFlags.push(false); });
     const ftExpenses = allTransactions.filter(t => t.type === "expense" && t.on_behalf_of && t.on_behalf_of > 0);
     if (ftExpenses.length > 0) {
       const ftByLabel: Record<string, number> = {};
@@ -71,10 +71,14 @@ export default function SpendingCategoryChart({ data, baseCurrency, displayCurre
                   borderWidth: 1,
                   padding: 10,
                   callbacks: {
+                    title: (items) => {
+                      const item = items[0];
+                      return item?.label ? String(item.label) : '';
+                    },
                     label: (ctx) => {
                       const value = ctx.parsed as number;
                       const pct = totalSpent > 0 ? ((value / totalSpent) * 100).toFixed(1) : "0.0";
-                      return `${ctx.label}: ${fmtMoney(value)} (${pct}%)`;
+                      return `${fmtMoney(value)} (${pct}%)`;
                     },
                   },
                 },

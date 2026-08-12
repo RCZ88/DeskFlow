@@ -8,9 +8,9 @@ import type { LessonSummary, LessonWithNodes, RenderableNode, Result } from '../
 export class ContentService {
   constructor(private db: Database) {}
 
-  listLessons(part?: number): Result<LessonSummary[]> {
+  listLessons(opts: { branchId?: string; part?: number; chapter?: string; subtopic?: string } = {}): Result<LessonSummary[]> {
     try {
-      const rows = repo.listLessons(this.db, part);
+      const rows = repo.listLessons(this.db, opts);
       const summaries: LessonSummary[] = rows.map((r: any) => {
         const nodeCount = repo.getNodesByLesson(this.db, r.id).length;
         return {
@@ -20,7 +20,9 @@ export class ContentService {
           version: r.version,
           status: r.status,
           nodeCount,
+          branch_id: r.branch_id || 'cs-ai',
           chapter: r.chapter || '',
+          subtopic: r.subtopic || '',
           original_prompt: r.original_prompt || '',
           created_at: r.created_at,
           updated_at: r.updated_at,
@@ -93,9 +95,9 @@ export class ContentService {
     }
   }
 
-  getGraph(part?: number): Result<{ nodes: any[]; edges: any[] }> {
+  getGraph(opts: { branchId?: string; part?: number } = {}): Result<{ nodes: any[]; edges: any[] }> {
     try {
-      return { ok: true, data: repo.getGraph(this.db, part) };
+      return { ok: true, data: repo.getGraph(this.db, opts) };
     } catch (err: any) {
       return { ok: false, error: err.message };
     }

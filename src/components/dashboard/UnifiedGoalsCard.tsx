@@ -200,9 +200,10 @@ export function UnifiedGoalsCard({
                 </motion.button>
                 <div className="flex-1 min-w-0">
                   <span className={`text-[13px] truncate block font-sans ${goal.status === 'done' ? 'text-zinc-500 line-through' : 'text-zinc-200'}`}>{goal.title}</span>
-                  {goal.parentId && (() => {
-                    const parent = longTermGoals.find(ltg => ltg.id === goal.parentId);
-                    return parent ? <span className="text-[10px] text-zinc-600 flex items-center gap-0.5 font-sans"><Link2 size={8} /> {parent.title}</span> : null;
+                  {(() => {
+                    const parentIds = goal.parentIds?.length ? goal.parentIds : (goal.parentId ? [goal.parentId] : []);
+                    const parents = parentIds.map(pid => longTermGoals.find(ltg => ltg.id === pid)).filter(Boolean) as LongTermGoal[];
+                    return parents.length > 0 ? <span className="text-[10px] text-zinc-600 flex items-center gap-0.5 font-sans truncate"><Link2 size={8} className="shrink-0" /> {parents.map(p => p.title).join(', ')}</span> : null;
                   })()}
                 </div>
                 <div className="flex items-center gap-1 shrink-0">

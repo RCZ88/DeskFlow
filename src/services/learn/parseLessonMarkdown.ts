@@ -64,7 +64,7 @@ interface Line {
 }
 
 function toLines(src: string): Line[] {
-  return src.replace(/\r\n?/g, '\n').split('\n').map((raw, i) => ({ raw, text: raw.trim(), no: i + 1 }));
+  return src.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n').map((raw, i) => ({ raw, text: raw.trim(), no: i + 1 }));
 }
 
 // ── Frontmatter ────────────────────────────────────────────────────────────
@@ -79,23 +79,67 @@ interface Frontmatter {
   rest: Line[]; // lines after the frontmatter block
 }
 
-function parseFrontmatter(lines: Line[]): Frontmatter {
-  let i = 0;
-  while (i < lines.length && lines[i].text === '') i++;
-  if (i >= lines.length || lines[i].text !== '---') {
-    throw new LessonMarkdownError('Lesson must start with a "---" frontmatter block containing at least a title.');
-  }
-  i++; // consume opening ---
+function tryParseFrontmatter(lines: Line[], start: number): Frontmatter | null {
+  let i = start + 1; // consume opening ---
   const fm: Record<string, string> = {};
   while (i < lines.length && lines[i].text !== '---') {
     const m = lines[i].text.match(/^([A-Za-z_]+)\s*:\s*(.*)$/);
     if (m) fm[m[1].toLowerCase()] = m[2].trim();
     i++;
   }
-  if (i >= lines.length) throw new LessonMarkdownError('Frontmatter block is not closed with "---".');
+  if (i >= lines.length || !fm.title) return null;
   i++; // consume closing ---
+  const ab = (fm.authored_by || '').toLowerCase();
+  return {
+    title: fm.title,
+    id: fm.id ? slug(fm.id) : undefined,
+    part: fm.part != null && fm.part !== '' ? Number(fm.part) : undefined,
+    version: fm.version || undefined,
+    summary: fm.summary || undefined,
+    authored_by: ab === 'human' || ab === 'ai' || ab === 'hybrid' ? ab : undefined,
+    rest: lines.slice(i),
+  };
+}
 
-  if (!fm.title) throw new LessonMarkdownError('Frontmatter is missing required "title".');
+function parseFrontmatter(lines: Line[]): Frontmatter {
+  let i = 0;
+  while (i < lines.length && lines[i].text === '') i++;
+  // Tolerate preamble text / a leaked fence line before the frontmatter
+  // (e.g. "Here is your lesson:" or ```lmd from a chat UI) by scanning
+  // forward to the first '---' and retrying later ones if no title found.
+  while (i < lines.length) {
+    if (lines[i].text !== '---') { i++; continue; }
+    const attempt = tryParseFrontmatter(lines, i);
+    if (attempt) return attempt;
+    i++;
+  }
+  // Fallback: bare frontmatter (no opening '---' delimiter).
+  // Scan the first ~12 lines for a 'key: value' line — if found, treat that
+  // as the start of a frontmatter block (key lines until a closing '---'
+  // or a non-key-value line).
+  const cap = Math.min(lines.length, 12);
+  for (let j = 0; j < cap; j++) {
+    if (/^([A-Za-z_]+)\s*:\s*/.test(lines[j].text)) {
+      const attempt = tryParseBareFrontmatter(lines, j);
+      if (attempt) return attempt;
+      break;
+    }
+  }
+  throw new LessonMarkdownError('Lesson must start with a frontmatter block containing a title (either "---" delimited or as simple "key: value" lines). Make sure you paste the lesson itself, not the prompt or instructions.');
+}
+
+/** Parse a frontmatter block that starts with a 'key: value' line (no opening '---'). */
+function tryParseBareFrontmatter(lines: Line[], start: number): Frontmatter | null {
+  const fm: Record<string, string> = {};
+  let i = start;
+  for (; i < lines.length; i++) {
+    const text = lines[i].text;
+    if (text === '---') { i++; break; }                  // consume closing ---
+    const m = text.match(/^([A-Za-z_]+)\s*:\s*(.*)$/);
+    if (!m) break;                                       // end of key block
+    fm[m[1].toLowerCase()] = m[2].trim();
+  }
+  if (!fm.title) return null;
   const ab = (fm.authored_by || '').toLowerCase();
   return {
     title: fm.title,

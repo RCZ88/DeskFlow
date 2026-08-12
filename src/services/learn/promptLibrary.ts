@@ -1,6 +1,6 @@
 import { getSystemPromptForSlug, getCoachingNoteForSlug } from './topicPrompts';
-import { CURRICULUM_BLUEPRINT } from './curriculum';
-import type { CurriculumPart } from './curriculum';
+import { CURRICULUM_TOPICS } from './curriculum';
+import type { CurriculumTopic } from './curriculum';
 import type { LearnerProfile, MasteryLevel, KnowledgeEntry } from '../../shared/learn/types';
 
 // ── Prompt library types ──
@@ -159,7 +159,7 @@ export function composeAuthorSystemPrompt(
 
   // 4. Subject — per-topic brief when part is given
   if (opts?.part != null) {
-    const curriculum = CURRICULUM_BLUEPRINT[opts.part];
+    const curriculum = CURRICULUM_TOPICS[opts.part];
     const slug = curriculum?.slug;
     const subject = slug ? getSystemPromptForSlug(slug) : '';
     if (subject) parts.push(`## Topic Brief\n${subject}`);
@@ -175,7 +175,7 @@ export function composeAuthorSystemPrompt(
 }
 
 export function composeTopicUserPrompt(part: number, profile?: LearnerProfile): string {
-  const curriculum = CURRICULUM_BLUEPRINT[part];
+  const curriculum = CURRICULUM_TOPICS[part];
   if (!curriculum) return '';
 
   const coachingNote = getCoachingNoteForSlug(curriculum.slug) ?? '';
@@ -264,7 +264,7 @@ ${composeLearnerProfileBlock(profile)}`;
 
 export interface KnowledgeSelection {
   entries: KnowledgeEntry[];
-  relatedParts: CurriculumPart[];
+  relatedParts: CurriculumTopic[];
 }
 
 const KNOWLEDGE_TOP_N = 6;
@@ -288,13 +288,13 @@ export function selectKnowledgeForTopic(
   opts: { part?: number; topic?: string } = {},
 ): KnowledgeSelection {
   const entries = profile?.knowledgeBase ?? [];
-  const relatedParts: CurriculumPart[] = [];
+  const relatedParts: CurriculumTopic[] = [];
 
   if (!entries.length && !profile?.priorKnowledge) return { entries: [], relatedParts };
 
   const topicTokens = new Set(tokenize(opts.topic ?? ''));
   const targetPartMeta = opts.part != null
-    ? CURRICULUM_BLUEPRINT.find((p) => p.part === opts.part)
+    ? CURRICULUM_TOPICS.find((p) => p.part === opts.part)
     : undefined;
   const targetTokens = new Set(tokenize(targetPartMeta?.title ?? ''));
 
@@ -320,7 +320,7 @@ export function selectKnowledgeForTopic(
   // Related topics: only surfaced when the learner has NO relevant entries —
   // the user's rule: "if you say none for a topic, only refer to related topics".
   if (scored.length === 0) {
-    for (const cp of CURRICULUM_BLUEPRINT) {
+    for (const cp of CURRICULUM_TOPICS) {
       if (cp.part === opts.part) continue;
       const lvl = profile?.priorKnowledge?.[cp.part];
       if (lvl && lvl !== 'L0' && lvl !== 'L1') relatedParts.push(cp);

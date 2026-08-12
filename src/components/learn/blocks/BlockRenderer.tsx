@@ -45,11 +45,12 @@ interface BlockRendererProps {
   onAddNote?: (blockId: string, text: string) => void;
   onDeleteNote?: (noteId: string) => void;
   onTogglePin?: (noteId: string) => void;
+  onIllustrationGenerated?: (blockId: string, imagePath: string) => void;
 }
 
 const VISUAL_TYPES = new Set(['mermaid', 'chart', 'flow', 'finchart', 'table', 'image', 'widget', 'svg', 'math', 'code', 'video', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'whiteboard', 'illustration']);
 
-export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin }: BlockRendererProps) {
+export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, onIllustrationGenerated }: BlockRendererProps) {
   const [showSource, setShowSource] = useState(false);
   const sharedProps = { block, onAsk };
   const isVisual = VISUAL_TYPES.has(block.type);
@@ -115,7 +116,7 @@ export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, o
       case 'whiteboard':
         return <WhiteboardBlock meta={(block as any).meta || {}} />;
       case 'illustration':
-        return <IllustrationBlock meta={(block as any).meta || {}} nodeId={nodeId} />;
+        return <IllustrationBlock meta={(block as any).meta || {}} nodeId={nodeId} onGenerated={(imagePath) => onIllustrationGenerated?.(block.id, imagePath)} />;
       default:
         return <UnsupportedBlock block={block} />;
     }

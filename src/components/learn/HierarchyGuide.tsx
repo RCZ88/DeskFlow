@@ -1,9 +1,10 @@
 import React from 'react';
-import { Layers, BookOpen, FileText, Target, ChevronRight, Sparkles, Users, Brain } from 'lucide-react';
+import { Layers, BookOpen, FileText, Target, Users, Brain, LibraryBig, GitBranch } from 'lucide-react';
 
 /**
  * Visual hierarchy guide for the Learn module.
- * Shows Topic → Group → Lesson → Node with real examples and connecting lines.
+ * Shows Branch → Group → Topic → Subtopic → Lesson → Node with real examples
+ * and connecting lines (per RESULT.md 08082026 hierarchy expansion).
  */
 
 const MASTERY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
@@ -21,6 +22,40 @@ function TreeLine({ color = 'border-zinc-700/40' }: { color?: string }) {
 
 function TreeDot({ color = 'bg-clay-500' }: { color?: string }) {
   return <div className={`absolute left-[18px] top-3 w-2 h-2 rounded-full ${color} ring-2 ring-zinc-900 z-10`} />;
+}
+
+function BranchCard() {
+  return (
+    <div className="relative">
+      <TreeDot color="bg-clay-500" />
+      <div className="ml-10 rounded-xl border border-clay-500/20 bg-clay-500/5 p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <LibraryBig className="w-4 h-4 text-clay-400" />
+          <span className="text-xs font-mono uppercase tracking-wider text-clay-400">Branch</span>
+          <span className="text-[10px] text-zinc-600">— Predefined discipline</span>
+        </div>
+        <div className="font-serif text-lg font-semibold text-zinc-100">🤖 Computer Science & AI</div>
+        <div className="text-xs text-zinc-500 mt-1">A field of study — mutually exclusive from other branches</div>
+      </div>
+    </div>
+  );
+}
+
+function GroupCard() {
+  return (
+    <div className="relative">
+      <TreeDot color="bg-sage-500" />
+      <div className="ml-10 rounded-xl border border-sage-500/20 bg-sage-500/5 p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Users className="w-4 h-4 text-sage-400" />
+          <span className="text-xs font-mono uppercase tracking-wider text-sage-400">Group</span>
+          <span className="text-[10px] text-zinc-600">— Your custom category</span>
+        </div>
+        <div className="font-serif text-base font-semibold text-zinc-100">Core Fundamentals</div>
+        <div className="text-xs text-zinc-500 mt-1">You created this group to hold topics from anywhere in the curriculum</div>
+      </div>
+    </div>
+  );
 }
 
 function TopicCard() {
@@ -45,18 +80,18 @@ function TopicCard() {
   );
 }
 
-function GroupCard() {
+function SubtopicCard() {
   return (
     <div className="relative">
-      <TreeDot color="bg-sage-500" />
-      <div className="ml-10 rounded-xl border border-sage-500/20 bg-sage-500/5 p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Users className="w-4 h-4 text-sage-400" />
-          <span className="text-xs font-mono uppercase tracking-wider text-sage-400">Group</span>
-          <span className="text-[10px] text-zinc-600">— Your custom category</span>
+      <TreeDot color="bg-zinc-500" />
+      <div className="ml-10 rounded-lg border border-zinc-600/20 bg-zinc-800/30 p-3">
+        <div className="flex items-center gap-2 mb-1">
+          <GitBranch className="w-3.5 h-3.5 text-zinc-500" />
+          <span className="text-xs font-mono uppercase tracking-wider text-zinc-500">Subtopic</span>
+          <span className="text-[10px] text-zinc-600">— Optional nesting layer</span>
         </div>
-        <div className="font-serif text-base font-semibold text-zinc-100">Design Patterns</div>
-        <div className="text-xs text-zinc-500 mt-1">You created this group to organize related lessons</div>
+        <div className="text-sm font-medium text-zinc-300">Design Patterns</div>
+        <div className="text-[11px] text-zinc-500 mt-0.5">A tag that groups lessons inside a topic</div>
       </div>
     </div>
   );
@@ -111,7 +146,7 @@ export function HierarchyGuide({ showHeader = true }: { showHeader?: boolean }) 
 
       <div className="relative space-y-4">
         <TreeLine />
-        <TopicCard />
+        <BranchCard />
 
         <div className="pl-10 relative">
           <TreeLine />
@@ -120,10 +155,20 @@ export function HierarchyGuide({ showHeader = true }: { showHeader?: boolean }) 
 
         <div className="pl-20 relative">
           <TreeLine />
+          <TopicCard />
+        </div>
+
+        <div className="pl-30 relative">
+          <TreeLine />
+          <SubtopicCard />
+        </div>
+
+        <div className="pl-40 relative">
+          <TreeLine />
           <LessonCard />
         </div>
 
-        <div className="pl-32 relative space-y-3">
+        <div className="pl-52 relative space-y-3">
           <NodeCard
             title="What is the Observer Pattern?"
             mastery="L2"
@@ -151,10 +196,10 @@ export function HierarchyGuide({ showHeader = true }: { showHeader?: boolean }) 
           </div>
         </div>
         <div className="flex items-start gap-2">
-          <Sparkles className="w-3.5 h-3.5 text-sage-400 shrink-0 mt-0.5" />
+          <Users className="w-3.5 h-3.5 text-sage-400 shrink-0 mt-0.5" />
           <div>
             <span className="text-zinc-300 font-medium">Groups</span>
-            <span className="text-zinc-600"> — You create these to organize lessons. Topics are predefined.</span>
+            <span className="text-zinc-600"> — You create these to hold topics. Branches and topics are predefined.</span>
           </div>
         </div>
       </div>

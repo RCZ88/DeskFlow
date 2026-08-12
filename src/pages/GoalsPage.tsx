@@ -26,7 +26,7 @@ const defaultCriteria: CriteriaForm = {
   targetType: 'completion', targetHours: 0, targetMinutes: 30,
   matchCategory: '', detectionEnabled: false, detectionMode: 'positive',
   detectionKeywords: '', detectionMinMinutes: 10,
-  parentId: '', links: [],
+  parentIds: [], links: [],
 };
 
 export default function GoalsPage() {
@@ -89,7 +89,8 @@ export default function GoalsPage() {
       },
       status: 'active', date: selectedDate, source: 'manual',
       links: [], createdAt: new Date().toISOString(),
-      parentId: newCriteria.parentId || undefined,
+      parentId: newCriteria.parentIds[0] || undefined,
+      parentIds: newCriteria.parentIds.length ? newCriteria.parentIds : undefined,
       detection: newCriteria.detectionEnabled ? {
         enabled: true, mode: newCriteria.detectionMode,
         keywords: newCriteria.detectionKeywords.split(',').map(k => k.trim()).filter(Boolean),

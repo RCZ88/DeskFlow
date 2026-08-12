@@ -1,0 +1,170 @@
+# Clement Dark Tech v2 — Dual-mode style profile (v2 §5.1)
+# v1 card mode + v2 scene mode in one file
+# 17 color tokens + chapter/mono scene tokens + safe zone modes
+
+id: clement_dark_tech_v2
+version: '2.0'
+
+modes:
+  card:
+    hook:
+      family: Anton-Bold.ttf
+      size: 64
+      max_chars_per_line: 8
+      max_lines: 2
+      line_height: 1.0
+      color: '#FFFFFF'
+      stroke_color: '#000000'
+      stroke_width: 3
+    body:
+      family: LeagueSpartan-Regular.ttf
+      size: 48
+      max_chars_per_line: 12
+      max_lines: 3
+      line_height: 1.0
+      color: '#FFFFFF'
+      stroke_color: '#000000'
+      stroke_width: 3
+    caption:
+      family: Montserrat-Regular.ttf
+      size: 40
+      max_chars_per_line: 14
+      max_lines: 3
+      line_height: 1.0
+      color: '#C9D1D9'
+      stroke_color: '#000000'
+      stroke_width: 3
+    keyword:
+      family: Montserrat-Bold.ttf
+      size: 44
+      max_chars_per_line: 6
+      max_lines: 1
+      line_height: 1.0
+      color: '#22D3EE'
+      stroke_color: '#000000'
+      stroke_width: 3
+
+  scene:
+    hook:
+      family: Anton-Bold.ttf
+      size: 96
+      min_size: 68
+      max_chars_per_line: 10
+      max_lines: 3
+      line_height: 0.94
+      color: '#FFFFFF'
+      stroke_color: '#000000'
+      stroke_width: 3
+    body:
+      family: LeagueSpartan-Regular.ttf
+      size: 58
+      min_size: 42
+      max_chars_per_line: 14
+      max_lines: 4
+      line_height: 0.96
+      color: '#FFFFFF'
+      stroke_color: '#000000'
+      stroke_width: 3
+    caption:
+      family: Montserrat-Regular.ttf
+      size: 46
+      min_size: 38
+      max_chars_per_line: 16
+      max_lines: 4
+      line_height: 1.0
+      color: '#C9D1D9'
+      stroke_color: '#000000'
+      stroke_width: 3
+    keyword:
+      family: Montserrat-Bold.ttf
+      size: 60
+      min_size: 44
+      max_chars_per_line: 8
+      max_lines: 2
+      line_height: 1.0
+      color: '#22D3EE'
+      stroke_color: '#000000'
+      stroke_width: 3
+    chapter:
+      family: LeagueSpartan-Regular.ttf
+      size: 74
+      min_size: 56
+      weight: 700
+      max_chars_per_line: 12
+      max_lines: 2
+      line_height: 1.0
+      color: '#FFFFFF'
+      stroke_color: '#000000'
+      stroke_width: 3
+    mono:
+      family: JetBrainsMono-Bold.ttf
+      size: 34
+      min_size: 26
+      weight: 600
+      max_chars_per_line: 20
+      max_lines: 6
+      line_height: 1.28
+      color: '#22D3EE'
+      stroke_color: '#000000'
+      stroke_width: 2
+
+# ── 17 Color Tokens (v2 §5.1) ──
+colors:
+  background: '#0D1117'
+  background_90: '#0D1117E6'
+  surface_1: '#161B22'
+  surface_2: '#21262D'
+  stroke: '#000000'
+  stroke_width: 3
+  grid: '#30363D'
+  text_primary: '#FFFFFF'
+  text_secondary: '#C9D1D9'
+  text_muted: '#8B949E'
+  hook: '#FACC15'
+  caption: '#22D3EE'
+  keyword: '#FACC15'
+  bullet: '#22D3EE'
+  positive: '#34D399'
+  negative: '#FB7185'
+  info: '#60A5FA'
+  warning: '#F59E0B'
+  error: '#EF4444'
+
+canvas:
+  width: 1080
+  height: 1920
+
+# ── Safe Zones with modes + weights (v2 §6.7) ──
+safe_zones:
+  - name: text_safe
+    x: 40
+    y: 40
+    w: 1000
+    h: 1280
+    mode: preferred
+    weight: 1.0
+    applies_to: ['*']
+  - name: face_cam
+    x: 760
+    y: 1120
+    w: 320
+    h: 400
+    mode: discouraged
+    weight: 8
+    applies_to: ['panel', 'graph', 'screenshot', 'recording']
+  - name: captions
+    x: 80
+    y: 1420
+    w: 920
+    h: 300
+    mode: reserved
+    weight: 0
+    applies_to: ['caption']
+  - name: platform_ui_right
+    x: 930
+    y: 250
+    w: 150
+    h: 1370
+    mode: forbidden
+    weight: 1000000
+    applies_to: ['*']

@@ -63,7 +63,7 @@ export function FinChartBlock({ block, onAsk }: Props) {
       if (!mounted || !containerRef.current) return;
 
       chart = lwc.createChart(containerRef.current, {
-        width: containerRef.current.clientWidth,
+        width: Math.max(containerRef.current.clientWidth, 300),
         height: 300,
         layout: {
           background: { color: 'transparent' },
@@ -136,7 +136,7 @@ export function FinChartBlock({ block, onAsk }: Props) {
 
       handleResize = () => {
         if (containerRef.current) {
-          chart?.applyOptions({ width: containerRef.current.clientWidth });
+          chart?.applyOptions({ width: Math.max(containerRef.current.clientWidth, 300) });
         }
       };
       window.addEventListener('resize', handleResize);
@@ -179,7 +179,7 @@ export function FinChartBlock({ block, onAsk }: Props) {
           </button>
         </div>
       )}
-      <div ref={containerRef} className={loading || error ? 'hidden' : 'w-full'} />
+      <div ref={containerRef} className={error ? 'hidden' : 'w-full'} />
       {block.caption && (
         <div className="mt-2 text-sm text-zinc-500 italic text-center">{block.caption}</div>
       )}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Brain, ChevronRight, ChevronDown } from "lucide-react"
 
 interface ThoughtSectionProps {
@@ -8,6 +8,15 @@ interface ThoughtSectionProps {
 
 export function ThoughtSection({ thoughts, forceOpen }: ThoughtSectionProps) {
   const [expanded, setExpanded] = useState(false)
+  const prevCountRef = useRef(thoughts.length)
+
+  // Auto-expand when new thoughts arrive (streaming or not)
+  useEffect(() => {
+    if (thoughts.length > prevCountRef.current) {
+      setExpanded(true)
+    }
+    prevCountRef.current = thoughts.length
+  }, [thoughts.length])
 
   // During streaming, force open so user sees thinking text
   useEffect(() => {
@@ -16,11 +25,11 @@ export function ThoughtSection({ thoughts, forceOpen }: ThoughtSectionProps) {
 
   // When streaming ends, collapse after a short delay
   useEffect(() => {
-    if (!forceOpen && expanded) {
-      const t = setTimeout(() => setExpanded(false), 1500)
+    if (!forceOpen && expanded && thoughts.length > 0) {
+      const t = setTimeout(() => setExpanded(false), 2000)
       return () => clearTimeout(t)
     }
-  }, [forceOpen, expanded])
+  }, [forceOpen, expanded, thoughts.length])
 
   if (!thoughts.length) return null
 
@@ -54,13 +63,33 @@ export function ThoughtSection({ thoughts, forceOpen }: ThoughtSectionProps) {
 }
 
 export function extractThoughts(content: string): { thoughts: string[]; cleanContent: string } {
-  const thoughtRegex = /<thought>([\s\S]*?)<\/thought>/gi
+  if (!content) return { thoughts: [], cleanContent: content }
+
   const thoughts: string[] = []
   let cleanContent = content
+
+  // Extract complete <thought>...</thought> pairs
+  const completeRegex = /<thought>([\s\S]*?)<\/thought>/gi
   let match
-  while ((match = thoughtRegex.exec(content)) !== null) {
+  while ((match = completeRegex.exec(content)) !== null) {
     thoughts.push(match[1].trim())
-    cleanContent = cleanContent.replace(match[0], "")
+    cleanContent = cleanContent.replace(match[0], '')
   }
+
+  // Handle partial/incomplete <thought> during streaming:
+  // If there's an opening <thought> tag without a closing </thought>,
+  // extract its content as an in-progress thought and remove the raw tag.
+  const partialRegex = /<thought>([\s\S]*?)$/i
+  const partialMatch = partialRegex.exec(cleanContent)
+  if (partialMatch) {
+    // There's an unclosed <thought> — treat everything after it as thinking
+    const partialContent = partialMatch[1].trim()
+    if (partialContent) {
+      thoughts.push(partialContent)
+    }
+    // Remove the partial tag and everything after it from cleanContent
+    cleanContent = cleanContent.slice(0, partialMatch.index).trim()
+  }
+
   return { thoughts, cleanContent: cleanContent.trim() }
 }

@@ -22,11 +22,12 @@ import {
   type LifePhaseConnection,
 } from '@/lib/riverMath'
 import { cn } from '@/lib/utils'
-import { Pencil, Sparkles, Users, BookOpen, Quote } from 'lucide-react'
+import { Pencil, Plus, Sparkles, Quote } from 'lucide-react'
 
 import { PhaseFormDialog } from './phase-form-dialog'
 import { ReflectionFlow, type AiReflectResult } from './reflection-flow'
 import { ConnectionDataStrip } from './ConnectionDataStrip'
+import type { LensId } from './RingCanvas'
 
 const MOOD_COLORS: Record<number, string> = {
   [-3]: '#ef4444',
@@ -60,18 +61,49 @@ function Ring({ pct, size = 32 }: { pct: number; size?: number }) {
   )
 }
 
+function getPhaseRange(phase: LifePhase) {
+  const start = new Date(
+    Date.UTC(phase.startYear, phase.startMonth - 1, 1)
+  )
+    .toISOString()
+    .slice(0, 10)
+
+  const end = phase.endYear
+    ? new Date(
+        Date.UTC(
+          phase.endYear,
+          (phase.endMonth ?? 12) - 1,
+          28
+        )
+      )
+        .toISOString()
+        .slice(0, 10)
+    : null
+
+  return { start, end }
+}
+
 interface PhaseCardProps {
   phase: LifePhase
   active: boolean
   allPhases?: LifePhase[]
   memories: LoadedMemory[]
   longTermGoals: LongTermGoal[]
+  covenant?: {
+    commitments: { id: string }[]
+    completions: { commitmentId: string; date: string }[]
+  }
   onActiveChange: (id: string | null) => void
   onSave: (phase: LifePhase) => void
   onReflect: (phase: LifePhase, answers: string[], variation?: string) => Promise<AiReflectResult | null>
   onKeepReflection: (phase: LifePhase, text: string) => void
   onOpenMemory: (memory: LoadedMemory) => void
   onJump?: (phaseId: string) => void
+  lens: LensId
+  onAddMemory?: () => void
+  onAddGoal?: () => void
+  onAddCovenant?: () => void
+  onEditPhase?: () => void
 }
 
 export function PhaseCard({
@@ -80,41 +112,66 @@ export function PhaseCard({
   allPhases = [],
   memories,
   longTermGoals,
+  covenant,
   onActiveChange,
   onSave,
   onReflect,
   onKeepReflection,
   onOpenMemory,
   onJump,
+  lens,
+  onAddMemory,
+  onAddGoal,
+  onAddCovenant,
+  onEditPhase,
 }: PhaseCardProps) {
   const [editing, setEditing] = useState(false)
   const [reflecting, setReflecting] = useState(false)
   const [storyExpanded, setStoryExpanded] = useState(false)
 
-  const now = new Date().getFullYear()
   const color = phase.color || categoryOf(phase.category).color
   const contrast = getContrastColor(color)
 
+  const { start, end } = useMemo(() => getPhaseRange(phase), [phase])
+
   const phaseMemories = useMemo(() => {
-    const endY = phase.endYear && phase.endYear > 0 ? phase.endYear : now
-    return memories.filter(m => {
-      const y = parseInt((m.meta.date || '').slice(0, 4), 10)
-      return Number.isFinite(y) && y >= phase.startYear && y <= endY
+    return memories.filter((m) => {
+      const date = m.meta.date
+      return date >= start && (!end || date <= end)
     })
-  }, [memories, phase.startYear, phase.endYear, now])
+  }, [memories, start, end])
 
   const phaseLtgs = useMemo(() => {
-    const endY = phase.endYear && phase.endYear > 0 ? phase.endYear : now
-    const yearOf = (s?: string | null) => {
-      if (!s) return NaN
-      const y = parseInt(String(s).slice(0, 4), 10)
-      return Number.isFinite(y) ? y : NaN
-    }
-    return longTermGoals.filter(ltg => {
-      const y = yearOf(ltg.deadline) || yearOf(ltg.createdAt)
-      return Number.isFinite(y) && y >= phase.startYear && y <= endY
+    return longTermGoals.filter((ltg) => {
+      const anyLtg = ltg as any
+
+      if (anyLtg.phaseId && anyLtg.phaseId === phase.id) {
+        return true
+      }
+
+      if (Array.isArray(anyLtg.links) && anyLtg.links.some((link: any) => link?.type === 'life-phase' && link?.id === phase.id)) {
+        return true
+      }
+
+      const targetDate = anyLtg.targetDate ?? anyLtg.deadline ?? anyLtg.date
+      if (targetDate && targetDate !== '2000-01-01') {
+        return (
+          targetDate >= start &&
+          (!end || targetDate <= end)
+        )
+      }
+
+      return false
     })
-  }, [longTermGoals, phase.startYear, phase.endYear, now])
+  }, [longTermGoals, phase.id, start, end])
+
+  const covenantCompletions = useMemo(() => {
+    if (!covenant?.completions) return []
+
+    return covenant.completions.filter((c) => {
+      return c.date >= start && (!end || c.date <= end)
+    })
+  }, [covenant, start, end])
 
   const handleKeep = (text: string) => {
     onKeepReflection(phase, text)
@@ -125,6 +182,8 @@ export function PhaseCard({
   const moodTags = phase.moodTags || []
   const milestones = phase.milestones || []
 
+  const sectionOpacity = (sectionLens: LensId) => lens === 'phases' || lens === sectionLens ? 'opacity-100 transition-opacity duration-300' : 'opacity-30 transition-opacity duration-300'
+
   return (
     <motion.div
       data-lifephase="phase-card"
@@ -133,75 +192,188 @@ export function PhaseCard({
         'overflow-hidden rounded-xl transition-shadow duration-300',
         active
           ? 'shadow-[0_0_0_1px_rgba(255,255,255,0.14),0_25px_50px_-12px_rgba(0,0,0,0.7)]'
-          : 'shadow-[0_8px_30px_-12px_rgba(0,0,0,0.5)]'
+          : 'shadow-[0_8px_30px_-12px_rgba(0,0,0,0.5)]',
+        phase.status === 'draft' && 'opacity-60 border border-dashed border-zinc-600'
       )}
     >
       {/* ── Solid Era Monolith: h-64 color header ── */}
-      <button
-        onClick={() => onActiveChange(phase.id)}
-        data-lifephase="phase-band"
-        className="relative flex h-64 w-full items-end gap-4 rounded-t-xl p-6 text-left overflow-hidden"
-        style={{
-          backgroundColor: color,
-          boxShadow: `0 25px 50px -12px ${color}40`,
-        }}
-      >
-        {/* Memory photo at luminosity blend if one is pinned to this chapter */}
-        {phase.headerImageMemoryId && (
-          <img
-            src={memoryUrl(memories, phase.headerImageMemoryId) ?? ''}
-            alt=""
-            className="absolute inset-0 h-full w-full object-cover mix-blend-luminosity opacity-60"
+      <div className="relative">
+        <button
+          onClick={() => onActiveChange(phase.id)}
+          data-lifephase="phase-band"
+          className="relative flex h-64 w-full items-end gap-4 rounded-t-xl p-6 text-left overflow-hidden"
+          style={{
+            backgroundColor: color,
+            boxShadow: `0 25px 50px -12px ${color}40`,
+          }}
+        >
+          {/* Memory photo at luminosity blend if one is pinned to this chapter */}
+          {phase.headerImageMemoryId && (
+            <img
+              src={memoryUrl(memories, phase.headerImageMemoryId) ?? ''}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover mix-blend-luminosity opacity-60"
+            />
+          )}
+          {/* Duotone color overlay at ~70% when a memory photo sits underneath */}
+          {phase.headerImageMemoryId && (
+            <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: color, opacity: 0.7 }} />
+          )}
+          {/* Slow-drifting radial gradient texture, lightened by 20% */}
+          <motion.div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: `radial-gradient(circle at 30% 30%, ${lighten(color, 20)}, transparent 60%)`,
+            }}
+            animate={{ backgroundPosition: ['0% 0%', '100% 100%'] }}
+            transition={{ duration: 26, repeat: Infinity, repeatType: 'mirror', ease: 'linear' }}
           />
-        )}
-        {/* Duotone color overlay at ~70% when a memory photo sits underneath */}
-        {phase.headerImageMemoryId && (
-          <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: color, opacity: 0.7 }} />
-        )}
-        {/* Slow-drifting radial gradient texture, lightened by 20% */}
-        <motion.div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `radial-gradient(circle at 30% 30%, ${lighten(color, 20)}, transparent 60%)`,
+
+          {/* Atmospheric gradient overlay */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%, rgba(0,0,0,0.15) 100%)`,
+            }}
+          />
+
+          {/* Magnitude ghost number */}
+          <span className="absolute right-5 top-16 font-display text-8xl text-white/10 select-none leading-none">
+            {phase.magnitude}
+          </span>
+
+          <div className="relative z-10 flex-1 min-w-0">
+            <h2
+              className="warmth-serif text-3xl font-medium leading-tight truncate"
+              style={{ color: contrast }}
+            >
+              {phase.title}
+            </h2>
+            <p
+              className="font-mono text-sm mt-1.5 opacity-80"
+              style={{ color: contrast }}
+            >
+              {phaseSpanLabel(phase)}
+            </p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onEditPhase?.()
           }}
-          animate={{ backgroundPosition: ['0% 0%', '100% 100%'] }}
-          transition={{ duration: 26, repeat: Infinity, repeatType: 'mirror', ease: 'linear' }}
-        />
-
-        {/* Atmospheric gradient overlay */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%, rgba(0,0,0,0.15) 100%)`,
-          }}
-        />
-
-        {/* Magnitude ghost number */}
-        <span className="absolute right-5 top-3 font-display text-8xl text-white/10 select-none leading-none">
-          {phase.magnitude}
-        </span>
-
-        <div className="relative z-10 flex-1 min-w-0">
-          <h2
-            className="warmth-serif text-3xl font-medium leading-tight truncate"
-            style={{ color: contrast }}
-          >
-            {phase.title}
-          </h2>
-          <p
-            className="font-mono text-sm mt-1.5 opacity-80"
-            style={{ color: contrast }}
-          >
-            {phaseSpanLabel(phase)}
-          </p>
-        </div>
-      </button>
+          className="absolute right-4 top-4 z-30 inline-flex h-8 items-center gap-1 rounded-md border border-white/10 bg-black/25 px-2 text-[11px] text-white/80 backdrop-blur transition-colors hover:bg-black/40"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Edit
+        </button>
+      </div>
 
       {/* ── Dark glass body — 8 sections ── */}
       <WarmCard className="rounded-t-none border-t-0 relative overflow-hidden p-6 space-y-6">
+        {/* Always-visible Covenant / Gold / Memories data strip */}
+        <div className="px-5 pt-5">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {/* Covenant strip */}
+            <div
+              data-phase-covenant-strip
+              className={sectionOpacity('covenant') + ' rounded-lg border border-rose-500/15 bg-rose-500/[0.04] p-3'}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-wider text-rose-300/80">
+                  Covenant
+                </p>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAddCovenant?.()
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-rose-500/20 text-rose-300 hover:bg-rose-500/10"
+                  aria-label="Add covenant"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <p className="mt-2 text-lg text-zinc-100">
+                {covenantCompletions.length}
+              </p>
+
+              <p className="text-[11px] text-zinc-500">
+                kept in this chapter
+              </p>
+            </div>
+
+            {/* Gold strip */}
+            <div
+              data-phase-gold-strip
+              className={sectionOpacity('gold') + ' rounded-lg border border-amber-500/15 bg-amber-500/[0.04] p-3'}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-wider text-amber-300/80">
+                  Gold
+                </p>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAddGoal?.()
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-amber-500/20 text-amber-300 hover:bg-amber-500/10"
+                  aria-label="Add goal"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <p className="mt-2 text-lg text-zinc-100">
+                {phaseLtgs.length}
+              </p>
+
+              <p className="text-[11px] text-zinc-500">
+                branches in this chapter
+              </p>
+            </div>
+
+            {/* Memories strip */}
+            <div
+              data-phase-memories-strip
+              className={sectionOpacity('memories') + ' rounded-lg border border-emerald-500/15 bg-emerald-500/[0.04] p-3'}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-300/80">
+                  Memories
+                </p>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onAddMemory?.()
+                  }}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/10"
+                  aria-label="Add memory"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <p className="mt-2 text-lg text-zinc-100">
+                {phaseMemories.length}
+              </p>
+
+              <p className="text-[11px] text-zinc-500">
+                amber pockets
+              </p>
+            </div>
+          </div>
+        </div>
+
         {/* 1. Memory Pearls — scattered polaroids */}
         {phaseMemories.length > 0 && (
-          <div>
+          <div className={sectionOpacity('memories')}>
             <div className="relative" style={{ minHeight: Math.min(phaseMemories.length, 6) > 3 ? '160px' : '90px' }}>
               {phaseMemories.slice(0, 6).map((m, i) => {
                 const rotation = (i % 3 === 0 ? -4 : i % 3 === 1 ? 3 : -2)
@@ -362,7 +534,7 @@ export function PhaseCard({
 
         {/* Long-term goals attached to this era */}
         {phaseLtgs.length > 0 && (
-          <div>
+          <div className={sectionOpacity('gold')}>
             <p className="mb-2 text-[10.5px] uppercase tracking-wider text-zinc-600">Long-term goals</p>
             <ul className="space-y-1.5">
               {phaseLtgs.map(ltg => (
@@ -432,7 +604,7 @@ export function PhaseCard({
             <Sparkles size={13} /> Reflect
           </button>
           <button
-            onClick={() => setEditing(true)}
+            onClick={() => (onEditPhase ? onEditPhase() : setEditing(true))}
             data-lifephase="edit-phase"
             className="flex items-center gap-1.5 rounded-lg border border-zinc-700/60 bg-zinc-800/40 px-3 py-2 text-[12px] font-medium text-zinc-300 transition-colors hover:bg-zinc-800/70"
           >

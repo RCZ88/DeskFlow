@@ -30,6 +30,7 @@ import {
 import type { ExternalActivity, ExternalSession } from "@/types/external";
 import {
   createId,
+  scaleSegmentsToGap,
   suggestGapActivities,
   type Gap,
   type GapSegment,
@@ -119,6 +120,7 @@ function redistributeEven(total: number, count: number): number[] {
 export function GapFillModal({
   open,
   gap,
+  multiGaps,
   activities,
   sessions,
   onClose,
@@ -126,6 +128,7 @@ export function GapFillModal({
 }: {
   open: boolean;
   gap: Gap | null;
+  multiGaps?: Gap[];
   activities: ExternalActivity[];
   sessions: ExternalSession[];
   onClose: () => void;
@@ -134,31 +137,36 @@ export function GapFillModal({
   const [segments, setSegments] = useState<InternalSegment[]>([]);
   const [pickingFor, setPickingFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [fillProgress, setFillProgress] = useState<{ done: number; total: number } | null>(null);
+  const [failedGaps, setFailedGaps] = useState<Gap[]>([]);
   const segCounter = useRef(1);
 
-  const gapSeconds = gap ? gap.duration_seconds : 0;
+  const referenceGap = gap ?? multiGaps?.[0] ?? null;
+  const multiCount = multiGaps?.length ?? 0;
+  const isMulti = !gap && multiCount > 0;
+  const gapSeconds = referenceGap ? referenceGap.duration_seconds : 0;
 
   const pickableActivities = useMemo(() => {
     return activities.filter((activity) => activity.type !== "sleep");
   }, [activities]);
 
   const suggestions = useMemo(() => {
-    if (!gap) return [];
-    return suggestGapActivities(gap, sessions, activities, 4);
-  }, [gap, sessions, activities]);
+    if (!referenceGap) return [];
+    return suggestGapActivities(referenceGap, sessions, activities, 4);
+  }, [referenceGap, sessions, activities]);
 
   useEffect(() => {
-    if (!gap) return;
+    if (!referenceGap) return;
     const initial: InternalSegment = {
       id: createId("segment"),
       activityId: suggestions[0]?.id != null ? String(suggestions[0].id) : null,
-      durationSeconds: gap.duration_seconds,
+      durationSeconds: referenceGap.duration_seconds,
     };
     segCounter.current += 1;
     setSegments([initial]);
     setPickingFor(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gap]);
+  }, [referenceGap]);
 
   useEffect(() => {
     if (!open) return;
@@ -309,24 +317,45 @@ export function GapFillModal({
   const filledCount = segments.filter((segment) => segment.activityId).length;
 
   const submit = async () => {
-    if (!gap || saving || filledCount === 0) return;
+    if (!referenceGap || saving || filledCount === 0) return;
+
+    const allTargets = isMulti && multiGaps ? multiGaps : [referenceGap];
+    const targets = failedGaps.length > 0 ? failedGaps : allTargets;
+
+    const payload: GapSegment[] = segments.map((segment) => ({
+      id: segment.id,
+      activityId: segment.activityId,
+      minutes: Math.max(1, Math.round(segment.durationSeconds / 60)),
+    }));
+
     setSaving(true);
-    try {
-      const payload: GapSegment[] = segments.map((segment) => ({
-        id: segment.id,
-        activityId: segment.activityId,
-        minutes: Math.max(1, Math.round(segment.durationSeconds / 60)),
-      }));
-      await onFillGap(gap, payload);
-      onClose();
-    } finally {
-      setSaving(false);
+    setFillProgress({ done: 0, total: targets.length });
+
+    const nextFailed: Gap[] = [];
+
+    for (let i = 0; i < targets.length; i += 1) {
+      try {
+        const scaled = isMulti
+          ? scaleSegmentsToGap(payload, targets[i].duration_seconds)
+          : payload;
+        await onFillGap(targets[i], scaled);
+        setFillProgress({ done: i + 1, total: targets.length });
+      } catch {
+        nextFailed.push(targets[i]);
+      }
     }
+
+    setSaving(false);
+    setFillProgress(null);
+    setFailedGaps(nextFailed);
+
+    if (nextFailed.length > 0) return;
+    onClose();
   };
 
   return (
     <AnimatePresence>
-      {open && gap && (
+      {open && referenceGap && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -351,11 +380,20 @@ export function GapFillModal({
                   <Clock className="h-5 w-5 text-amber-400" />
                 </div>
                 <div>
-                  <h3 className="text-base font-semibold text-zinc-100">Fill Gap</h3>
+                  <h3 className="text-base font-semibold text-zinc-100">
+                    {isMulti ? `Fill ${multiCount} Gaps` : "Fill Gap"}
+                  </h3>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    {formatTime(gap.start)} – {formatTime(gap.end)} •{" "}
-                    {formatMinutes(Math.round(gapSeconds / 60))} untracked
+                    {isMulti
+                      ? `${multiCount} gaps • ${formatMinutes(Math.round(multiGaps!.reduce((sum, g) => sum + g.duration_seconds, 0) / 60))} untracked total`
+                      : `${formatTime(referenceGap.start)} – ${formatTime(referenceGap.end)} • ${formatMinutes(Math.round(gapSeconds / 60))} untracked`}
                   </p>
+                  {isMulti && (
+                    <p className="mt-1 flex items-center gap-1.5 text-[11px] text-emerald-300/90">
+                      <Sparkles className="h-3 w-3" />
+                      Same composition, scaled to each gap's length
+                    </p>
+                  )}
                 </div>
               </div>
               <button onClick={onClose} className="rounded-lg p-1.5 text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300">
@@ -553,12 +591,32 @@ export function GapFillModal({
 
             {/* Bottom bar */}
             <div className="shrink-0 space-y-2 border-t border-white/10 px-5 py-3">
+              {failedGaps.length > 0 && (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2.5 text-xs text-red-300">
+                  Couldn't fill {failedGaps.length === 1 ? "this gap" : `these gaps`}:{" "}
+                  {failedGaps.map((g) => formatTime(g.start)).join(", ")}. The rest were
+                  filled — retry to fill the remaining.
+                </div>
+              )}
               <button
                 onClick={submit}
                 disabled={filledCount === 0 || saving}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-2.5 text-sm font-medium text-zinc-950 transition hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                {saving ? "Filling…" : (
+                {saving ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    {isMulti && fillProgress
+                      ? `Filling ${fillProgress.done}/${fillProgress.total}…`
+                      : "Filling…"}
+                  </>
+                ) : isMulti ? (
+                  <>
+                    <Check className="h-4 w-4" />
+                    Fill {failedGaps.length || multiCount}{" "}
+                    {failedGaps.length === 1 ? "gap" : "gaps"}
+                  </>
+                ) : (
                   <>
                     <Check className="h-4 w-4" />
                     Fill {filledCount} {filledCount === 1 ? "segment" : "segments"}

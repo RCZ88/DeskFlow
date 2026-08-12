@@ -13,7 +13,7 @@ interface ResponseCardContentProps {
 }
 
 export function ResponseCardContent({ content, isToolOutput, timestamp, isUserInput, aiResponse, aiTimestamp }: ResponseCardContentProps) {
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
 
   const { thoughts, cleanContent } = useMemo(() => {
     if (isToolOutput) return { thoughts: [], cleanContent: content }
@@ -27,9 +27,9 @@ export function ResponseCardContent({ content, isToolOutput, timestamp, isUserIn
     const displayAi = expanded ? aiClean : aiClean.slice(0, 500)
 
     return (
-      <div className="space-y-3">
+      <div className="space-y-3" style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
         {/* User Input */}
-        <div className="dk-response-card dk-response-user">
+        <div className="dk-response-card dk-response-user" style={{ flexShrink: 0 }}>
           <div className="dk-response-header">
             <User size={11} className="text-cyan-400" />
             <span className="dk-response-label">You</span>
@@ -41,8 +41,8 @@ export function ResponseCardContent({ content, isToolOutput, timestamp, isUserIn
         </div>
 
         {/* AI Response */}
-        <div className={`dk-response-card ${isToolOutput ? 'dk-response-tool' : ''}`}>
-          <div className="dk-response-header">
+        <div className={`dk-response-card ${isToolOutput ? 'dk-response-tool' : ''}`} style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div className="dk-response-header" style={{ flexShrink: 0 }}>
             <Sparkles size={11} className="text-violet-400" />
             <span className="dk-response-label">AI Response</span>
             {aiTimestamp && <span className="dk-response-time">{aiTimestamp}</span>}
@@ -53,10 +53,12 @@ export function ResponseCardContent({ content, isToolOutput, timestamp, isUserIn
           )}
 
           {aiThoughts.length > 0 && (
-            <ThoughtSection thoughts={aiThoughts} />
+            <div style={{ flexShrink: 0 }}>
+              <ThoughtSection thoughts={aiThoughts} />
+            </div>
           )}
 
-          <div className="dk-response-body">
+          <div className="dk-response-body" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
             <MarkdownRenderer content={displayAi} />
           </div>
 
@@ -75,8 +77,8 @@ export function ResponseCardContent({ content, isToolOutput, timestamp, isUserIn
   const displayContent = expanded ? cleanContent : cleanContent.slice(0, 500)
 
   return (
-    <div className={`dk-response-card ${isToolOutput ? 'dk-response-tool' : ''}`}>
-      <div className="dk-response-header">
+    <div className={`dk-response-card ${isToolOutput ? 'dk-response-tool' : ''}`} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      <div className="dk-response-header" style={{ flexShrink: 0 }}>
         <Sparkles size={11} className="text-violet-400" />
         <span className="dk-response-label">AI Response</span>
         {timestamp && <span className="dk-response-time">{timestamp}</span>}
@@ -87,10 +89,12 @@ export function ResponseCardContent({ content, isToolOutput, timestamp, isUserIn
       )}
 
       {thoughts.length > 0 && (
-        <ThoughtSection thoughts={thoughts} />
+        <div style={{ flexShrink: 0 }}>
+          <ThoughtSection thoughts={thoughts} />
+        </div>
       )}
 
-      <div className="dk-response-body">
+      <div className="dk-response-body" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         <MarkdownRenderer content={displayContent} />
       </div>
 

@@ -101,6 +101,8 @@ export class ImportService {
           summary: doc.lesson.summary,
           chapter: doc.lesson.chapter,
           authored_by: doc.lesson.authored_by,
+          branch_id: (doc.lesson as any).branch_id || 'cs-ai',
+          subtopic: (doc.lesson as any).subtopic || '',
           doc_json: JSON.stringify(doc),
           status: 'valid',
           created_at: now,

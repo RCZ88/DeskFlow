@@ -927,7 +927,7 @@ const CodexPlugin: AIAgentPlugin = {
                 for (const [sid, info] of sessionGroups) {
                     sessions.push({
                         sessionId: sid,
-                        timestamp: new Date(info.ts * 1000),
+                        timestamp: new Date(info.ts > 1e11 ? info.ts : info.ts * 1000),
                         inputTokens: 0,
                         outputTokens: 0,
                         model: 'codex',
@@ -992,7 +992,10 @@ const CodexPlugin: AIAgentPlugin = {
                     let outputTokens = 0;
                     let cacheReadTokens = 0;
                     let model = 'codex';
-                    let ts = row.ts || 0;
+                    // logs_2.sqlite stores ts in MILLISECONDS (e.g. 1782728745290);
+                    // other sources may provide seconds — normalize to ms here.
+                    const rawTs = row.ts || 0;
+                    let ts = rawTs > 0 ? (rawTs > 1e11 ? rawTs : rawTs * 1000) : 0;
 
                     // Try JSON format: "Received message {...}"
                     if (body.startsWith('Received message ')) {
@@ -1024,7 +1027,7 @@ const CodexPlugin: AIAgentPlugin = {
                             model = pairs['model'] || model;
                             if (pairs['event.timestamp']) {
                                 const parsed = new Date(pairs['event.timestamp']);
-                                if (!isNaN(parsed.getTime())) ts = parsed.getTime() / 1000;
+                                if (!isNaN(parsed.getTime())) ts = parsed.getTime();
                             }
                         }
                     }
@@ -1043,7 +1046,7 @@ const CodexPlugin: AIAgentPlugin = {
                             cacheReadTokens,
                             model,
                             messageCount: 1,
-                            timestamp: new Date(ts * 1000),
+                            timestamp: new Date(ts),
                         });
                     }
                 } catch {}
@@ -2790,6 +2793,7 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_goals_date ON goals(date)');
         try { db.exec('ALTER TABLE goals ADD COLUMN priority INTEGER DEFAULT 0'); } catch {} // may already exist
         try { db.exec('ALTER TABLE goals ADD COLUMN parent_id TEXT'); } catch {} // goal hierarchy
+        try { db.exec('ALTER TABLE goals ADD COLUMN parent_ids TEXT'); } catch {} // multi-parent JSON array (daily goals can serve several long-term goals)
         // Habit/Covenant columns — merge localStorage covenant into SQLite
         try { db.exec('ALTER TABLE goals ADD COLUMN is_habit INTEGER DEFAULT 0'); } catch {}
         try { db.exec('ALTER TABLE goals ADD COLUMN cadence TEXT'); } catch {} // 'daily' | 'weekly'
@@ -2847,6 +2851,7 @@ function initializeStorage() {
           ['color_source', 'TEXT DEFAULT \'category\''],
           ['reflection_source', 'TEXT DEFAULT NULL'],
           ['reflection_generated_at', 'TEXT DEFAULT NULL'],
+          ['status', 'TEXT DEFAULT \'complete\''],
         ] as [string, string][]) {
           if (!lphHave.includes(col)) { try { db.exec(`ALTER TABLE life_phases ADD COLUMN ${col} ${type}`); } catch {} }
         }
@@ -3943,8 +3948,9 @@ function checkSleepGap(gapStart: number, gapEnd: number, opts?: { skipActiveGuar
     const gapMs = gapEnd - gapStart;
     const gapMinutes = Math.round(gapMs / (1000 * 60));
     if (gapMs < SLEEP_DETECTION_MIN_GAP_MS) return;
-    if (gapMs > 16 * 60 * 60 * 1000) {
-        console.log(`[DeskFlow] Skipping sleep detection — gap ${gapMinutes}min exceeds 16h max`);
+    // Raised cap from 16h to 24h — hibernation overnight can exceed 16h
+    if (gapMs > 24 * 60 * 60 * 1000) {
+        console.log(`[DeskFlow] Skipping sleep detection — gap ${gapMinutes}min exceeds 24h max`);
         return;
     }
     if (!isWithinSleepHours(gapStart) && !isWithinSleepHours(gapEnd)) {
@@ -3958,14 +3964,21 @@ function checkSleepGap(gapStart: number, gapEnd: number, opts?: { skipActiveGuar
             return;
         }
     }
-    // Guard: don't re-trigger if a detection is already pending (not yet reviewed)
+    // Guard: don't re-trigger if a detection is already pending AND it's recent (< 2 hours old).
+    // Old stale files from dismissed popups must not block future detections forever.
     const detPath = path_1.default.join(userDataPath, 'deskflow-sleep-detection.json');
     try {
         if (fs_1.default.existsSync(detPath)) {
             const existing = JSON.parse(fs_1.default.readFileSync(detPath, 'utf-8'));
-            if (existing.detected && !existing.checked) {
-                console.log(`[DeskFlow] Skipping sleep detection — already pending review`);
+            const ageMs = Date.now() - (existing.detectedAt || existing.gapEnd || 0);
+            if (existing.detected && !existing.checked && ageMs < 2 * 60 * 60 * 1000) {
+                console.log(`[DeskFlow] Skipping sleep detection — already pending review (age ${Math.round(ageMs / 60000)}min)`);
                 return;
+            }
+            // Stale file older than 2h — clear it so new detection can proceed
+            if (existing.detected && !existing.checked && ageMs >= 2 * 60 * 60 * 1000) {
+                console.log(`[DeskFlow] Clearing stale sleep detection file (age ${Math.round(ageMs / 60000)}min)`);
+                try { fs_1.default.unlinkSync(detPath); } catch {}
             }
         }
     } catch { /* ignore — proceed with detection */ }
@@ -3993,6 +4006,7 @@ function checkSleepGap(gapStart: number, gapEnd: number, opts?: { skipActiveGuar
             detPath,
             JSON.stringify({
                 detected: true,
+                detectedAt: Date.now(),
                 gapStart,
                 gapEnd,
                 gapMinutes,
@@ -5441,6 +5455,58 @@ electron_1.ipcMain.handle('backup:exportCSV', (_event, tables) => {
     const { exportCSV } = require('./main/backup/BackupService');
     return exportCSV(db, tables);
 });
+electron_1.ipcMain.handle('backup:status', () => {
+    const { getBackupStatus } = require('./main/backup/BackupService');
+    return getBackupStatus();
+});
+electron_1.ipcMain.handle('backup:verify', (_event, name) => {
+    const { verifyBackup } = require('./main/backup/BackupService');
+    return verifyBackup(name);
+});
+electron_1.ipcMain.handle('backup:settings:get', () => {
+    const { getBackupSettings } = require('./main/backup/BackupService');
+    return getBackupSettings();
+});
+electron_1.ipcMain.handle('backup:settings:set', (_event, patch) => {
+    const { setBackupSettings } = require('./main/backup/BackupService');
+    return setBackupSettings(patch || {});
+});
+electron_1.ipcMain.handle('backup:pickMirrorDir', async () => {
+    const { dialog, app } = require('electron');
+    const { setBackupSettings, getBackupSettings } = require('./main/backup/BackupService');
+    const win = electron_1.BrowserWindow.getAllWindows()[0];
+    const result = win
+        ? await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: 'Choose backup mirror location' })
+        : await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+    const mirrorDir = result.filePaths[0];
+    setBackupSettings({ mirrorDir });
+    return { canceled: false, mirrorDir, settings: getBackupSettings() };
+});
+
+function snapshotForAgentSession(terminalId: string, cwd: string, agentType: string) {
+    try {
+        const { createBackup, getBackupSettings } = require('./main/backup/BackupService');
+        const settings = getBackupSettings();
+        if (settings.autoBackup && db) {
+            createBackup(db, 'agent-session')
+                .then((m: any) => console.log(`[Backup] agent-session (${terminalId}/${agentType}): ${m.backupFile}`))
+                .catch((e: any) => console.error('[Backup] agent-session DB snapshot failed:', e));
+        }
+        if (cwd && require('fs').existsSync(cwd)) {
+            const projectRow = db ? db.prepare('SELECT id, name FROM projects WHERE path = ?').get(cwd) as any : null;
+            const projectId = projectRow?.id || require('path').basename(cwd) || cwd;
+            const { createProjectBackup } = require('./services/ProjectBackupService.cjs');
+            createProjectBackup(projectId, cwd, `Pre-agent ${agentType} session ${terminalId.slice(0, 6)}`, { trigger: 'agent-session' })
+                .then((r: any) => console.log(r.success
+                    ? `[ProjectBackup] agent-session: ${r.data?.label} (${r.data?.fileCount} files, ${r.data?.totalSize} bytes)`
+                    : `[ProjectBackup] agent-session skipped: ${r.error}`))
+                .catch((e: any) => console.error('[ProjectBackup] agent-session failed:', e));
+        }
+    } catch (e: any) {
+        console.error('[Backup] agent-session snapshot failed:', e);
+    }
+}
 
 // Get/set user preferences (category overrides, custom colors)
 interface UserPreferences {
@@ -5518,6 +5584,143 @@ electron_1.ipcMain.handle('set-preference', (event, key, value) => {
     userPreferences[key] = value;
     savePreferences();
     return true;
+});
+
+// ── Speech-to-Text (API primary + Windows native fallback) ─────────────
+const STT_DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
+const STT_DEFAULT_MODEL = 'whisper-large-v3-turbo';
+let sttNativeChild = null;
+let sttNativeSender = null;
+const STT_NATIVE_SCRIPT = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$lang = $args[0]
+if (-not $lang) { $lang = 'en-US' }
+try {
+  Add-Type -AssemblyName System.Speech
+  $ci = New-Object System.Globalization.CultureInfo($lang)
+  $sr = New-Object System.Speech.Recognition.SpeechRecognitionEngine($ci)
+  $sr.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+  $sr.SetInputToDefaultAudioDevice()
+} catch {
+  Write-Output '{"type":"error","text":"Windows speech engine unavailable on this system"}'
+  exit 1
+}
+$idleRounds = 0
+while ($true) {
+  try {
+    $r = $sr.Recognize([TimeSpan]::FromSeconds(8))
+  } catch {
+    Write-Output '{"type":"error","text":"Windows speech stopped unexpectedly"}'
+    exit 1
+  }
+  if ($r -and $r.Text) {
+    $t = ($r.Text -replace '"', '\\"')
+    Write-Output ("{\"type\":\"final\",\"text\":\"" + $t + "\"}")
+    $idleRounds = 0
+  } else {
+    $idleRounds++
+    if ($idleRounds -ge 3) { Write-Output '{"type":"idle"}' }
+  }
+}`;
+function sttApiConfigured(): boolean {
+    return typeof userPreferences.sttApiKey === 'string' && userPreferences.sttApiKey.trim().length > 0;
+}
+function sttKillNative() {
+    if (sttNativeChild) {
+        try { sttNativeChild.kill(); } catch (err) { /* ignore */ }
+        sttNativeChild = null;
+    }
+    sttNativeSender = null;
+}
+electron_1.ipcMain.handle('stt:get-status', () => {
+    const apiConfigured = sttApiConfigured();
+    const nativeAvailable = process.platform === 'win32';
+    const engine = apiConfigured ? 'api' : (nativeAvailable ? 'native' : 'browser');
+    const label = apiConfigured ? 'Cloud API' : (nativeAvailable ? 'Windows speech' : 'Browser speech');
+    return { engine, apiConfigured, nativeAvailable, label };
+});
+electron_1.ipcMain.handle('stt:transcribe', async (_event, payload) => {
+    try {
+        const apiKey = (userPreferences.sttApiKey || '').trim();
+        if (!apiKey) {
+            return { ok: false, error: 'No speech API key configured. Add one in Settings → General → Voice & Speech.' };
+        }
+        const baseUrl = (userPreferences.sttBaseUrl || STT_DEFAULT_BASE_URL).trim();
+        const model = (userPreferences.sttModel || STT_DEFAULT_MODEL).trim();
+        if (!payload || typeof payload.audioBase64 !== 'string' || payload.audioBase64.length === 0) {
+            return { ok: false, error: 'No speech detected' };
+        }
+        const audioBuf = Buffer.from(payload.audioBase64, 'base64');
+        if (audioBuf.length < 512) {
+            return { ok: false, error: 'No speech detected' };
+        }
+        const form = new FormData();
+        form.append('model', model);
+        form.append('file', new Blob([audioBuf], { type: payload.mime || 'audio/webm' }), 'recording.webm');
+        const langShort = payload.lang ? String(payload.lang).split('-')[0] : '';
+        if (langShort) form.append('language', langShort);
+        const res = await fetch(baseUrl, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+            body: form,
+        });
+        if (!res.ok) {
+            let body = '';
+            try { body = (await res.text()).slice(0, 300); } catch (err) { /* ignore */ }
+            return { ok: false, error: `Speech service error (${res.status})` + (body ? `: ${body}` : '') };
+        }
+        const data = await res.json();
+        const text = (data && typeof data.text === 'string' ? data.text : '').trim();
+        if (!text) {
+            return { ok: false, error: 'No speech detected' };
+        }
+        return { ok: true, text };
+    }
+    catch (err) {
+        return { ok: false, error: (err && err.message) ? err.message : 'Speech service failed' };
+    }
+});
+electron_1.ipcMain.handle('stt:native-start', (event, lang) => {
+    try {
+        sttKillNative();
+        const scriptPath = path_1.default.join(userDataPath, 'stt-native.ps1');
+        try { fs_1.default.writeFileSync(scriptPath, STT_NATIVE_SCRIPT, 'utf-8'); } catch (err) { /* ignore */ }
+        sttNativeSender = event.sender;
+        sttNativeChild = child_process_1.default.spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, lang || 'en-US'], { windowsHide: true });
+        sttNativeChild.stdout.setEncoding('utf8');
+        sttNativeChild.stdout.on('data', (chunk) => {
+            const sender = sttNativeSender;
+            if (!sender || sender.isDestroyed()) return;
+            String(chunk).split(/\r?\n/).forEach((line) => {
+                const t = line.trim();
+                if (!t || t.charAt(0) !== '{') return;
+                try {
+                    const parsed = JSON.parse(t);
+                    if (parsed && parsed.type) sender.send('stt-native-event', parsed);
+                }
+                catch (err) { /* not JSON — skip */ }
+            });
+        });
+        sttNativeChild.on('error', () => {
+            const sender = sttNativeSender;
+            sttNativeChild = null;
+            sttNativeSender = null;
+            if (sender && !sender.isDestroyed()) {
+                sender.send('stt-native-event', { type: 'error', text: 'Windows speech failed to start' });
+            }
+        });
+        sttNativeChild.on('exit', () => {
+            sttNativeChild = null;
+            sttNativeSender = null;
+        });
+        return { ok: true };
+    }
+    catch (err) {
+        return { ok: false, error: (err && err.message) ? err.message : 'Failed to start Windows speech' };
+    }
+});
+electron_1.ipcMain.handle('stt:native-stop', () => {
+    sttKillNative();
+    return { ok: true };
 });
 
 // Custom AI agent storage paths (overrides for plugins)
@@ -9436,9 +9639,12 @@ const LINE_COUNTER_EXT_MAP: Record<string, string> = {
   '.sh': 'Shell', '.md': 'Markdown', '.txt': 'Text',
 };
 
+const _fs = require('fs');
+const _path = require('path');
+
 function countLinesInFile(filePath: string, ext: string): { totalLines: number; blankLines: number; commentLines: number; codeLines: number } {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = _fs.readFileSync(filePath, 'utf-8');
     const lines = content.split('\n');
     const style = COMMENT_STYLES[ext] || {};
 
@@ -9473,7 +9679,7 @@ function countLinesInFile(filePath: string, ext: string): { totalLines: number; 
 
 electron_1.ipcMain.handle('count-project-lines', async (_event, projectPath: string, projectId: string, options?: { excludeExtensions?: string[]; excludePatterns?: string[]; maxFiles?: number }) => {
   try {
-    if (!projectPath || !fs.existsSync(projectPath)) return { success: false, error: 'Invalid project path' };
+    if (!projectPath || !_fs.existsSync(projectPath)) return { success: false, error: 'Invalid project path' };
     const defaultExcludes = ['.md', '.json', '.lock', '.min.js'];
     const excludeExts = new Set([...defaultExcludes, ...(options?.excludeExtensions || [])]);
     const maxFiles = options?.maxFiles || 10000;
@@ -9484,21 +9690,21 @@ electron_1.ipcMain.handle('count-project-lines', async (_event, projectPath: str
     function walkAndCount(dir: string, depth: number = 0): void {
       if (depth > 8 || filesWalked >= maxFiles) return;
       try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        const entries = _fs.readdirSync(dir, { withFileTypes: true });
         for (const entry of entries) {
           if (filesWalked >= maxFiles) break;
-          const fullPath = path.join(dir, entry.name);
+          const fullPath = _path.join(dir, entry.name);
           if (entry.isDirectory()) {
             if (!LINE_COUNTER_SKIP_DIRS.has(entry.name)) walkAndCount(fullPath, depth + 1);
           } else {
             filesWalked++;
-            const ext = path.extname(entry.name).toLowerCase();
+            const ext = _path.extname(entry.name).toLowerCase();
             if (BINARY_EXTS.has(ext) || excludeExts.has(ext)) continue;
             const lang = LINE_COUNTER_EXT_MAP[ext];
             if (!lang) continue;
             const counts = countLinesInFile(fullPath, ext);
             if (counts.totalLines === 0) continue;
-            const relativePath = path.relative(projectPath, fullPath);
+            const relativePath = _path.relative(projectPath, fullPath);
             results.push({ filePath: relativePath, fileType: lang, ...counts });
             if (!summary[lang]) summary[lang] = { count: 0, totalLines: 0, codeLines: 0, commentLines: 0, blankLines: 0 };
             summary[lang].count++;
@@ -11131,6 +11337,8 @@ interface AgentState {
   dataBuffer: string;
   idleSeq: number;
   launchStartedAt: number;
+  lastOutputAt: number;           // Timestamp of last PTY data chunk
+  verifyTimeout?: NodeJS.Timeout; // Timer for write verification
   handshakeToken?: string;
   timeoutHandle?: ReturnType<typeof setTimeout>;
   pendingWrites?: string[];
@@ -11176,13 +11384,14 @@ function markAgentReady(id: string, st: AgentState) {
   broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
 }
 
-function hasEnoughAgentOutputToAcceptInput(st: AgentState): boolean {
-  const cfg = getAgentConfig(st.agentType);
-  if (!cfg.bracketedPaste) return false;
+function isTuiSettled(st: AgentState): boolean {
+  // Must have received enough data to pass the initial boot splash
+  if (st.dataBuffer.length < 150) return false;
   const lastLine = getLastNonEmptyTerminalLine(st.dataBuffer);
-  if (!lastLine) return false;
   if (looksLikeShell(lastLine)) return false;
-  return st.dataBuffer.trim().length > 0;
+  // Core heuristic: TUI has finished rendering its frame and is waiting for input
+  // (Ink/React TUIs go completely silent on stdout when awaiting stdin).
+  return (Date.now() - st.lastOutputAt) >= 500;
 }
 
 // Incremental output parsing + session ID capture + launch error detection.
@@ -11296,19 +11505,12 @@ function startAgentTimeout(id: string, agentType: string) {
   const st = agentStates.get(id);
   if (!st) return;
 
-  // [FORCE-READY] For TUI agents, regex may never match (ANSI clutter).
-  // Force ready after 5s if still launching — the prompt will be queued and flushed.
-  const forceReadyTimer = setTimeout(() => {
-    const current = agentStates.get(id);
-    if (current && current.phase === 'launching') {
-      console.log(`[AgentTimeout] Forcing ready for ${id} after 5s (TUI agent fallback)`);
-      markAgentReady(id, current);
-    }
-  }, 5000);
+  // Blind force-ready REMOVED: we no longer flush the queue on a 5s timer without
+  // verifying the TUI is actually listening (caused silent message loss). The
+  // idle-settle heuristic (isTuiSettled) or the ready-regex drives readiness instead.
 
-  // Full error timeout at 30s
+  // Full error timeout at 15s (reduced from 30s since we no longer blind-force at 5s)
   const timer = setTimeout(() => {
-    clearTimeout(forceReadyTimer);
     if (agentStates.get(id)?.phase !== 'launching') return;
     const diag = diagnoseAgentFailure(id, agentType);
     for (const win of electron_1.BrowserWindow.getAllWindows()) {
@@ -11318,7 +11520,7 @@ function startAgentTimeout(id: string, agentType: string) {
       }
     }
     failPendingWrites(id);
-  }, 30000);
+  }, 15000);
   st.timeoutHandle = timer;
 }
 
@@ -11976,6 +12178,7 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
 
                 const st = agentStates.get(id);
                 if (!st) return;
+                st.lastOutputAt = Date.now(); // Reset idle timer on every chunk
                 st.dataBuffer += data;
                 if (st.dataBuffer.length > 10000) st.dataBuffer = st.dataBuffer.slice(-5000);
 
@@ -11999,17 +12202,27 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
                     terminalResponseBuffers.set(id, buf + data);
                 }
 
-                const handshakeSeen = st.handshakeToken ? stripAnsi(st.dataBuffer).includes(st.handshakeToken) : false;
                 const promptSeen = detectAgentPrompt(st.dataBuffer, st.agentType);
                 const actionRequired = (st.parsed?.actionRequired) || detectActionRequired(st.dataBuffer);
                 try { maybeBroadcastNotice(id); } catch (_e) { }
 
-                function isAgentReady(): boolean {
-                    const cfg = getAgentConfig(st.agentType);
-                    if (cfg.bracketedPaste) return promptSeen || handshakeSeen;
-                    return promptSeen && handshakeSeen;
+                // WRITE VERIFICATION: If we are busy and new data arrives, the TUI reacted to our write!
+                if (st.phase === 'busy' && st.verifyTimeout) {
+                    console.log(`[AGENT-VERIFY] Write confirmed via PTY reaction for ${id}`);
+                    clearTimeout(st.verifyTimeout);
+                    st.verifyTimeout = undefined;
+                    // Mark the pending message as verified in DB (handled via broadcast to renderer/DB layer)
+                    broadcast('agent:write-verified', { terminalId: id });
+                    st.phase = 'ready';
+                    st.idleSeq += 1;
+                    flushPendingAgentWrites(id, st);
+                    broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
+                    broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
+                    return; // Skip further state checks for this chunk
                 }
-                if (st.phase === 'launching' && (isAgentReady() || hasEnoughAgentOutputToAcceptInput(st))) {
+
+                if (st.phase === 'launching' && (detectAgentPrompt(st.dataBuffer, st.agentType) || isTuiSettled(st))) {
+                    console.log(`[AGENT-SETTLE] TUI settled or regex matched for ${id}. Flushing queue.`);
                     markAgentReady(id, st);
                 } else if ((st.phase === 'busy' || st.phase === 'attention') && promptSeen) {
                     st.phase = 'ready';
@@ -12073,6 +12286,9 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
                 const spawnedPid = (terminalManager.terminals.get(id) as any)?.pid;
                 agentStates.set(id, { agentType: type, phase: 'launching', dataBuffer: '', idleSeq: 0, launchStartedAt: Date.now(), pendingWrites: [], sessionIdCaptured: false, spawnedPid });
                 startAgentTimeout(id, type);
+
+                // [BACKUP] Pre-agent-session snapshot: DB (agent-session trigger) + project files (label)
+                snapshotForAgentSession(id, cwd || '', type);
 
                 // [STATE-SPOKE] Auto-create spoke file for this session
                 try {
@@ -12140,6 +12356,7 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
 
                 const st = agentStates.get(id);
                 if (!st) return;
+                st.lastOutputAt = Date.now(); // Reset idle timer on every chunk
                 st.dataBuffer += data;
                 if (st.dataBuffer.length > 10000) st.dataBuffer = st.dataBuffer.slice(-5000);
 
@@ -12161,17 +12378,27 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
                     terminalResponseBuffers.set(id, buf + data);
                 }
 
-                const handshakeSeen = st.handshakeToken ? stripAnsi(st.dataBuffer).includes(st.handshakeToken) : false;
                 const promptSeen = detectAgentPrompt(st.dataBuffer, st.agentType);
                 const actionRequired = (st.parsed?.actionRequired) || detectActionRequired(st.dataBuffer);
                 try { maybeBroadcastNotice(id); } catch (_e) { }
 
-                function isAgentReady(): boolean {
-                    const cfg = getAgentConfig(st.agentType);
-                    if (cfg.bracketedPaste) return promptSeen || handshakeSeen;
-                    return promptSeen && handshakeSeen;
+                // WRITE VERIFICATION: If we are busy and new data arrives, the TUI reacted to our write!
+                if (st.phase === 'busy' && st.verifyTimeout) {
+                    console.log(`[AGENT-VERIFY] Write confirmed via PTY reaction for ${id}`);
+                    clearTimeout(st.verifyTimeout);
+                    st.verifyTimeout = undefined;
+                    // Mark the pending message as verified in DB (handled via broadcast to renderer/DB layer)
+                    broadcast('agent:write-verified', { terminalId: id });
+                    st.phase = 'ready';
+                    st.idleSeq += 1;
+                    flushPendingAgentWrites(id, st);
+                    broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
+                    broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
+                    return; // Skip further state checks for this chunk
                 }
-                if (st.phase === 'launching' && (isAgentReady() || hasEnoughAgentOutputToAcceptInput(st))) {
+
+                if (st.phase === 'launching' && (detectAgentPrompt(st.dataBuffer, st.agentType) || isTuiSettled(st))) {
+                    console.log(`[AGENT-SETTLE] TUI settled or regex matched for ${id}. Flushing queue.`);
                     markAgentReady(id, st);
                 } else if ((st.phase === 'busy' || st.phase === 'attention') && promptSeen) {
                     st.phase = 'ready';
@@ -12277,7 +12504,7 @@ electron_1.ipcMain.handle('agent:send', async (_event, terminalId: string, data:
         st.pendingWrites.push(data);
         const result = recordPrompt();
         if (result) notifyTask(result.lastInsertRowid);
-        return { success: true, queued: true };
+        return { success: true, queued: true, written: false, verified: false };
     }
     const payload = buildAgentInputPayload(data, st.agentType || type);
     const success = terminalManager.write(terminalId, payload);
@@ -12285,8 +12512,31 @@ electron_1.ipcMain.handle('agent:send', async (_event, terminalId: string, data:
         st.phase = 'busy';
         const result = recordPrompt();
         if (result) notifyTask(result.lastInsertRowid);
+
+        // Start Verification Timer
+        if (st.verifyTimeout) clearTimeout(st.verifyTimeout);
+        st.verifyTimeout = setTimeout(() => {
+            if (st.phase === 'busy') {
+                console.warn(`[AGENT-VERIFY] Write unverified after 2.5s for ${terminalId}. Retrying...`);
+                // Retry once: send a wake \r (in case input box lost focus) then payload
+                terminalManager.write(terminalId, '\r');
+                setTimeout(() => {
+                    terminalManager.write(terminalId, payload);
+                    // Final fail timer
+                    st.verifyTimeout = setTimeout(() => {
+                        if (st.phase === 'busy') {
+                            console.error(`[AGENT-VERIFY] Retry failed for ${terminalId}. Marking error.`);
+                            st.phase = 'error';
+                            st.lastError = 'Write unverified: TUI did not react to input';
+                            broadcast('agent:write-failed', { terminalId, reason: 'unverified-write' });
+                        }
+                    }, 2500);
+                }, 100);
+            }
+        }, 2500);
+        return { success: true, queued: false, written: true, verified: false };
     }
-    return { success, queued: false };
+    return { success: false, error: 'PTY write failed' };
 });
 
 electron_1.ipcMain.handle('agent:get-phase', async (_event, terminalId: string) => {
@@ -12366,13 +12616,21 @@ electron_1.ipcMain.handle('capture-opencode-session-id', async (_event, workspac
             // [SESSION-FIX] Normalize paths; opencode's stored `directory` may differ from cwd.
             const normDir = (p: any) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
             const targetDir = normDir(workspaceDir);
-            const sinceISO = sinceTimestamp ? new Date(sinceTimestamp).toISOString() : null;
+            // [TS-FIX] time_created is INTEGER epoch millis (NOT an ISO string). Comparing
+            // String(time_created) >= ISO-string was ALWAYS false (epoch strings start with '1',
+            // ISO with '2'), so any capture with a sinceTimestamp silently never matched, and
+            // untimestamped calls fell back to a bare directory match that grabbed the stale
+            // most-recent session in the dir. Compare numerically against epoch millis.
+            const hasBound = typeof sinceTimestamp === 'number' && sinceTimestamp > 0;
+            const sinceMs = hasBound ? sinceTimestamp : Date.now() - 15 * 60 * 1000;
             const candidates = odb.prepare('SELECT id, directory, time_created FROM session ORDER BY time_created DESC').all();
-            let row = candidates.find((r: any) => normDir(r.directory) === targetDir && (!sinceISO || String(r.time_created) >= sinceISO));
+            let row = candidates.find((r: any) => normDir(r.directory) === targetDir && r.time_created >= sinceMs);
             // [PID-CORR] Bounded fallback: if we know when this launch happened but still can't path-match,
             // accept the most recent session created after this launch (closest to spawn wins).
-            if (!row && sinceISO) {
-                const after = candidates.filter((r: any) => String(r.time_created) >= sinceISO);
+            // Only allowed when the caller passed an explicit bound — never on a bare-dir guess,
+            // or a session from another directory could win the fallback.
+            if (!row && hasBound) {
+                const after = candidates.filter((r: any) => r.time_created >= sinceMs);
                 row = after[0] || null;
             }
             odb.close();
@@ -14161,10 +14419,19 @@ electron_1.ipcMain.handle('assemble-context', async (_event, data: { projectId: 
       parts.push(lines.join('\n'));
     }
 
+    const backupProtocol = [
+        '## Backup & Safety Protocol',
+        '- A full snapshot (database + project files) is taken automatically before this agent session started and every 30 min; you never need to create backups yourself.',
+        '- If a change might need to be undone later (patch, fix packet, refactor): ASK the user for permission first, then create a physical backup in `agent/backups/<timestamp>-desc-pre/` and VERIFY it (file count + sizes) before editing.',
+        '- NEVER run destructive git commands (git checkout/restore/reset --hard/clean).',
+        '- The database is READ-ONLY for you: never modify %APPDATA%/RHEO/deskflow-data.db.',
+        '- If something goes wrong, restore is a USER action in the Backup Center page — never restore files or DB yourself.',
+        '- Mention any backup taken in your cycle report (ARTIFACTS).',
+    ].join('\n');
+    parts.push(backupProtocol);
+    totalChars += backupProtocol.length;
+
     const context = parts.join('\n\n---\n\n');
-    if (!context) {
-      return { success: true, context: '', tokensUsed: 0 };
-    }
 
     return { success: true, context, tokensUsed: Math.ceil(totalChars / 4) };
   } catch (error: any) {
@@ -16777,6 +17044,8 @@ electron_1.ipcMain.handle('get-goals', async (_event, date: string) => {
         date: r.date,
         source: r.source,
         links: JSON.parse(r.links || '[]'),
+        parentId: r.parent_id,
+        parentIds: parseGoalParentIds(r),
         progressSeconds: r.progress_seconds,
         createdAt: r.created_at,
         completedAt: r.completed_at,
@@ -16784,6 +17053,73 @@ electron_1.ipcMain.handle('get-goals', async (_event, date: string) => {
     };
   } catch (err: any) {
     return { date, goals: [], error: err.message };
+  }
+});
+
+// ========== Feature Studio: AI Director Pipeline ==========
+// Runs the provider chain with the Director system prompt and returns structured components.
+electron_1.ipcMain.handle('feature-studio:compile', async (_event, data: { script: string }) => {
+  try {
+    if (!data.script?.trim()) return { success: false, error: 'Empty script' };
+    const { buildChain: buildChainFS, runWithFallback: runWithFallbackFS } = require('./services/providers/router');
+    const pState = JSON.parse(userPreferences.aiProviders || 'null');
+    if (!pState) return { success: false, error: 'No AI providers configured. Add one in Settings → AI.' };
+    const chain = buildChainFS(pState, 'default');
+    if (chain.length === 0) return { success: false, error: 'No enabled AI providers. Enable at least one in Settings → AI.' };
+
+    const DIRECTOR_PROMPT = `You are an elite Video Retention Editor AI. Your goal is to maximize viewer retention by generating on-screen visual overlays (cards) based on the provided transcript.
+
+You must adhere strictly to the "Clement Dark Tech" design system constraints (safe zones, max word counts, specific card types).
+
+OUTPUT FORMAT:
+You must output ONLY valid JSON wrapped in \`\`\`json ... \`\`\` tags. Do not include explanations, commentary, or any text outside the JSON block.
+
+JSON SCHEMA:
+{
+  "metadata": {
+    "style_profile": "clement_dark_tech",
+    "target_aspect": "9:16",
+    "total_duration_sec": number
+  },
+  "overlays": [
+    {
+      "id": "string (uuid)",
+      "start_time": number (seconds),
+      "end_time": number (seconds),
+      "type": "hook" | "body" | "caption" | "bullet" | "keyword",
+      "text": "string (strict max words: hook=8, body=12, caption=14, bullet=10, keyword=6)",
+      "emphasis_words": ["array of strings to highlight in cyan/yellow"],
+      "animation": {
+        "in": "fade" | "slide_up" | "pop",
+        "out": "fade" | "slide_down"
+      }
+    }
+  ]
+}
+
+RULES:
+1. Never overlap overlays — each overlay must have a unique time window.
+2. Hook cards only in the first 5 seconds of the video.
+3. Respect the face-cam safe zone (bottom 400px, right 320px) — do not place overlays there.
+4. Extract technical terms for 'keyword' cards.
+5. Use 'bullet' cards for lists or step-by-step instructions.
+6. Use 'caption' cards for descriptive text that supports the spoken content.
+7. Use 'body' cards for the main message or call-to-action.
+8. Set emphasis_words to highlight key terms that should appear in cyan or yellow.
+9. Choose the most appropriate animation for each overlay type.
+10. NEVER output anything except the JSON block.`;
+
+    const { result, usedProviderId } = await runWithFallbackFS(chain, {
+      systemPrompt: DIRECTOR_PROMPT,
+      messages: [{ role: 'user', content: data.script.trim() }],
+      maxTokens: 4000,
+      temperature: 0.4,
+    });
+
+    return { success: true, content: String(result.content), providerId: usedProviderId };
+  } catch (err: any) {
+    console.error('[FeatureStudio] AI compile failed:', err);
+    return { success: false, error: err.message || 'AI generation failed' };
   }
 });
 
@@ -16803,7 +17139,8 @@ electron_1.ipcMain.handle('get-goals-batch', async (_event, startDate: string, e
         id: r.id, title: r.title, description: r.description,
         category: r.category, target: { type: r.target_type, targetSeconds: r.target_seconds, matchCategory: r.match_category },
         period: r.period, status: r.status, date: r.date, source: r.source,
-        links: JSON.parse(r.links || '[]'), progressSeconds: r.progress_seconds,
+        links: JSON.parse(r.links || '[]'), parentId: r.parent_id, parentIds: parseGoalParentIds(r),
+        progressSeconds: r.progress_seconds,
         createdAt: r.created_at, completedAt: r.completed_at,
       });
     }
@@ -16822,15 +17159,16 @@ electron_1.ipcMain.handle('get-goals-batch', async (_event, startDate: string, e
 
 electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) => {
   try {
+    const { parentId, parentIdsJson } = goalParentIdsToColumns(goal);
     db!.prepare(`
-      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, priority, parent_id, deadline)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, priority, parent_id, parent_ids, deadline)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       goal.id, date, goal.title, goal.description || null,
       goal.category || 'work', goal.target?.type || 'time', goal.target?.targetSeconds || null, goal.target?.matchCategory || null,
       goal.status || 'pending', goal.period || 'daily', goal.source || 'manual',
       JSON.stringify(goal.links || []), goal.progressSeconds || 0, goal.completedAt || null,
-      goal.priority ?? 0, goal.parentId || null, goal.deadline || null,
+      goal.priority ?? 0, parentId, parentIdsJson, goal.deadline || null,
     );
     return { success: true };
   } catch (err: any) {
@@ -16848,6 +17186,8 @@ electron_1.ipcMain.handle('get-longterm-goals', async () => {
         createdAt: r.created_at,
         completedAt: r.completed_at,
         links: JSON.parse(r.links || '[]'),
+        parentId: r.parent_id,
+        parentIds: parseGoalParentIds(r),
         target: r.target_type ? { type: r.target_type, targetSeconds: r.target_seconds, matchCategory: r.match_category } : undefined,
         progress: r.target_type === 'time' && r.target_seconds ? Math.min(100, Math.round(((r.progress_seconds || 0) / r.target_seconds) * 100)) : 0,
       })),
@@ -16920,13 +17260,14 @@ function mapLifePhaseRow(r: any) {
     colorSource: r.color_source || 'category',
     reflectionSource: r.reflection_source || null,
     reflectionGeneratedAt: r.reflection_generated_at || null,
+    status: r.status || 'complete',
     updatedAt: r.updated_at,
   };
 }
 
 const LIFE_PHASE_INSERT = `
-  INSERT OR REPLACE INTO life_phases (id, title, description, category, start_month, start_year, end_month, end_year, magnitude, color, reflection, era_trends, impact_notes, milestones, connections, people, mood_start, mood_end, mood_tags, feelings_note, lessons_learned, header_image_memory_id, color_source, reflection_source, reflection_generated_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  INSERT OR REPLACE INTO life_phases (id, title, description, category, start_month, start_year, end_month, end_year, magnitude, color, reflection, era_trends, impact_notes, milestones, connections, people, mood_start, mood_end, mood_tags, feelings_note, lessons_learned, header_image_memory_id, color_source, reflection_source, reflection_generated_at, status, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 `;
 
 function upsertLifePhase(phase: any) {
@@ -16940,7 +17281,7 @@ function upsertLifePhase(phase: any) {
     JSON.stringify(phase.moodTags || []), phase.feelingsNote || null,
     phase.lessonsLearned || null, phase.headerImageMemoryId || null,
     phase.colorSource || 'category', phase.reflectionSource || null,
-    phase.reflectionGeneratedAt || null,
+    phase.reflectionGeneratedAt || null, phase.status || 'complete',
   );
 }
 
@@ -17212,6 +17553,24 @@ electron_1.ipcMain.handle('save-goal-suggestion', async (_event, data: { title: 
 
 // ─── Goal Hierarchy IPC (parent_id decomposition) ──────────────────────
 
+// parent_ids: JSON array of long-term goal ids (multi-parent daily goals).
+// Falls back to [parent_id] for legacy rows; parent_id stays = first parent
+// so get-child-goals / goal-hierarchy queries keep working.
+function parseGoalParentIds(r: any): string[] {
+  try {
+    const p = JSON.parse(r.parent_ids || '[]');
+    if (Array.isArray(p) && p.length) return p.map(String);
+  } catch {}
+  return r.parent_id ? [String(r.parent_id)] : [];
+}
+
+function goalParentIdsToColumns(g: any): { parentId: string | null; parentIdsJson: string } {
+  const ids = Array.isArray(g.parentIds)
+    ? g.parentIds.map(String)
+    : (g.parent_id ? [String(g.parent_id)] : []);
+  return { parentId: ids[0] || null, parentIdsJson: JSON.stringify(ids) };
+}
+
 electron_1.ipcMain.handle('get-goal', async (_event, goalId: string) => {
   try {
     const row = db!.prepare('SELECT * FROM goals WHERE id = ?').get(goalId) as any;
@@ -17222,6 +17581,7 @@ electron_1.ipcMain.handle('get-goal', async (_event, goalId: string) => {
         id: row.id, title: row.title, description: row.description,
         category: row.category, period: row.period, status: row.status,
         date: row.date, source: row.source, parent_id: row.parent_id,
+        parentId: row.parent_id, parentIds: parseGoalParentIds(row),
         priority: row.priority, progressSeconds: row.progress_seconds,
         links: JSON.parse(row.links || '[]'),
         createdAt: row.created_at, completedAt: row.completed_at,
@@ -17241,6 +17601,7 @@ electron_1.ipcMain.handle('get-child-goals', async (_event, parentId: string) =>
         id: r.id, title: r.title, description: r.description,
         category: r.category, period: r.period, status: r.status,
         date: r.date, source: r.source, parent_id: r.parent_id,
+        parentId: r.parent_id, parentIds: parseGoalParentIds(r),
         priority: r.priority, progressSeconds: r.progress_seconds,
         links: JSON.parse(r.links || '[]'),
         createdAt: r.created_at, completedAt: r.completed_at,
@@ -17254,17 +17615,18 @@ electron_1.ipcMain.handle('get-child-goals', async (_event, parentId: string) =>
 electron_1.ipcMain.handle('save-goals-batch', async (_event, goals: any[]) => {
   try {
     const insert = db!.prepare(`
-      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, parent_id, priority, deadline)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO goals (id, date, title, description, category, target_type, target_seconds, match_category, status, period, source, links, progress_seconds, completed_at, parent_id, parent_ids, priority, deadline)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const txn = db!.transaction((items: any[]) => {
       for (const g of items) {
+        const { parentId, parentIdsJson } = goalParentIdsToColumns(g);
         insert.run(
           g.id, g.date || '2000-01-01', g.title, g.description || null,
           g.category || 'work', g.target?.type || 'custom', g.target?.targetSeconds || null, g.target?.matchCategory || null,
           g.status || 'pending', g.period || 'daily', g.source || 'ai_assistant',
           JSON.stringify(g.links || []), g.progressSeconds || 0, g.completedAt || null,
-          g.parent_id || null, g.priority ?? 0, g.deadline || null,
+          parentId, parentIdsJson, g.priority ?? 0, g.deadline || null,
         );
       }
     });
@@ -17318,24 +17680,55 @@ electron_1.ipcMain.handle('get-daily-goal-progress', async (_event, date: string
     const startOfDay = `${date}T00:00:00.000Z`;
     const endOfDay = `${date}T23:59:59.999Z`;
 
-    const rows = db!.prepare(`
-      SELECT category, duration_ms
-      FROM logs
-      WHERE timestamp >= ? AND timestamp <= ?
-    `).all(startOfDay, endOfDay) as Array<{ category: string; duration_ms: number }>;
+    const fgGoals = timeBasedGoals.filter((g: any) => String(g.target?.matchCategory || '').toLowerCase().startsWith('fg:'));
+    const logGoals = timeBasedGoals.filter((g: any) => !String(g.target?.matchCategory || '').toLowerCase().startsWith('fg:'));
 
+    // Focus-group goals: sum completed focus sessions attributed to the group (local day).
+    const fgSeconds: Record<number, number> = {};
+    if (fgGoals.length > 0) {
+      for (const goal of fgGoals) {
+        const gid = parseInt(String(goal.target?.matchCategory).slice(3), 10);
+        if (!gid || fgSeconds[gid] !== undefined) continue;
+        try {
+          const row = db!.prepare(`
+            SELECT COALESCE(SUM(dfs.actual_sec), 0) AS total
+            FROM focus_group_usage u
+            JOIN deep_focus_sessions dfs ON dfs.id = u.session_id
+            WHERE u.group_id = ? AND dfs.outcome = 'completed'
+              AND dfs.started_at >= ? AND dfs.started_at <= ?
+          `).get(gid, `${date}T00:00:00`, `${date}T23:59:59`) as any;
+          fgSeconds[gid] = Number(row?.total) || 0;
+        } catch {
+          fgSeconds[gid] = 0;
+        }
+      }
+    }
+
+    // App-category goals: sum logs.category seconds (UTC day window, like before).
     const categorySeconds: Record<string, number> = {};
-    for (const row of rows) {
-      const cat = (row.category || 'uncategorized').toLowerCase();
-      const sec = Math.floor((row.duration_ms || 0) / 1000);
-      categorySeconds[cat] = (categorySeconds[cat] || 0) + sec;
+    if (logGoals.length > 0) {
+      const rows = db!.prepare(`
+        SELECT category, duration_ms
+        FROM logs
+        WHERE timestamp >= ? AND timestamp <= ?
+      `).all(startOfDay, endOfDay) as Array<{ category: string; duration_ms: number }>;
+      for (const row of rows) {
+        const cat = (row.category || 'uncategorized').toLowerCase();
+        const sec = Math.floor((row.duration_ms || 0) / 1000);
+        categorySeconds[cat] = (categorySeconds[cat] || 0) + sec;
+      }
     }
 
     const result: Record<string, { goalId: string; progressSeconds: number; targetSeconds: number; percentComplete: number; status: string }> = {};
 
     for (const goal of timeBasedGoals) {
       const matchCat = (goal.target?.matchCategory || '').toLowerCase();
-      const progressSec = categorySeconds[matchCat] || 0;
+      let progressSec = 0;
+      if (matchCat.startsWith('fg:')) {
+        progressSec = fgSeconds[parseInt(matchCat.slice(3), 10)] || 0;
+      } else {
+        progressSec = categorySeconds[matchCat] || 0;
+      }
       const targetSec = Math.min(Math.max(Number(goal.target?.targetSeconds) || 3600, 1), 86400);
       const pct = Math.min(100, Math.round((progressSec / targetSec) * 100));
 
@@ -17398,11 +17791,41 @@ electron_1.ipcMain.handle('get-goal-timeline', async (_event, date: string) => {
       categorySeconds[cat] = (categorySeconds[cat] || 0) + sec;
     }
 
+    // Focus-group goals: completed focus-session seconds per group (local day).
+    const fgSeconds: Record<number, number> = {};
+    const fgIds = [...new Set(
+      goals
+        .filter(g => g.target_type === 'time' && (g.match_category || '').toLowerCase().startsWith('fg:'))
+        .map(g => parseInt(String(g.match_category).slice(3), 10))
+        .filter(Boolean),
+    )];
+    for (const gid of fgIds) {
+      try {
+        const row = db!.prepare(`
+          SELECT COALESCE(SUM(dfs.actual_sec), 0) AS total
+          FROM focus_group_usage u
+          JOIN deep_focus_sessions dfs ON dfs.id = u.session_id
+          WHERE u.group_id = ? AND dfs.outcome = 'completed'
+            AND dfs.started_at >= ? AND dfs.started_at <= ?
+        `).get(gid, `${date}T00:00:00`, `${date}T23:59:59`) as any;
+        fgSeconds[gid] = Number(row?.total) || 0;
+      } catch {
+        fgSeconds[gid] = 0;
+      }
+    }
+
     const timelineGoals = goals.map(g => {
       const matchCat = (g.match_category || '').toLowerCase();
-      const progressSec = g.target_type === 'time'
-        ? (categorySeconds[matchCat] || 0) + (g.progress_seconds || 0)
-        : (g.progress_seconds || 0);
+      let progressSec: number;
+      if (g.target_type === 'time') {
+        if (matchCat.startsWith('fg:')) {
+          progressSec = (fgSeconds[parseInt(matchCat.slice(3), 10)] || 0) + (g.progress_seconds || 0);
+        } else {
+          progressSec = (categorySeconds[matchCat] || 0) + (g.progress_seconds || 0);
+        }
+      } else {
+        progressSec = (g.progress_seconds || 0);
+      }
       const targetSec = Math.min(Math.max(Number(g.target_seconds) || 3600, 1), 86400);
       const pct = g.target_type === 'time'
         ? Math.min(100, Math.round((progressSec / targetSec) * 100))
@@ -19372,8 +19795,8 @@ electron_1.ipcMain.handle('conductor:engineer-workflow', async (_event, objectiv
 // PROJECT BACKUP — file-level backup/restore IPC handlers
 // ═══════════════════════════════════════════════════════════════
 try {
-  const { registerProjectBackupIPC } = require('./services/ProjectBackupService');
-  if (db) registerProjectBackupIPC(db);
+  const { registerProjectBackupIPC } = require('./services/ProjectBackupService.cjs');
+  registerProjectBackupIPC(db);
 } catch (e: any) {
   console.warn('[DeskFlow] ProjectBackupService not loaded:', e.message);
 }
@@ -19423,6 +19846,13 @@ electron_1.app.whenReady().then(() => {
     loadCategoryConfig();
     loadSleepState(); // Load sleep tracking state
 
+    // ── Self-Contained Knowledge Base (R5: JSON store + BM25 RAG) ──
+    try {
+        const { initKnowledgeStore, registerKnowledgeHandlers } = require('./main/services/knowledge-store.js');
+        initKnowledgeStore();
+        registerKnowledgeHandlers();
+    } catch (err) { console.error('[KB] init failed:', err); }
+
     // ── Sleep detection on system resume / unlock ──
     // powerMonitor 'resume' fires when the machine wakes from sleep/hibernation
     // and 'unlock-screen' fires when the user unlocks — BOTH work even when the
@@ -19430,6 +19860,9 @@ electron_1.app.whenReady().then(() => {
     const checkResumeSleepGap = () => {
         try {
             const lastKnownAwake = lastPollTime || lastFocusTime || appStartTime;
+            const gapMs = lastKnownAwake ? Date.now() - lastKnownAwake : 0;
+            const gapMin = Math.round(gapMs / 60000);
+            console.log(`[DeskFlow] 💤 powerMonitor resume/unlock — lastKnownAwake ${gapMin}min ago (lastPollTime=${!!lastPollTime}, lastFocusTime=${!!lastFocusTime})`);
             if (lastKnownAwake) {
                 checkSleepGap(lastKnownAwake, Date.now(), { skipActiveGuard: true });
             }
@@ -19988,11 +20421,13 @@ electron_1.ipcMain.handle('get-sleep-for-date', (event, dateStr: string) => {
         const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
         if (!sleepActivity) return null;
 
-        // Match by the LOCAL evening date the sleep chart groups the sleep under:
-        // bedtime hour < 12 (after midnight) belongs to the PREVIOUS day's evening.
-        // Equivalent window: started_at (local) in [dateStr 12:00, dateStr+1 12:00).
-        const winStart = new Date(dateStr + 'T12:00:00');
-        const winEnd = new Date(winStart.getTime() + 24 * 3600 * 1000);
+        // Match by the stationary sleep day used by the popup and chart.
+        // Sleep date = the calendar day the session belongs to.
+        // 00:00-05:59 bedtime is assigned to the NEXT calendar day.
+        // So for date "Aug 11", search from Aug 11 00:00 to Aug 12 00:00.
+        const winStart = new Date(dateStr + 'T00:00:00');
+        const winEnd = new Date(dateStr + 'T00:00:00');
+        winEnd.setDate(winEnd.getDate() + 1);
         const sessions = db.prepare(`
             SELECT * FROM external_sessions
             WHERE activity_id = ? AND ended_at IS NOT NULL
@@ -20911,10 +21346,10 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
             return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
         };
         
-        // Group by **bedtime evening**, not calendar date of started_at.
-        // CORRECT logic: check BOTH started_at AND ended_at local calendar dates.
-        // If started_at hour < 12 AND they're on DIFFERENT local calendar dates
-        // Sleep date = bedtime date (always). went to bed at 11 PM on 20th, woke 7 AM 21st → "20th's sleep"
+        // Group by the stationary sleep day used by the popup/search-by-date.
+        // 00:00-05:59 belongs to the NEXT calendar day (not the previous day).
+        // 06:00 and later stays on its own calendar day.
+        // Sleep date = wake date (not bedtime date). went to bed at 2:30 AM on 21st, woke 1 PM 21st → "21st's sleep"
         const toLocalDateStr = (iso: string) => {
             const d = new Date(iso);
             return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -20922,12 +21357,11 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
         const getSleepGroupDate = (startedAt: string, endedAt: string) => {
             const startD = new Date(startedAt);
             const startH = startD.getHours();
-            // If bedtime is after midnight (before noon), it belongs to the previous day's evening
-            // e.g., 1 AM on the 21st = "20th's sleep"
-            // Exception: bedtime BEFORE midnight (noon-11:59 PM, e.g. 3:32 PM) stays on its own day
-            if (startH < 12) {
+            // If bedtime is after midnight before 6 AM, it belongs to the NEXT day
+            // e.g., 2:30 AM on the 21st = "21st's sleep" (same day as wake-up)
+            if (startH >= 0 && startH < 6) {
                 const d = new Date(startD);
-                d.setDate(d.getDate() - 1);
+                d.setDate(d.getDate() + 1);
                 return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             }
             return toLocalDateStr(startedAt);
@@ -20939,8 +21373,8 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
             const endD = new Date(s.ended_at);
             const startDate = toLocalDateStr(s.started_at);
             const endDate = toLocalDateStr(s.ended_at);
-            // was_shifted = bedtime was after midnight (before noon) — belongs to previous day
-            const wasShifted = startD.getHours() < 12;
+            // was_shifted = bedtime was after midnight before 6 AM and belongs to previous day
+            const wasShifted = startD.getHours() < 6;
             const date = getSleepGroupDate(s.started_at, s.ended_at);
             if (!byDate[date]) {
                 byDate[date] = { sleep_seconds: 0, bedtime_count: 0, bedtime_sum: 0, waketime_sum: 0, pre_sleep_sum: 0, post_wake_sum: 0, was_shifted: false };
@@ -21429,6 +21863,12 @@ electron_1.app.on('before-quit', async () => {
     electron_1.app.isQuitting = true;
     if (trackingInterval)
         clearInterval(trackingInterval);
+
+    // Flush any pending Knowledge Base write
+    try {
+        const { flushKnowledgeStore } = require('./main/services/knowledge-store.js');
+        flushKnowledgeStore();
+    } catch (err) { /* ignore */ }
     
     // Save close time for sleep tracking
     lastCloseTime = Date.now();
@@ -25822,6 +26262,7 @@ function computeRecapStats(db: any, month: string): any | null {
   if (income.count === 0 && expense.count === 0) return null;
 
   const topCategories = safe(() => db.prepare(`SELECT c.id, c.name, c.color, c.icon, COALESCE(SUM(ABS(t.amount)), 0) AS amount, COUNT(t.id) AS count FROM finance_transactions t JOIN finance_categories c ON t.category_id = c.id WHERE t.type = 'expense' AND (t.is_adjustment IS NULL OR t.is_adjustment = 0) AND strftime('%Y-%m', t.date) = ? GROUP BY c.id ORDER BY amount DESC LIMIT 5`).all(month), []);
+  const spendingByCategory = safe(() => db.prepare(`SELECT t.category_id AS categoryId, c.name AS name, c.color AS color, COALESCE(SUM(ABS(t.amount)), 0) AS amount, COUNT(t.id) AS count FROM finance_transactions t LEFT JOIN finance_categories c ON t.category_id = c.id WHERE t.type = 'expense' AND (t.is_adjustment IS NULL OR t.is_adjustment = 0) AND strftime('%Y-%m', t.date) = ? GROUP BY t.category_id ORDER BY amount DESC`).all(month).map((r: any) => ({ ...r, name: r.name || 'Uncategorized', color: r.color || '#888888' })), []);
   const walletSpend = safe(() => db.prepare(`SELECT w.id, w.name, w.type, COALESCE(SUM(ABS(t.amount)), 0) AS amount FROM finance_transactions t JOIN finance_wallets w ON t.wallet_id = w.id WHERE t.type = 'expense' AND (t.is_adjustment IS NULL OR t.is_adjustment = 0) AND strftime('%Y-%m', t.date) = ? GROUP BY w.id ORDER BY amount DESC`).all(month), []);
   const subscriptionsBilled = safe(() => db.prepare(`SELECT DISTINCT s.id, s.name, s.price, s.currency FROM finance_subscriptions s JOIN finance_transactions t ON t.wallet_id = s.wallet_id AND COALESCE(t.description, '') LIKE '%' || s.name || '%' WHERE strftime('%Y-%m', t.date) = ?`).all(month), []);
   const fixedExpenseRows = safe(() => db.prepare(`SELECT fe.id, fe.name, fe.amount AS expected, COALESCE(fep.amount_paid, 0) AS paid, COALESCE(fep.status, 'pending') AS status FROM finance_fixed_expenses fe LEFT JOIN finance_fixed_expense_payments fep ON fep.fixed_expense_id = fe.id AND fep.month = ? WHERE fe.is_active = 1`).all(month), []);
@@ -25873,6 +26314,7 @@ function computeRecapStats(db: any, month: string): any | null {
       net: pct(incomeTotal - expenseTotal, previousMonth.net),
     },
     topCategories,
+    spendingByCategory,
     walletSpend,
     walletBalanceDelta,
     subscriptionsBilled,
@@ -25892,7 +26334,8 @@ function buildRecapUserMessage(stats: any): string {
   lines.push(`Net flow: ${stats.net} (previous month: ${stats.previousMonth ? stats.previousMonth.net : 'n/a'}, change: ${stats.momDelta.net}).`);
   lines.push('');
   lines.push('Top spending categories:');
-  (stats.topCategories || []).forEach((c: any) => lines.push(`• ${c.name}: ${c.amount} (${c.count} txns)`));
+  const recapCatLines = (stats.spendingByCategory && stats.spendingByCategory.length ? stats.spendingByCategory : stats.topCategories || []);
+  recapCatLines.forEach((c: any) => lines.push(`• ${c.name || c.categoryName}: ${c.amount} (${c.count} txns)`));
   lines.push('');
   lines.push('Wallet balance changes:');
   (stats.walletBalanceDelta || []).filter((w: any) => w.delta !== 0).forEach((w: any) => lines.push(`• ${w.name} (${w.type}): ${w.startBalance} → ${w.endBalance} (${w.delta >= 0 ? '+' : ''}${w.delta})`));
@@ -28084,7 +28527,7 @@ electron_1.ipcMain.handle('finance:ft-person-sync-balances', async () => {
           FROM finance_transactions
           WHERE (ft_person_id = ? OR on_behalf_of_label = ?)
           AND type = 'income'
-          AND (on_behalf_of = 0 OR description LIKE '%top-up%' OR description LIKE '%topup%' OR description LIKE '%Initial balance%' OR description LIKE '%Lent to%')
+          AND on_behalf_of = 0
         `).get(p.id, p.name) as any;
 
         // Repayments: income transactions flagged as follow-through (subtracts from stored balance)
@@ -28103,12 +28546,31 @@ electron_1.ipcMain.handle('finance:ft-person-sync-balances', async () => {
           AND type = 'expense' AND on_behalf_of = 1
         `).get(p.id, p.name) as any;
 
-        // stored balance = topups received - repayments made - deductions made
-        const computedBalance = (topups?.total || 0) - (repayments?.total || 0) - (deductions?.total || 0);
+        // stored balance = topups received + repayments made - deductions made
+        const computedBalance = (topups?.total || 0) + (repayments?.total || 0) - (deductions?.total || 0);
         if (Math.abs(computedBalance - (Number(p.balance) || 0)) > 0.01) {
           db.prepare('UPDATE finance_ft_persons SET balance = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?')
             .run(computedBalance, p.id);
           console.log(`[finance] Corrected balance for "${p.name}": ${p.balance} -> ${computedBalance}`);
+        }
+
+        // Fix repayment dates — set to the original expense's date, not the insertion date
+        const repayTxns = db.prepare(`
+          SELECT id, date, metadata FROM finance_transactions
+          WHERE (ft_person_id = ? OR on_behalf_of_label = ?)
+          AND type = 'income' AND on_behalf_of = 1
+        `).all(p.id, p.name) as any[];
+        for (const rt of repayTxns) {
+          try {
+            const meta = rt.metadata ? JSON.parse(rt.metadata) : null;
+            if (meta?.repayment_for) {
+              const origTx = db.prepare('SELECT date FROM finance_transactions WHERE id = ?').get(meta.repayment_for) as any;
+              if (origTx && origTx.date !== rt.date) {
+                db.prepare('UPDATE finance_transactions SET date = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(origTx.date, rt.id);
+                console.log(`[finance] Fixed repayment date: txn ${rt.id} ${rt.date} -> ${origTx.date}`);
+              }
+            }
+          } catch {}
         }
       }
 
@@ -28133,9 +28595,11 @@ electron_1.ipcMain.handle('finance:ft-person-record-repayment', async (_event, d
     // Get person info
     let personName = '';
     let personId = data.personId;
+    let personBalance = 0;
     if (personId) {
-      const person = db.prepare('SELECT id, name FROM finance_ft_persons WHERE id = ?').get(personId) as any;
+      const person = db.prepare('SELECT id, name, balance FROM finance_ft_persons WHERE id = ?').get(personId) as any;
       personName = person?.name || '';
+      personBalance = Number(person?.balance) || 0;
     } else {
       // Try to find person from on_behalf_of_label
       personName = originalTx.on_behalf_of_label || '';
@@ -28162,6 +28626,17 @@ electron_1.ipcMain.handle('finance:ft-person-record-repayment', async (_event, d
     );
 
     const repaymentTxId = Number(result.lastInsertRowid);
+
+    // Write tags so renderer's getRepaymentStatus can detect this repayment
+    const rTags = [`ft_repaid:${data.originalTxId}`];
+    if (data.isOverpayment) rTags.push(`ft_overpayment:${data.originalTxId}`);
+    db.prepare('UPDATE finance_transactions SET tags = ? WHERE id = ?').run(rTags.join(','), repaymentTxId);
+
+    // Update person balance — repayment reduces debt
+    if (personId) {
+      const newPersonBal = personBalance + Math.abs(data.amount);
+      db.prepare('UPDATE finance_ft_persons SET balance = ?, updated_at = datetime(\'now\',\'localtime\') WHERE id = ?').run(newPersonBal, personId);
+    }
 
     // Update wallet balance
     if (wallet) {
@@ -28698,10 +29173,10 @@ electron_1.ipcMain.handle('subscriptions:generate-due-transactions', async () =>
       const subDesc = `Subscription: ${sub.name} (${sub.billing_cycle || 'monthly'})`;
       const existingTxns = db.prepare(`
         SELECT id, date FROM finance_transactions
-        WHERE description = ? AND type = 'expense'
+        WHERE (description = ? OR note = ?) AND type = 'expense'
         AND (account_id = ? OR (account_id IS NULL AND ? IS NULL))
         ORDER BY date ASC
-      `).all(subDesc, accountId, accountId) as any[];
+      `).all(subDesc, subDesc, accountId, accountId) as any[];
       const existingDates = new Set(existingTxns.map(t => t.date));
 
       // Read failed_dates from metadata
@@ -28795,8 +29270,8 @@ electron_1.ipcMain.handle('subscriptions:generate-due-transactions', async () =>
         // Re-check: does a transaction exist for this date now?
         const txnExists = db.prepare(`
           SELECT id FROM finance_transactions
-          WHERE description = ? AND type = 'expense' AND "date" = ? AND wallet_id = ?
-        `).get(subDesc, fd, sub.wallet_id) as any;
+          WHERE (description = ? OR note = ?) AND type = 'expense' AND "date" = ? AND wallet_id = ?
+        `).get(subDesc, subDesc, fd, sub.wallet_id) as any;
         return !txnExists;
       });
 
@@ -28924,8 +29399,8 @@ electron_1.ipcMain.handle('subscriptions:retry-payment', async (_event, data: { 
     const subDesc = `Subscription: ${sub.name} (${sub.billing_cycle || 'monthly'})`;
     const existing = db.prepare(`
       SELECT id FROM finance_transactions
-      WHERE description = ? AND type = 'expense' AND "date" = ? AND wallet_id = ?
-    `).get(subDesc, retryDate, walletId) as any;
+      WHERE (description = ? OR note = ?) AND type = 'expense' AND "date" = ? AND wallet_id = ?
+    `).get(subDesc, subDesc, retryDate, walletId) as any;
     if (existing) {
       // Transaction already exists for this date — just clear it from failed_dates
       const cleanedDates = failedDates.filter(d => d !== retryDate);
@@ -29010,9 +29485,9 @@ electron_1.ipcMain.handle('subscriptions:record-payment', async (_event, data: {
     // Check if this month is already paid (duplicate check)
     const existing = db.prepare(`
       SELECT id FROM finance_transactions
-      WHERE description = ? AND type = 'expense' AND "date" = ?
+      WHERE (description = ? OR note = ?) AND type = 'expense' AND "date" = ?
       AND (account_id = ? OR (account_id IS NULL AND ? IS NULL))
-    `).get(subDesc, txnDate, accountId, accountId);
+    `).get(subDesc, subDesc, txnDate, accountId, accountId);
     if (existing) {
       return { success: false, error: `Payment for ${txnDate} already recorded`, alreadyPaid: true };
     }
@@ -30076,11 +30551,14 @@ electron_1.ipcMain.handle('finance:get-wallet-health', async () => {
     const wallets = db.prepare("SELECT id, name, type, balance, initial_balance, currency, transfer_fee_type, transfer_fee_value, metadata FROM finance_wallets WHERE is_archived = 0 ORDER BY balance DESC").all() as Array<{ id: number; name: string; type: string; balance: number; initial_balance: number; currency: string; transfer_fee_type: string; transfer_fee_value: number; metadata: string | null }>;
     const healthData: any[] = [];
     for (const wallet of wallets) {
-      const txns = db.prepare("SELECT amount, fee, date, type FROM finance_transactions WHERE wallet_id = ? AND date >= date('now', '-30 days') ORDER BY date DESC").all(wallet.id) as Array<{ amount: number; fee: number; date: string; type: string }>;
+      const txns = db.prepare("SELECT amount, fee, date, type, is_adjustment FROM finance_transactions WHERE wallet_id = ? AND date >= date('now', '-30 days') ORDER BY date DESC").all(wallet.id) as Array<{ amount: number; fee: number; date: string; type: string; is_adjustment: number | null }>;
       const txnCount = txns.length;
       const totalVolume = txns.reduce((sum, t) => sum + Math.abs(t.amount), 0);
       const totalFees = txns.reduce((sum, t) => sum + (t.fee || 0), 0);
       const feeBurden = totalVolume > 0 ? (totalFees / totalVolume) * 100 : 0;
+      const expenseTotal = txns.reduce((sum, t) => sum + ((t.type === 'expense' && (t.is_adjustment == null || t.is_adjustment === 0)) ? Math.abs(t.amount) : 0), 0);
+      const avgDailySpend = Math.round((expenseTotal / 30) * 100) / 100;
+      const lastActivity = txns.length > 0 ? txns[0].date : null;
       const balanceDrift = wallet.initial_balance !== 0 ? ((wallet.balance - wallet.initial_balance) / Math.abs(wallet.initial_balance)) * 100 : 0;
       let driftScore = 0;
       if (wallet.type === 'credit_card') { driftScore = wallet.balance <= 0 ? Math.min(100, Math.abs(balanceDrift)) : Math.max(0, 100 - balanceDrift); }
@@ -30099,9 +30577,11 @@ electron_1.ipcMain.handle('finance:get-wallet-health', async () => {
       }
       if (feeBurden > 5) alerts.push({ type: 'high_fees', message: `Fee burden is ${feeBurden.toFixed(1)}% of transaction volume`, severity: 'warning' });
       if (wallet.balance < 0 && wallet.type !== 'credit_card') alerts.push({ type: 'negative_balance', message: 'Wallet balance is negative', severity: 'critical' });
-      healthData.push({ walletId: wallet.id, name: wallet.name, type: wallet.type, balance: Math.round(wallet.balance * 100) / 100, currency: wallet.currency, healthScore, balanceDrift: Math.round(balanceDrift * 100) / 100, transactionFrequency: txnCount, feeBurden: Math.round(feeBurden * 100) / 100, sparklineData, alerts });
+      healthData.push({ walletId: wallet.id, name: wallet.name, type: wallet.type, balance: Math.round(wallet.balance * 100) / 100, currency: wallet.currency, healthScore, balanceDrift: Math.round(balanceDrift * 100) / 100, transactionFrequency: Math.round((txnCount / 30) * 100) / 100, feeBurden: Math.round(feeBurden * 100) / 100, avgDailySpend, lastActivity, sparklineData, alerts });
     }
-    return { success: true, data: { wallets: healthData } };
+    const overallScore = healthData.length > 0 ? Math.round(healthData.reduce((s, w) => s + w.healthScore, 0) / healthData.length) : 0;
+    const totalBalance = wallets.reduce((sum, w) => sum + w.balance, 0);
+    return { success: true, data: { wallets: healthData, overallScore, totalBalance } };
   } catch (error) { console.error('Error in finance:get-wallet-health:', error); return { success: false, error: String(error) }; }
 });
 

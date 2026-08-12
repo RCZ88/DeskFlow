@@ -162,6 +162,8 @@ export default function WalletHealthScorecards() {
     </div>
   );
 
+  const overallScore = Number.isFinite(data.overallScore) ? data.overallScore : 0;
+
   return (
     <div className="rounded-xl border border-zinc-700/30 p-5 overflow-hidden">
       {/* Header */}
@@ -171,8 +173,8 @@ export default function WalletHealthScorecards() {
           <h3 className="text-sm font-semibold text-zinc-100">Wallet Health Scorecards</h3>
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-lg font-bold ${getScoreColor(data.overallScore)}`}>
-            {data.overallScore}
+          <span className={`text-lg font-bold ${getScoreColor(overallScore)}`}>
+            {overallScore}
           </span>
           <span className="text-[10px] text-zinc-500">overall</span>
         </div>
@@ -186,6 +188,8 @@ export default function WalletHealthScorecards() {
           const scoreColor = getScoreColor(wallet.healthScore);
           const scoreBg = getScoreBg(wallet.healthScore);
           const scoreRing = getScoreRing(wallet.healthScore);
+          const freqPerDay = Number.isFinite(wallet.transactionFrequency) ? wallet.transactionFrequency : 0;
+          const dailySpend = Number.isFinite(wallet.avgDailySpend) ? wallet.avgDailySpend : 0;
 
           // Sparkline chart
           const sparklineData: ChartData<'line'> = {
@@ -263,26 +267,26 @@ export default function WalletHealthScorecards() {
 
               {/* Metrics Row */}
               <div className="grid grid-cols-3 gap-2 pt-3 border-t border-zinc-700/30">
-                <div className="text-center">
+                <div className="text-center" title="Average transactions per day over the last 30 days">
                   <div className="flex items-center justify-center gap-1 mb-1">
                     <Activity size={10} className="text-zinc-500" />
                     <span className="text-[9px] text-zinc-500">Freq</span>
                   </div>
-                  <div className="text-xs font-medium text-zinc-300">{wallet.transactionFrequency.toFixed(1)}/d</div>
+                  <div className="text-xs font-medium text-zinc-300">{freqPerDay.toFixed(1)}/d</div>
                 </div>
-                <div className="text-center">
+                <div className="text-center" title="Total fees as a share of transaction volume (last 30 days)">
                   <div className="flex items-center justify-center gap-1 mb-1">
                     <Receipt size={10} className="text-zinc-500" />
                     <span className="text-[9px] text-zinc-500">Fees</span>
                   </div>
-                  <div className="text-xs font-medium text-zinc-300">{fmtMoney(wallet.feeBurden)}</div>
+                  <div className="text-xs font-medium text-zinc-300">{Number.isFinite(wallet.feeBurden) ? `${wallet.feeBurden.toFixed(1)}%` : '0%'}</div>
                 </div>
-                <div className="text-center">
+                <div className="text-center" title="Average daily spending over the last 30 days (expenses only, excludes adjustments)">
                   <div className="flex items-center justify-center gap-1 mb-1">
                     <Wallet size={10} className="text-zinc-500" />
                     <span className="text-[9px] text-zinc-500">Daily</span>
                   </div>
-                  <div className="text-xs font-medium text-zinc-300">{fmtMoney(wallet.avgDailySpend)}</div>
+                  <div className="text-xs font-medium text-zinc-300">{fmtMoney(dailySpend)}</div>
                 </div>
               </div>
 

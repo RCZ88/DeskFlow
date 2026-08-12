@@ -276,6 +276,18 @@
 .card-plan-notes { margin-top: 10px; }
 .card-plan-textarea { width: 100%; min-height: 60px; background: rgba(9,9,11,0.6); border: 1px solid rgba(63,63,70,0.3); border-radius: 8px; padding: 10px; font-size: 12px; color: #a1a1aa; font-family: 'JetBrains Mono', monospace; resize: vertical; outline: none; }
 .card-plan-textarea:focus { border-color: rgba(34,211,238,0.3); }
+/* ═══ SHARED CARD STATE VIEWS (Empty / Error / Loading) — humancentred-UIUX ═══ */
+.dk-state { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 8px; padding: 24px 16px; height: 100%; }
+.dk-state-icon { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(63,63,70,0.15); color: #71717a; margin-bottom: 2px; }
+.dk-state-title { font-size: 12px; font-weight: 500; color: #a1a1aa; }
+.dk-state-message { font-size: 11px; color: #52525b; line-height: 1.45; max-width: 220px; }
+.dk-state-cta { margin-top: 4px; padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 500; color: #22d3ee; background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.2); cursor: pointer; transition: all 0.15s; }
+.dk-state-cta:hover { background: rgba(34,211,238,0.18); }
+.dk-state-error .dk-state-icon { background: rgba(244,63,94,0.12); color: #f87171; }
+.dk-state-error .dk-state-title { color: #fca5a5; }
+.dk-state-error .dk-state-message { color: #a1a1aa; }
+.dk-state-loading { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; }
+.dk-state-skeleton-row { width: 100%; }
 .card-finance { font-size: 13px; }
 .card-finance-balance { margin-bottom: 14px; }
 .card-finance-label { font-size: 10px; color: #52525b; text-transform: uppercase; letter-spacing: 0.05em; display: block; margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; }
@@ -301,6 +313,7 @@
 .card-approval-btn.reject { background: rgba(248,113,113,0.08); color: #f87171; border-color: rgba(248,113,113,0.2); }
 .card-approval-btn.reject:hover { background: rgba(248,113,113,0.15); }
 .card-approval-approved, .card-approval-rejected { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; font-size: 13px; border-radius: 8px; }
+.card-approval-icon { flex-shrink: 0; }
 .card-approval-approved { background: rgba(34,211,238,0.08); color: #22d3ee; }
 .card-approval-rejected { background: rgba(248,113,113,0.08); color: #f87171; }
 .card-annotation { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #eab308; line-height: 1.4; padding: 2px; }

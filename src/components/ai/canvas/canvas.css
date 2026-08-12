@@ -508,6 +508,19 @@
   color: var(--dk-text-secondary);
 }
 
+/* Floating actions for headerless cards (response type) */
+.dk-canvas-card-actions.floating {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.dk-canvas-card:hover .dk-canvas-card-actions.floating {
+  opacity: 1;
+}
+
 /* ═══ Card Body ═══ */
 .dk-canvas-card-body {
   flex: 1;
@@ -515,8 +528,11 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--dk-text-secondary);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ═══ Card Footer ═══ */
@@ -838,8 +854,10 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.dk-canvas-card {
+/* Only animate on initial mount — not on every re-render (move/resize/update) */
+.dk-canvas-card[data-new="true"] {
   animation: fadeIn var(--dk-fast) var(--dk-ease);
+  animation-fill-mode: forwards;
 }
 
 /* ═══ Scrollbars ═══ */
@@ -1556,6 +1574,10 @@
   font-size: 13px;
   line-height: 1.6;
   color: #d4d4d8;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  word-break: break-word;
 }
 .dk-response-tool-badge {
   display: inline-flex;

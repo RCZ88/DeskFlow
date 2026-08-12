@@ -1,0 +1,29 @@
+{
+  "id": "definition_card",
+  "version": "1.0.0",
+  "renderer": "card",
+  "label": "Definition Card",
+  "description": "Formal definition with term, explanation, and optional example",
+  "intents": ["definition"],
+  "constraints": {
+    "min_duration": 2.0,
+    "max_duration": 12,
+    "max_characters": 128,
+    "max_lines": 4,
+    "allowed_regions": ["full", "middle"]
+  },
+  "props_schema": {
+    "term": {"type": "string", "max_chars": 28},
+    "definition": {"type": "string", "max_chars": 100},
+    "example": {"type": "string", "max_chars": 64, "optional": true}
+  },
+  "animation_defaults": {
+    "badge": "pop",
+    "body": "fade_in",
+    "delay": 0.12
+  },
+  "fallback_template": "body_card",
+  "fallback_chain": ["body_card", "caption_label"],
+  "z_index_band": 80,
+  "supports_animation": true
+}

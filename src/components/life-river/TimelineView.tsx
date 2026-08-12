@@ -107,8 +107,8 @@ export function TimelineView({ phases, onJump }: TimelineViewProps) {
 
       <div className="relative">
         <div
-          className="relative flex gap-1 overflow-x-auto ws-scroll rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-2.5 snap-x snap-proximity"
-          style={{ minHeight: 64 }}
+          data-timeline-track
+          className="relative flex h-24 min-h-[96px] gap-1 overflow-x-auto ws-scroll rounded-lg border border-zinc-800/60 bg-zinc-900/30 p-2.5 snap-x snap-proximity"
         >
           {zoom === 'year' && (
             <div className="pointer-events-none absolute inset-0">
@@ -141,7 +141,7 @@ export function TimelineView({ phases, onJump }: TimelineViewProps) {
                   style={{ width: Math.max(MIN_BLOCK_W, block.widthPx), backgroundColor: block.phase!.color }}
                   data-lifephase="timeline-block"
                 >
-                  <span className="truncate text-xs font-mono text-white/90 text-left">{block.title}</span>
+                  <span className="truncate font-mono text-xs text-white/90 text-left sm:text-sm">{block.title}</span>
                 </button>
               )
             )}
@@ -152,8 +152,8 @@ export function TimelineView({ phases, onJump }: TimelineViewProps) {
               style={{ left: nowOffsetPx + 10 }}
             >
               <span className="relative flex h-full items-center">
-                <span className="absolute inline-flex h-3 w-3 animate-ping rounded-full bg-amber-400 opacity-75" />
-                <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)]" />
+                <span className="absolute inline-flex h-4 w-4 animate-ping rounded-full bg-amber-400 opacity-75" />
+                <span className="relative inline-flex h-4 w-4 rounded-full bg-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.8)]" />
               </span>
             </div>
           </div>

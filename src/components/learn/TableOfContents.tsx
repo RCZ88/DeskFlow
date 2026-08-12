@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDown, ChevronRight, FileText, CheckCircle, Circle } from 'lucide-react';
-import type { CurriculumPart } from '../../services/learn/curriculum';
+import type { CurriculumTopic } from '../../services/learn/curriculum';
 
 interface TOCHeading {
   id: string;
@@ -10,7 +10,7 @@ interface TOCHeading {
 }
 
 interface TableOfContentsProps {
-  part: CurriculumPart;
+  part: CurriculumTopic;
   headings: TOCHeading[];
   completedItems: string[];
   onNavigate: (headingId: string) => void;

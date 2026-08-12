@@ -57,7 +57,10 @@ export function GoalCard({ goal, onToggle, onDelete, onEdit, longTermGoals = [] 
     ? Math.min(100, ((goal.progressSeconds || 0) / goal.target.targetSeconds) * 100)
     : goal.target.done ? 100 : 0;
 
-  const parentGoal = goal.parentId ? longTermGoals.find(l => l.id === goal.parentId) : null;
+  const parentIds = goal.parentIds?.length ? goal.parentIds : (goal.parentId ? [goal.parentId] : []);
+  const parentGoals = parentIds
+    .map(id => longTermGoals.find(l => l.id === id))
+    .filter((p): p is { id: string; title: string } => !!p);
 
   return (
     <div className="group relative p-4 rounded-xl bg-[rgba(24,24,27,0.55)] backdrop-blur-xl border border-[rgba(63,63,70,0.40)] hover:border-zinc-700/50 transition-all duration-200">
@@ -86,10 +89,12 @@ export function GoalCard({ goal, onToggle, onDelete, onEdit, longTermGoals = [] 
             <p className="text-[11px] text-zinc-600 mt-0.5 line-clamp-1">{goal.description}</p>
           )}
 
-          {parentGoal && (
-            <div className="flex items-center gap-1 mt-1">
-              <ArrowRight size={8} className="text-zinc-600" />
-              <span className="text-[10px] text-zinc-500 truncate">Serves: {parentGoal.title}</span>
+          {parentGoals.length > 0 && (
+            <div className="flex items-center gap-1 mt-1 flex-wrap">
+              <ArrowRight size={8} className="text-zinc-600 shrink-0" />
+              {parentGoals.map(p => (
+                <span key={p.id} className="text-[10px] text-zinc-500 truncate">Serves: {p.title}</span>
+              ))}
             </div>
           )}
 

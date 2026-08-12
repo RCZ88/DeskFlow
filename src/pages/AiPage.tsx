@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo } from 'lucide-react';
 import { useCanvasState } from '../hooks/useCanvasState';
+import { loadDefaultSetup } from '../services/canvasPersistence';
 import type { CardType } from '../types/canvas';
 import type { Intent } from '../services/intentParser';
 import { parseChecklist } from '../services/planningParser';
@@ -91,7 +92,6 @@ const modeLabelMap: Record<Mode, string> = {
 
 export function AiPage() {
   const today = getToday();
-
   const [goals, setGoals] = useState<Goal[]>([]);
   const [review, setReview] = useState<string | null>(null);
   const [goalsState, setGoalsState] = useState<DataState>('loading');
@@ -173,6 +173,8 @@ export function AiPage() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const canvas = useCanvasState();
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
   const automationActions = useAutomationActions();
   const [autoApprove, setAutoApprove] = useState(false);
   const [autoFocus, setAutoFocus] = useState(true);
@@ -215,18 +217,11 @@ export function AiPage() {
   }
 
   function getCardPosition(type: CardType): { x: number; y: number } {
-    const existing = Object.values(canvas.allCards).filter((c: any) => c.type === type && c.pinned)
-    const offset = existing.length * 40
-    const basePositions: Record<string, { x: number; y: number }> = {
-      focus: { x: 40, y: 40 }, plan: { x: 40, y: 320 },
-      finance: { x: 360, y: 40 }, digest: { x: 360, y: 320 },
-      approval: { x: 200, y: 200 }, connectors: { x: 40, y: 600 },
-      response: { x: 40, y: 40 }, group: { x: 40, y: 40 },
-      annotation: { x: 40, y: 40 }, reflect: { x: 360, y: 600 },
-      transient: { x: 40, y: 40 },
-    }
-    const base = basePositions[type] || { x: 40, y: 40 }
-    return { x: base.x + offset, y: base.y + offset }
+    // Grid layout: 4 columns, 200px spacing, starting below core cards
+    const responseCards = Object.values(canvas.allCards).filter((c: any) => c.type === type)
+    const col = responseCards.length % 4
+    const row = Math.floor(responseCards.length / 4)
+    return { x: 40 + col * 220, y: 40 + row * 220 }
   }
 
   // Canvas-mode automation cards: sync automations into the canvas store as first-class cards
@@ -259,8 +254,9 @@ export function AiPage() {
   }, [canvas.cards, automationActions.automations, toggleAutomation, deleteAutomation, testRun])
 
   function spawnTypedCard(parsed: any, pos: { x: number; y: number }, msgId: string): string | null {
-    const dataHash = JSON.stringify(parsed).slice(0, 100)
-    if (isDuplicate(parsed.type, dataHash)) return null
+    // Use message ID for dedup — each message is unique, content hash can false-positive
+    if (recentCardSpawns.current.has(msgId)) return null
+    recentCardSpawns.current.set(msgId, Date.now())
 
     switch (parsed.type) {
       case 'goal_suggestion':
@@ -286,12 +282,30 @@ export function AiPage() {
       case 'connector_status':
         return canvas.addCard('connectors', { connectors: parsed.connectors, msgId },
           { size: { w: 10, h: 8 }, pinned: false, source: 'ai', position: pos })
-      case 'form_fill':
-        return canvas.addCard('response', { content: `**Form:** ${parsed.title || 'Untitled'}\n\n` + (parsed.fields || []).map((f: any) => `- ${f.label}: ${f.value || '(empty)'}`).join('\n'), isToolOutput: false, msgId },
-          { size: { w: 8, h: 5 }, pinned: false, source: 'ai', position: pos })
-      case 'chart_data':
-        return canvas.addCard('response', { content: `**Chart:** ${parsed.title || 'Data Visualization'}\n\nType: ${parsed.chartType}\nLabels: ${parsed.labels?.join(', ') || 'N/A'}`, isToolOutput: false, msgId },
-          { size: { w: 8, h: 5 }, pinned: false, source: 'ai', position: pos })
+      case 'form_fill': {
+        const title = parsed.title || 'Form'
+        const fields = parsed.fields || []
+        const md = `### ${title}\n\n` + fields.map((f: any) => `**${f.label}:** ${f.value || '*(empty)*'}`).join('\n')
+        return canvas.addCard('response', { content: md, isToolOutput: false, parsed, msgId },
+          { size: { w: 8, h: Math.max(5, 3 + fields.length) }, pinned: false, source: 'ai', position: pos })
+      }
+      case 'chart_data': {
+        const chartTitle = parsed.title || 'Chart'
+        const chartType = parsed.chartType || 'bar'
+        const labels = parsed.labels || []
+        const datasets = parsed.datasets || []
+        // Build a visual representation
+        const maxVal = Math.max(...(datasets.flatMap((ds: any) => ds.data || [])), 1)
+        const barLines = labels.map((label: string, i: number) => {
+          const vals = datasets.map((ds: any) => ds.data?.[i] || 0)
+          const bars = vals.map((v: number) => `${'█'.repeat(Math.max(1, Math.round((v / maxVal) * 20)))} ${v}`).join('  ')
+          return `${label.padEnd(12)} ${bars}`
+        }).join('\n')
+        const legend = datasets.map((ds: any, i: number) => `**${ds.label || `Series ${i + 1}`}**`).join('  ')
+        const md = `### ${chartTitle}\n\n*Type: ${chartType}*\n\n\`\`\`\n${barLines}\n\`\`\`\n\n${legend}`
+        return canvas.addCard('response', { content: md, isToolOutput: false, parsed, msgId },
+          { size: { w: 10, h: Math.max(5, 4 + labels.length) }, pinned: false, source: 'ai', position: pos })
+      }
       case 'reminder_create':
         return canvas.addCard('annotation', { text: `Reminder: ${parsed.text}${parsed.dueDate ? ` (due ${parsed.dueDate})` : ''}`, parentType: 'reminder', msgId },
           { size: { w: 6, h: 3 }, pinned: false, source: 'ai', position: pos })
@@ -399,7 +413,10 @@ export function AiPage() {
         const prose = stripAutomationBlock(msg.content);
         const typedPos = getCardPosition(mapParsedToCardType(parsed.type));
         const typedCardId = spawnTypedCard(parsed, typedPos, msg.id);
-        if (typedCardId) lastCardId.current = typedCardId;
+        if (typedCardId) {
+          lastCardId.current = typedCardId;
+          msgCardIds.current.set(msg.id, typedCardId);
+        }
 
         if (prose && prose.trim().length > 10) {
           const prosePos = { x: typedPos.x, y: typedPos.y + (parsed.type === 'connector_status' ? 320 : 240) };
@@ -458,7 +475,7 @@ export function AiPage() {
       const standaloneCardId = canvas.addCard('response', {
         content: cleanContent,
         timestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : undefined,
-        isToolOutput: cleanContent.includes('```tool') || cleanContent.includes('```'),
+        isToolOutput: /```tool\b/i.test(cleanContent),
         msgId: msg.id,
       }, {
         size: { w: 10, h: 6 },
@@ -490,102 +507,11 @@ export function AiPage() {
     });
   }, [chat.messages, automationActions]);
 
-  // Auto-spawn connectors card in Canvas mode
-  // Check canvas for existing connectors card instead of relying on ref (ref resets on mode switch)
+  // Connectors card is now handled by the unified core card seeding effect above.
+  // Keep the ref for legacy code that references it.
   const connectorsCardIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (canvasMode !== 'canvas') return;
-    // Wait until connectors are loaded
-    if (connectorsState === 'loading') return;
-    // Check if a connectors card already exists in the canvas
-    const existingConnectors = Object.values(canvas.allCards).find((c: any) => c.type === 'connectors');
-    if (existingConnectors) {
-      connectorsCardIdRef.current = existingConnectors.id;
-      // Update card data when connectors change
-      canvas.updateCard(existingConnectors.id, {
-        data: {
-          ...existingConnectors.data,
-          state: connectorsState,
-          connectors,
-          syncing: connectorSyncing,
-        },
-      });
-      return;
-    }
-    // Only spawn if ref is also null (double guard)
-    if (connectorsCardIdRef.current) return;
 
-    connectorsCardIdRef.current = canvas.addCard('connectors', {
-      state: connectorsState,
-      connectors,
-      errorMessage: goalsError || undefined,
-      onRetry: loadGoals,
-      onAdd: () => setShowConnectorSetup(true),
-      onSync: async (id: string) => {
-        setConnectorSyncing(prev => ({ ...prev, [id]: true }));
-        try {
-          const r = await window.deskflowAPI!.connectors?.sync?.(id);
-          if (r?.success) {
-            showToast(`Synced — ${r.itemsAdded || 0} items`, 'success');
-          } else {
-            showToast(r?.error || 'Sync failed', 'error');
-          }
-          await loadConnectors();
-        } catch (e: any) {
-          showToast(e?.message || 'Sync error', 'error');
-        } finally {
-          setConnectorSyncing(prev => { const n = { ...prev }; delete n[id]; return n; });
-        }
-      },
-      onRefresh: loadConnectors,
-      syncing: connectorSyncing,
-    }, {
-      position: { x: 40, y: 40 },
-      size: { w: 10, h: 8 },
-      pinned: true,
-      source: 'user',
-    });
-  }, [canvasMode, connectorsState]);
-
-  // Auto-spawn schedule, deadline, and planner cards in Canvas mode
-  const scheduleCardIdRef = useRef<string | null>(null);
-  const deadlineCardIdRef = useRef<string | null>(null);
-  const plannerCardIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (canvasMode !== 'canvas') return;
-    if (goalsState === 'loading') return;
-
-    // Spawn planner card if goals exist and no planner card
-    if (goals.length > 0 && !plannerCardIdRef.current) {
-      const existing = Object.values(canvas.allCards).find((c: any) => c.type === 'planner');
-      if (!existing) {
-        plannerCardIdRef.current = canvas.addCard('planner', {}, {
-          position: { x: 40, y: 400 },
-          size: { w: 10, h: 8 },
-          pinned: true,
-          source: 'user',
-        });
-      } else {
-        plannerCardIdRef.current = existing.id;
-      }
-    }
-
-    // Spawn schedule card if we have goals (indicates active usage)
-    if (goals.length > 0 && !scheduleCardIdRef.current) {
-      const existing = Object.values(canvas.allCards).find((c: any) => c.type === 'schedule');
-      if (!existing) {
-        scheduleCardIdRef.current = canvas.addCard('schedule', {}, {
-          position: { x: 440, y: 400 },
-          size: { w: 12, h: 8 },
-          pinned: true,
-          source: 'user',
-        });
-      } else {
-        scheduleCardIdRef.current = existing.id;
-      }
-    }
-  }, [canvasMode, goalsState, goals.length]);
+  // Schedule and planner cards are now handled by the unified core card seeding effect.
 
   const unfinishedCount = goals.filter(g => g.status !== 'done' && g.status !== 'missed').length;
   const mode = determineMode(goals);
@@ -795,7 +721,17 @@ export function AiPage() {
     initDigest();
     const cleanup = window.deskflowAPI?.onDigestGenerationComplete?.((data: any) => {
       if (digestPollRef.current) { clearInterval(digestPollRef.current); digestPollRef.current = null; }
-      if (data.success && data.topics) { setDigestTopics(data.topics); setDigestState('ready'); }
+      const c = canvasRef.current
+      const digestCard = Object.values(c.cards).find((card: any) => card.type === 'digest')
+      if (data.success && data.topics) {
+        setDigestTopics(data.topics); setDigestState('ready');
+        if (digestCard) c.updateCard(digestCard.id, { status: 'live', data: { ...digestCard.data, topics: data.topics, error: undefined } })
+      } else {
+        const message = data?.error || 'Digest generation failed — try again or configure topic sources in Settings.'
+        setDigestState('idle')
+        if (digestCard) c.updateCard(digestCard.id, { status: 'error', data: { ...digestCard.data, error: message } })
+        else showToast(message, 'error')
+      }
     });
 
     return () => {
@@ -821,37 +757,71 @@ export function AiPage() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
-  // Ensure core cards exist on canvas (seed missing ones, don't touch existing)
+  // Ensure core cards exist on canvas (seed missing ones, update existing data)
+  // Skip if canvas was loaded from storage — the user's state (even empty) is intentional.
+  // canvasEpoch re-runs this after New Canvas (clearAll) so freshly seeded cards
+  // receive live data (wasLoaded is a ref and never re-triggers effects).
   useEffect(() => {
     if (canvasMode !== 'canvas') return
+    if (canvas.wasLoaded) return
     const existing = canvas.cards
-    const existingTypes = new Set(Object.values(existing).map((c: any) => c.type))
+    const existingByType = new Map<string, any>()
+    Object.values(existing).forEach((c: any) => {
+      if (!existingByType.has(c.type)) existingByType.set(c.type, c)
+    })
 
-    if (!existingTypes.has('focus')) {
-      canvas.addCard('focus', { goals }, { position: { x: 40, y: 40 }, size: { w: 8, h: 6 }, pinned: true, source: 'system' })
+    // Live data attached to seeded cards per type (used for both the built-in
+    // seed list and the user's saved Default Canvas Setup).
+    const liveDataForType = (type: string): Record<string, any> => {
+      switch (type) {
+        case 'focus': return { goals }
+        case 'plan': return { goals: longTermGoals, notes: planningNotes }
+        case 'digest': return { topics: digestTopics }
+        case 'reflect': return { days: reflectDays }
+        case 'connectors': return { state: connectorsState, connectors, syncing: connectorSyncing }
+        default: return {}
+      }
     }
-    if (!existingTypes.has('plan')) {
-      canvas.addCard('plan', { goals: longTermGoals, notes: planningNotes }, { position: { x: 400, y: 40 }, size: { w: 8, h: 6 }, pinned: true, source: 'system' })
-    }
-    if (!existingTypes.has('finance')) {
-      canvas.addCard('finance', {}, { position: { x: 40, y: 320 }, size: { w: 6, h: 4 }, pinned: true, source: 'system' })
-    }
-    if (!existingTypes.has('digest')) {
-      canvas.addCard('digest', { topics: digestTopics }, { position: { x: 320, y: 320 }, size: { w: 6, h: 4 }, pinned: true, source: 'system' })
-    }
-    if (!existingTypes.has('reflect')) {
-      canvas.addCard('reflect', { days: reflectDays }, { position: { x: 320, y: 600 }, size: { w: 6, h: 4 }, pinned: true, source: 'system' })
-    }
-    if (!existingTypes.has('schedule')) {
-      canvas.addCard('schedule', {}, { position: { x: 600, y: 40 }, size: { w: 14, h: 10 }, pinned: true, source: 'system' })
-    }
-    if (!existingTypes.has('deadlines')) {
-      canvas.addCard('deadlines', {}, { position: { x: 600, y: 520 }, size: { w: 6, h: 8 }, pinned: true, source: 'system' })
-    }
-    if (!existingTypes.has('planner')) {
-      canvas.addCard('planner', {}, { position: { x: 40, y: 760 }, size: { w: 8, h: 8 }, pinned: true, source: 'system' })
-    }
-  }, [canvasMode, goals, longTermGoals, planningNotes, digestTopics, reflectDays])
+
+    // Seed from the user's saved Default Canvas Setup when one exists,
+    // otherwise fall back to the built-in core card layout.
+    const userSetup = loadDefaultSetup()
+    const seeds: Array<{ type: string; data: Record<string, any>; pos: { x: number; y: number }; size: { w: number; h: number }; pinned?: boolean }> = userSetup && userSetup.cards.length > 0
+      ? userSetup.cards.filter(c => c.enabled).map(entry => {
+          const liveData = liveDataForType(entry.type)
+          return {
+            type: entry.type,
+            data: liveData,
+            pos: entry.position,
+            size: entry.size,
+            pinned: entry.pinned !== false,
+          }
+        })
+      : [
+          { type: 'focus', data: { goals }, pos: { x: 40, y: 40 }, size: { w: 8, h: 6 } },
+          { type: 'plan', data: { goals: longTermGoals, notes: planningNotes }, pos: { x: 400, y: 40 }, size: { w: 8, h: 6 } },
+          { type: 'finance', data: {}, pos: { x: 40, y: 320 }, size: { w: 6, h: 4 } },
+          { type: 'digest', data: { topics: digestTopics }, pos: { x: 200, y: 320 }, size: { w: 6, h: 4 } },
+          { type: 'reflect', data: { days: reflectDays }, pos: { x: 400, y: 320 }, size: { w: 6, h: 4 } },
+          { type: 'connectors', data: { state: connectorsState, connectors, syncing: connectorSyncing }, pos: { x: 600, y: 40 }, size: { w: 10, h: 8 } },
+          { type: 'schedule', data: {}, pos: { x: 600, y: 360 }, size: { w: 14, h: 10 } },
+          { type: 'deadlines', data: {}, pos: { x: 40, y: 600 }, size: { w: 6, h: 8 } },
+          { type: 'planner', data: {}, pos: { x: 200, y: 600 }, size: { w: 8, h: 8 } },
+        ]
+
+    seeds.forEach(({ type, data, pos, size, pinned }) => {
+      const existingCard = existingByType.get(type)
+      if (existingCard) {
+        // Update stale data on existing cards (goals, topics, connectors, etc.)
+        const hasStaleData = JSON.stringify(data) !== '{}'
+        if (hasStaleData) {
+          canvas.updateCard(existingCard.id, { data: { ...existingCard.data, ...data } })
+        }
+      } else {
+        canvas.addCard(type as any, data, { position: pos, size, pinned: pinned !== false, source: 'system' })
+      }
+    })
+  }, [canvasMode, canvas.canvasEpoch, canvas.wasLoaded, goals, longTermGoals, planningNotes, digestTopics, reflectDays, connectorsState, connectors, connectorSyncing])
 
   const handlePaletteIntent = useCallback((intent: Intent) => {
     switch (intent.type) {
@@ -1007,7 +977,7 @@ export function AiPage() {
     return () => cleanup?.()
   }, [chat, updateConnectorStatus])
 
-  // Intercept send for slash commands
+  // Intercept send for slash commands + Knowledge Base context injection (R5)
   const handleSend = useCallback(async (text: string) => {
     const result = await slash.parseAndExecute(text, { connectors, currentThreadDate: chat.currentThreadDate });
     if (result.handled && result.messages) {
@@ -1015,6 +985,17 @@ export function AiPage() {
         chat.addMessage(msg);
       }
       return;
+    }
+    // R5: retrieve the most relevant KB chunks and prepend them as context.
+    if (window.deskflowAPI?.kbQuery && text.trim()) {
+      try {
+        const chunks = await window.deskflowAPI.kbQuery(text.trim(), 3);
+        if (chunks && chunks.length > 0) {
+          const contextString = chunks.map(c => c.content).join('\n---\n');
+          chat.send(`Context:\n${contextString}\n\nUser Query:\n${text.trim()}`);
+          return;
+        }
+      } catch (e) { console.warn('[AiPage] KB context injection failed:', e); }
     }
     chat.send(text);
   }, [slash, connectors, chat]);
@@ -1697,6 +1678,19 @@ export function AiPage() {
               onDeleteCanvas={canvas.removeCanvas}
               onSaveAs={canvas.saveAs}
               onSetPanZoom={canvas.setPanZoom}
+              onNewCanvas={() => canvas.clearAll()}
+              onAddCard={(type) => {
+                canvas.addCard(type, {}, {
+                  position: { x: 40 + Math.random() * 200, y: 40 + Math.random() * 200 },
+                  size: { w: 8, h: 5 },
+                  pinned: false,
+                  source: 'user',
+                })
+              }}
+              onUndo={canvas.undo}
+              onRedo={canvas.redo}
+              canUndo={canvas.canUndo}
+              canRedo={canvas.canRedo}
             />
           </div>
           )}

@@ -44,6 +44,8 @@ export interface LdocLesson {
   version: string;
   summary?: string;
   chapter?: string;
+  branch_id?: string;
+  subtopic?: string;
   authored_by?: 'human' | 'ai' | 'hybrid';
 }
 
@@ -247,6 +249,8 @@ export interface LessonSummary {
   status: LessonStatus;
   nodeCount: number;
   chapter: string;
+  branch_id: string;
+  subtopic: string;
   original_prompt: string;
   created_at: string;
   updated_at: string;

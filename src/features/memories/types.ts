@@ -6,6 +6,7 @@ export interface MemoryItem {
   date: string;
   capturedAt: string;
   caption?: string;
+  phaseId?: string;
   people: string[];
   createdAt: number;
   width?: number;

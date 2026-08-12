@@ -158,6 +158,7 @@ export default function ActivityPage(props: ActivityPageProps) {
                   className="p-5"
                 >
                   <ProductivityPage
+                    embedded
                     logs={props.allLogs}
                     browserLogs={props.browserLogs}
                     appStats={props.appStats}

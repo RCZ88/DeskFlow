@@ -70,48 +70,8 @@ function getProjectFiles(projectPath) {
 function registerProjectBackupIPC(db) {
   const { ipcMain } = require('electron');
 
-  ipcMain.handle('projectBackup:create', async (_event, projectId, projectPath) => {
-    try {
-      loadDeps();
-      if (!archiver) return { success: false, error: 'archiver package not installed' };
-
-      const id = generateId();
-      const timestamp = new Date().toISOString();
-      const manifest = loadManifest();
-      const zipPath = getBackupPath(id);
-      const output = fs.createWriteStream(zipPath);
-      const archive = archiver('zip', { zlib: { level: 9 } });
-
-      return new Promise((resolve) => {
-        output.on('close', () => {
-          const stats = fs.statSync(zipPath);
-          const files = getProjectFiles(projectPath);
-          const entry = {
-            id,
-            projectId,
-            label: `Backup ${timestamp.slice(0, 10)} ${timestamp.slice(11, 19)}`,
-            timestamp,
-            fileCount: files.length,
-            totalSize: stats.size,
-            compressionRatio: stats.size > 0 && files.length > 0 ? stats.size / (files.length * 4096) : 0,
-            autoBackup: false,
-          };
-          manifest.push(entry);
-          saveManifest(manifest);
-          resolve({ success: true, data: entry });
-        });
-        archive.on('error', (err) => {
-          resolve({ success: false, error: err.message });
-        });
-        archive.pipe(output);
-        for (const f of files) {
-          archive.file(f, { name: path.relative(projectPath, f) });
-        }
-        archive.finalize();
-      });
-    } catch (err) {
-      return { success: false, error: String(err) };
-    }
+  ipcMain.handle('projectBackup:create', async (_event, projectId, projectPath, label, extra) => {
+    return createProjectBackup(projectId, projectPath, label, extra);
   });
 
   ipcMain.handle('projectBackup:list', async (_event, projectId) => {
@@ -240,9 +200,146 @@ function registerProjectBackupIPC(db) {
     }
   });
 
-  ipcMain.handle('projectBackup:schedule', async (_event, projectId, minutes) => {
-    return { success: true };
+  ipcMain.handle('projectBackup:schedule', async (_event, projectId, minutes, projectPath) => {
+    return setProjectSchedule(projectId, minutes, projectPath);
+  });
+
+  ipcMain.handle('projectBackup:getSchedules', async () => {
+    return { success: true, data: getSchedules() };
   });
 }
 
-module.exports = { registerProjectBackupIPC };
+const SCHEDULE_DB_FILE = path.join(BACKUPS_DIR, 'schedules.json');
+const schedules = new Map();
+
+function loadSchedules() {
+  try {
+    if (fs.existsSync(SCHEDULE_DB_FILE)) {
+      const rows = JSON.parse(fs.readFileSync(SCHEDULE_DB_FILE, 'utf-8'));
+      for (const r of rows) schedules.set(r.projectId, r);
+    }
+  } catch {}
+}
+
+function saveSchedules() {
+  ensureBackupsDir();
+  const rows = [...schedules.values()].map(({ timer, ...r }) => r);
+  fs.writeFileSync(SCHEDULE_DB_FILE, JSON.stringify(rows, null, 2));
+}
+
+function getSchedules() {
+  return [...schedules.values()];
+}
+
+function setProjectSchedule(projectId, minutes, projectPath) {
+  try {
+    minutes = Math.max(5, Math.floor(Number(minutes) || 0));
+    if (!projectId || !minutes) {
+      const existing = schedules.get(projectId);
+      if (existing && existing.timer) clearInterval(existing.timer);
+      schedules.delete(projectId);
+      saveSchedules();
+      return { success: true, data: { projectId, minutes: 0, enabled: false } };
+    }
+    const existing = schedules.get(projectId);
+    if (existing && existing.timer) clearInterval(existing.timer);
+
+    const entry = {
+      projectId,
+      minutes,
+      projectPath: projectPath || (existing && existing.projectPath) || '',
+      enabled: true,
+      lastRunAt: (existing && existing.lastRunAt) || null,
+    };
+    entry.timer = setInterval(() => {
+      const cur = schedules.get(projectId);
+      if (!cur || !cur.enabled) return;
+      createProjectBackup(projectId, cur.projectPath, `Auto (every ${cur.minutes}m)`, { autoBackup: true })
+        .then((res) => {
+          if (res.success) {
+            cur.lastRunAt = new Date().toISOString();
+            saveSchedules();
+          } else {
+            console.error(`[ProjectBackup] schedule ${projectId} failed:`, res.error);
+          }
+        });
+    }, minutes * 60 * 1000);
+    entry.timer.unref();
+    schedules.set(projectId, entry);
+    saveSchedules();
+    return { success: true, data: { projectId, minutes, enabled: true } };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+function createProjectBackup(projectId, projectPath, label, extra) {
+  try {
+    loadDeps();
+    if (!archiver) return { success: false, error: 'archiver package not installed' };
+    if (!projectPath || !fs.existsSync(projectPath)) return { success: false, error: `project path not found: ${projectPath}` };
+
+    const id = generateId();
+    const timestamp = new Date().toISOString();
+    const manifest = loadManifest();
+    const zipPath = getBackupPath(id);
+    const output = fs.createWriteStream(zipPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    return new Promise((resolve) => {
+      output.on('close', () => {
+        const stats = fs.statSync(zipPath);
+        const files = getProjectFiles(projectPath);
+        const entry = {
+          id,
+          projectId,
+          label: label || `Backup ${timestamp.slice(0, 10)} ${timestamp.slice(11, 19)}`,
+          timestamp,
+          fileCount: files.length,
+          totalSize: stats.size,
+          compressionRatio: stats.size > 0 && files.length > 0 ? stats.size / (files.length * 4096) : 0,
+          autoBackup: !!(extra && extra.autoBackup),
+          trigger: (extra && extra.trigger) || 'manual',
+        };
+        manifest.push(entry);
+        saveManifest(manifest);
+        resolve({ success: true, data: entry });
+      });
+      archive.on('error', (err) => {
+        resolve({ success: false, error: err.message });
+      });
+      archive.pipe(output);
+      const files = getProjectFiles(projectPath);
+      for (const f of files) {
+        archive.file(f, { name: path.relative(projectPath, f) });
+      }
+      archive.finalize();
+    });
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+module.exports = { registerProjectBackupIPC, createProjectBackup, getSchedules, setProjectSchedule };
+
+loadSchedules();
+for (const s of schedules.values()) {
+  if (s.enabled && s.projectPath) {
+    const minutes = s.minutes;
+    const projectId = s.projectId;
+    s.timer = setInterval(() => {
+      const cur = schedules.get(projectId);
+      if (!cur || !cur.enabled) return;
+      createProjectBackup(projectId, cur.projectPath, `Auto (every ${cur.minutes}m)`, { autoBackup: true })
+        .then((res) => {
+          if (res.success) {
+            cur.lastRunAt = new Date().toISOString();
+            saveSchedules();
+          } else {
+            console.error(`[ProjectBackup] schedule ${projectId} failed:`, res.error);
+          }
+        });
+    }, minutes * 60 * 1000);
+    s.timer.unref();
+  }
+}

@@ -175,11 +175,10 @@ export function RingCanvas({
               animate={{ pathLength: lens === 'gold' ? 1 : 0.35 }}
               transition={{ duration: 0.6, ease: 'easeOut' }}
             />
-            <motion.circle
-              cx={b.x2} cy={b.y2} r={3}
+            <circle
+              cx={b.x2} cy={b.y2} r={lens === 'gold' ? 4.5 : 3}
               fill="#fbbf24"
-              animate={{ r: lens === 'gold' ? 4.5 : 3 }}
-              transition={{ duration: 0.4 }}
+              style={{ transition: 'r 0.4s ease' }}
             />
             {lens === 'gold' && (
               <title>{`${b.title} — ${Math.round(b.progress)}%`}</title>
@@ -249,18 +248,16 @@ export function RingCanvas({
       {/* ── Amber memory pockets (Memories) ── */}
       <g opacity={dimLayer(lens === 'memories')} style={{ transition: 'opacity 0.5s ease' }}>
         {flecks.filter(f => f.amber).map(f => (
-          <motion.circle
+          <circle
             key={f.id}
-            cx={f.x} cy={f.y} r={f.r}
+            cx={f.x} cy={f.y} r={lens === 'memories' ? f.r + 1.8 : f.r}
             fill="#fbbf24"
             className="cursor-pointer"
             onClick={() => onOpenMemory(f.phaseId)}
-            animate={{ r: lens === 'memories' ? f.r + 1.8 : f.r }}
-            whileHover={{ r: f.r + 3 }}
-            transition={{ duration: 0.35 }}
+            style={{ transition: 'r 0.35s ease' }}
           >
             <title>Memories from this period</title>
-          </motion.circle>
+          </circle>
         ))}
       </g>
 

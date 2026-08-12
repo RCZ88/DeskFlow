@@ -7,6 +7,7 @@ interface ProjectBackupManifest {
   totalSize: number;
   compressionRatio: number;
   autoBackup: boolean;
+  trigger?: string;
 }
 
 interface ProjectBackupDiff {
@@ -15,6 +16,36 @@ interface ProjectBackupDiff {
   modified: string[];
   unchanged: string[];
   totalChanged: number;
+}
+
+interface BackupManifest {
+  createdAt: string;
+  trigger: 'startup' | 'interval' | 'quit' | 'manual' | 'pre-restore' | 'agent-session';
+  dbPath: string;
+  backupFile: string;
+  bytes: number;
+  sha256: string;
+  rowCounts: Record<string, number>;
+  totalRows: number;
+  integrityOk: boolean;
+}
+
+interface BackupSettings {
+  mirrorDir: string;
+  retention: { hourly: number; daily: number; weekly: number; monthly: number };
+  autoBackup: boolean;
+}
+
+interface BackupStatus {
+  settings: BackupSettings;
+  backupDir: string;
+  dbPath: string;
+  lastBackup: BackupManifest | null;
+  backupCount: number;
+  totalBytes: number;
+  schedulerRunning: boolean;
+  intervalMs: number;
+  triggers: string[];
 }
 
 interface DeskflowAPI {
@@ -45,6 +76,11 @@ interface DeskflowAPI {
   }>;
   getPreferences: () => Promise<Record<string, any>>;
   setPreference: (key: string, value: any) => Promise<boolean>;
+  sttGetStatus: () => Promise<{ engine: 'api' | 'native' | 'browser'; apiConfigured: boolean; nativeAvailable: boolean; label: string }>;
+  sttTranscribe: (payload: { audioBase64: string; mime?: string; lang?: string }) => Promise<{ ok: boolean; text?: string; error?: string }>;
+  sttNativeStart: (lang?: string) => Promise<{ ok: boolean; error?: string }>;
+  sttNativeStop: () => Promise<{ ok: boolean }>;
+  onSttNativeEvent: (callback: (ev: { type: string; text?: string }) => void) => () => void;
   getBrowserLogs: () => Promise<any[]>;
   getBrowserDomainStats: () => Promise<any[]>;
   getAllBrowserDomainStats: () => Promise<any[]>;
@@ -94,6 +130,13 @@ interface DeskflowAPI {
   scanTools: () => Promise<any[]>;
   getTools: (category?: string) => Promise<any[]>;
   getToolCategories: () => Promise<{ category: string }[]>;
+  agentSend: (terminalId: string, data: string, agentType?: string) => Promise<{
+    success: boolean;
+    queued?: boolean;
+    written?: boolean;
+    verified?: boolean;
+    error?: string;
+  }>;
   resetTools: () => Promise<{ success: boolean; message: string }>;
   addProject: (data: { name: string; path: string; repositoryUrl?: string; vcsType?: string; primaryLanguage?: string; defaultIde?: string }) => Promise<{ success: boolean; id?: string; name?: string; message?: string }>;
   getProjects: () => Promise<any[]>;
@@ -192,6 +235,13 @@ interface DeskflowAPI {
   getInterestTopics: () => Promise<string[]>;
   addInterestTopic: (topic: string) => Promise<{ success: boolean }>;
   removeInterestTopic: (topic: string) => Promise<{ success: boolean }>;
+  // Knowledge Base (R5: self-contained context/RAG — deskflow-kb.json + BM25)
+  kbIngest: (file: { name: string; type: string; content: string }) => Promise<{ success: boolean; docId?: string; chunkCount?: number; error?: string }>;
+  kbQuery: (query: string, limit?: number) => Promise<Array<{ id: string; docId: string; docName: string; content: string }>>;
+  kbList: () => Promise<Array<{ id: string; name: string; type: string; addedAt: number }>>;
+  kbRemove: (docId: string) => Promise<{ success: boolean; error?: string }>;
+  // Feature Studio: AI Director pipeline
+  featureStudioCompile: (script: string) => Promise<{ success: boolean; content?: string; providerId?: string; error?: string }>;
   readPlanningMd: () => Promise<{ content: string; error?: string }>;
   writePlanningMd: (content: string) => Promise<{ success: boolean; error?: string }>;
   writeFeatureSpecFile: (content: string) => Promise<{ success: boolean; error?: string }>;
@@ -373,6 +423,12 @@ interface DeskflowAPI {
     onEnded: (cb: (data: { outcome: string; reason: string | null; id: number }) => void) => (() => void);
   };
 
+  // Focus goals (daily per-strictness targets)
+  focusGoal: {
+    get: () => Promise<{ lenient_goal_sec: number; strict_goal_sec: number; updated_at: string | null }>;
+    save: (cfg: { lenient_goal_sec?: number; strict_goal_sec?: number }) => Promise<{ lenient_goal_sec: number; strict_goal_sec: number; updated_at: string | null }>;
+  };
+
   // Focus Groups (named allowed-app sets for Deep Focus sessions)
   focusGroup: {
     list: () => Promise<any[]>;
@@ -386,13 +442,28 @@ interface DeskflowAPI {
 
   // ========== Project Backup (Design Workspace) ==========
   projectBackup: {
-    create: (projectId: string, projectPath: string) => Promise<{ success: boolean; data?: ProjectBackupManifest; error?: string }>;
-    list: (projectId: string) => Promise<{ success: boolean; data: ProjectBackupManifest[]; error?: string }>;
+    create: (projectId: string, projectPath: string, label?: string, extra?: Record<string, unknown>) => Promise<{ success: boolean; data?: ProjectBackupManifest; error?: string }>;
+    list: (projectId?: string) => Promise<{ success: boolean; data: ProjectBackupManifest[]; error?: string }>;
     get: (backupId: string) => Promise<{ success: boolean; data?: ProjectBackupManifest; error?: string }>;
     delete: (backupId: string, projectId: string) => Promise<{ success: boolean; error?: string }>;
     restore: (projectId: string, backupId: string) => Promise<{ success: boolean; data?: { restoredCount: number }; error?: string }>;
     diff: (projectId: string, backupId: string) => Promise<{ success: boolean; data?: ProjectBackupDiff; error?: string }>;
-    schedule: (projectId: string, minutes: number) => Promise<{ success: boolean; error?: string }>;
+    schedule: (projectId: string, minutes: number, projectPath?: string) => Promise<{ success: boolean; error?: string }>;
+    getSchedules: () => Promise<{ success: boolean; data?: Array<{ projectId: string; minutes: number; projectPath?: string; enabled: boolean; lastRunAt?: string | null }>; error?: string }>;
+  };
+
+  // ========== Database Backup ==========
+  backup: {
+    create: () => Promise<BackupManifest>;
+    list: () => Promise<BackupManifest[]>;
+    restore: (name: string) => Promise<{ success: boolean }>;
+    exportJSON: () => Promise<string>;
+    exportCSV: (tables: string[]) => Promise<string[]>;
+    status: () => Promise<BackupStatus>;
+    verify: (name: string) => Promise<{ ok: boolean; rows: number; error?: string }>;
+    settingsGet: () => Promise<BackupSettings>;
+    settingsSet: (patch: Partial<BackupSettings>) => Promise<BackupSettings>;
+    pickMirrorDir: () => Promise<{ canceled: boolean; mirrorDir?: string; settings?: BackupSettings }>;
   };
 
   // ========== Git Safety Layer ==========

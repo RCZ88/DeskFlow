@@ -165,7 +165,7 @@ export class FocusGroupManager {
     return {
       apps: g.allowed_apps ?? [],
       domains: g.allowed_domains ?? [],
-      tiers: (g.allowed_categories ?? []).length > 0 ? (g.allowed_categories as Tier[]) : ['productive', 'neutral'],
+      tiers: g.strictness === 'non_allowed' ? ['productive'] : ['productive', 'neutral'],
     };
   }
 

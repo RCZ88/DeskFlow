@@ -63,6 +63,7 @@ export function BookCard({ lesson, index = 0, onOpen, onInfo }: BookCardProps) {
           }
         }}
         className="lyceum-book group relative cursor-pointer select-none outline-none"
+        style={{ willChange: 'transform' }}
       >
         {/* hardcover */}
         <div

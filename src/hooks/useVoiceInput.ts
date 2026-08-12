@@ -6,6 +6,7 @@
 import { useState, useRef, useCallback, useEffect, useId } from 'react';
 import { useVoiceContext } from '../context/VoiceContext';
 import { getStoredLanguage, insertAtCursor, getCursorPosition } from '../lib/voice-utils';
+import { sttGetStatus, sttStartApi, sttStartNative } from '../lib/stt';
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -110,6 +111,8 @@ export function useVoiceInput({
   const retriesRef = useRef(0);
   const networkRetriesRef = useRef(0);
   const MAX_RETRIES = 5;
+  const engineRef = useRef<'browser' | 'api' | 'native'>('browser');
+  const engineStopRef = useRef<(() => void) | null>(null);
 
   // Refs for values used inside recognition callbacks (avoid stale closures)
   const onTranscriptRef = useRef(onTranscript);
@@ -154,6 +157,67 @@ export function useVoiceInput({
     }, silenceMsRef.current);
   }, [hasProvider, ctx]);
 
+  // ── Engine helpers (API / Windows native) ────────────────────────────
+  const endSession = useCallback(() => {
+    const c = ctxRef.current;
+    if (c) c.stopSession();
+    else { setLocalState('idle'); setLocalInterim(''); }
+    clearTimers();
+    retriesRef.current = 0;
+    networkRetriesRef.current = 0;
+  }, [clearTimers]);
+
+  const handleFinal = useCallback((text: string) => {
+    const c = ctxRef.current;
+    if (c) c.setInterim('');
+    else setLocalInterim('');
+    if (c) c.setSolidifying(true);
+    else setLocalSolidifying(true);
+    setSentences(prev => [...prev, text]);
+
+    // Cursor-aware insertion
+    const el = elementRefRef.current?.current;
+    if (el && modeRef.current === 'append') {
+      const cursor = getCursorPosition(el);
+      const { newValue, newCursor } = insertAtCursor(el.value, text, cursor, 'append');
+      el.value = newValue;
+      el.setSelectionRange(newCursor.start, newCursor.end);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    onTranscriptRef.current(text);
+
+    if (solidifyTimerRef.current) clearTimeout(solidifyTimerRef.current);
+    solidifyTimerRef.current = setTimeout(() => {
+      if (c) c.setSolidifying(false);
+      else setLocalSolidifying(false);
+    }, 800);
+  }, []);
+
+  const handleEngineError = useCallback((code: VoiceError) => {
+    const c = ctxRef.current;
+    if (c) { c.setError(code); c.stopSession(); }
+    else {
+      setLocalState('error');
+      setLocalError(code);
+      setTimeout(() => { setLocalState('idle'); setLocalError(undefined); }, 1200);
+    }
+    clearTimers();
+    if (engineStopRef.current) { try { engineStopRef.current(); } catch {} engineStopRef.current = null; }
+  }, [clearTimers]);
+
+  const resetSilenceTimerEngine = useCallback((endAfterSilence: boolean) => {
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    const setter = hasProvider ? ctx.setCountdownMs : setLocalCountdown;
+    setter(silenceMsRef.current);
+    silenceTimerRef.current = setTimeout(() => {
+      const stopFn = engineStopRef.current;
+      engineStopRef.current = null;
+      if (stopFn) { try { stopFn(); } catch {} }
+      if (endAfterSilence) endSession();
+    }, silenceMsRef.current);
+  }, [hasProvider, ctx, endSession]);
+
   // ── Backspace ────────────────────────────────────────────────────────
   const backspace = useCallback(() => {
     if (sentencesRef.current.length === 0) return;
@@ -166,16 +230,25 @@ export function useVoiceInput({
   const setLang = useCallback((newLang: string) => {
     setLangState(newLang);
     if (hasProvider) ctx.setLanguage(newLang);
-    if (state === 'listening' && recognitionRef.current) {
-      recognitionRef.current.stop();
-      setTimeout(() => {
-        if (recognitionRef.current) {
-          recognitionRef.current.lang = newLang;
-          try { recognitionRef.current.start(); } catch { /* ignore */ }
-        }
-      }, 200);
+    if (state === 'listening') {
+      if (engineRef.current !== 'browser') {
+        const stopFn = engineStopRef.current;
+        engineStopRef.current = null;
+        if (stopFn) { try { stopFn(); } catch {} }
+        endSession();
+        return;
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        setTimeout(() => {
+          if (recognitionRef.current) {
+            recognitionRef.current.lang = newLang;
+            try { recognitionRef.current.start(); } catch { /* ignore */ }
+          }
+        }, 200);
+      }
     }
-  }, [state, hasProvider, ctx]);
+  }, [state, hasProvider, ctx, endSession]);
 
   // ── SpeechRecognition Setup (NO ctx dependency!) ──────────────────
   useEffect(() => {
@@ -352,7 +425,7 @@ export function useVoiceInput({
 
   // ── Start ────────────────────────────────────────────────────────────
   const start = useCallback(() => {
-    if (!recognitionRef.current) return;
+    if (!recognitionRef.current && !window.deskflowAPI) return;
 
     userStoppedRef.current = false;
 
@@ -362,7 +435,16 @@ export function useVoiceInput({
         element: elementRefRef.current?.current ?? null,
         onTranscript: onTranscriptRef.current,
         onBackspace: backspace,
-        onStop: () => { recognitionRef.current?.stop(); },
+        onStop: () => {
+          if (engineRef.current !== 'browser') {
+            const stopFn = engineStopRef.current;
+            engineStopRef.current = null;
+            if (stopFn) { try { stopFn(); } catch {} }
+            endSession();
+          } else {
+            recognitionRef.current?.stop();
+          }
+        },
       });
     } else {
       setLocalState('listening');
@@ -379,24 +461,58 @@ export function useVoiceInput({
     setCountdownFn(silenceMsRef.current);
     startedAtRef.current = Date.now();
 
-    try {
-      recognitionRef.current.lang = langRef.current;
-      recognitionRef.current.start();
-    } catch {
-      if (hasProvider) ctx.stopSession();
-      else setLocalState('idle');
-      return;
-    }
+    sttGetStatus().then((status) => {
+      if (userStoppedRef.current) return;
 
-    resetSilenceTimer();
-    countdownTimerRef.current = setInterval(() => {
-      setCountdownFn(prev => Math.max(0, prev - 100));
-    }, 100);
-  }, [hasProvider, ctx, inputId, backspace, resetSilenceTimer]);
+      if (status.engine === 'api' || status.engine === 'native') {
+        engineRef.current = status.engine;
+        const stopFn = status.engine === 'api'
+          ? sttStartApi(langRef.current, {
+              onState: (s) => {
+                if (s === 'processing' && !hasProvider) setLocalState('processing');
+              },
+              onFinal: (text) => { handleFinal(text); endSession(); },
+              onError: (msg) => handleEngineError(msg === 'No speech detected' ? 'no-speech' : 'unknown'),
+            })
+          : sttStartNative(langRef.current, {
+              onFinal: (text) => { handleFinal(text); resetSilenceTimerEngine(false); },
+              onError: (msg) => handleEngineError('unknown'),
+            });
+        engineStopRef.current = stopFn;
+        resetSilenceTimerEngine(status.engine === 'native');
+        countdownTimerRef.current = setInterval(() => {
+          setCountdownFn(prev => Math.max(0, prev - 100));
+        }, 100);
+        return;
+      }
+
+      engineRef.current = 'browser';
+      if (!recognitionRef.current) { endSession(); return; }
+      try {
+        recognitionRef.current.lang = langRef.current;
+        recognitionRef.current.start();
+      } catch {
+        endSession();
+        return;
+      }
+      resetSilenceTimer();
+      countdownTimerRef.current = setInterval(() => {
+        setCountdownFn(prev => Math.max(0, prev - 100));
+      }, 100);
+    }).catch(() => handleEngineError('unknown'));
+  }, [hasProvider, ctx, inputId, backspace, resetSilenceTimer, resetSilenceTimerEngine, handleFinal, handleEngineError, endSession]);
 
   // ── Stop ─────────────────────────────────────────────────────────────
   const stop = useCallback(() => {
     userStoppedRef.current = true;
+    if (engineRef.current !== 'browser') {
+      const stopFn = engineStopRef.current;
+      engineStopRef.current = null;
+      if (stopFn) { try { stopFn(); } catch {} }
+      endSession();
+      return;
+    }
+    if (!recognitionRef.current) { endSession(); return; }
     if (state === 'listening') {
       if (!hasProvider) setLocalState('processing');
       setTimeout(() => {
@@ -405,12 +521,19 @@ export function useVoiceInput({
     } else if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
-  }, [state, hasProvider]);
+  }, [state, hasProvider, endSession]);
 
   // Cleanup
   useEffect(() => () => clearTimers(), [clearTimers]);
 
-  const supported = typeof window !== 'undefined' && !!(window.webkitSpeechRecognition || window.SpeechRecognition);
+  // Stop any running API/native engine on unmount
+  useEffect(() => () => {
+    const stopFn = engineStopRef.current;
+    engineStopRef.current = null;
+    if (stopFn) { try { stopFn(); } catch {} }
+  }, []);
+
+  const supported = typeof window !== 'undefined' && (!!(window.webkitSpeechRecognition || window.SpeechRecognition) || !!window.deskflowAPI);
 
   return {
     supported,

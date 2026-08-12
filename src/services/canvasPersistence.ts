@@ -151,11 +151,90 @@ export function deleteCanvas(id: string): void {
 }
 
 export function clearCanvasLayout(): void {
-  const activeId = localStorage.getItem(ACTIVE_KEY)
-  if (activeId) {
-    localStorage.removeItem(STORAGE_PREFIX + activeId)
-    localStorage.removeItem(ACTIVE_KEY)
+  // Remove ALL canvas entries — not just the active one.
+  // listCanvases() iterates all deskflow-canvas-* keys; remove them all
+  // so loadCanvasLayout() returns null (empty state) on next startup.
+  const keysToRemove: string[] = []
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i)
+    if (key && (key.startsWith(STORAGE_PREFIX) || key === ACTIVE_KEY || key === 'deskflow-canvas-layout')) {
+      keysToRemove.push(key)
+    }
   }
-  // Also clear legacy key
-  localStorage.removeItem('deskflow-canvas-layout')
+  keysToRemove.forEach(k => localStorage.removeItem(k))
 }
+
+// ─── Default Canvas Setup (R1: saved configuration for NEW canvases) ───
+// The user configures which cards (type, position, size, pinned) appear on
+// every NEW blank canvas. Stored as a versioned DefaultSetupConfig; seeding
+// (useCanvasState createNewCanvas + AiPage mount effect) reads it and falls
+// back to BUILTIN_DEFAULT_SETUP when nothing is saved.
+
+import type { CardType, DefaultSetupCard, DefaultSetupConfig } from '../types/canvas'
+
+export interface CanvasSetupEntry {
+  type: string
+  position: { x: number; y: number }
+  size: { w: number; h: number }
+  pinned: boolean
+}
+
+const SETUP_KEY = 'deskflow-canvas-default-setup'
+
+export function loadDefaultSetup(): DefaultSetupConfig | null {
+  try {
+    const raw = localStorage.getItem(SETUP_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    // Legacy format (pre-v2): bare CanvasSetupEntry[] → wrap into a config.
+    if (Array.isArray(parsed)) {
+      const valid = parsed
+        .filter(
+          (e: any) => e && typeof e.type === 'string' && e.position && typeof e.position.x === 'number' && e.size && typeof e.size.w === 'number'
+        )
+        .map((e: any) => ({ type: e.type, enabled: true, position: e.position, size: e.size, pinned: !!e.pinned }))
+      return valid.length > 0 ? { version: 1, cards: valid as DefaultSetupCard[], updatedAt: Date.now() } : null
+    }
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.cards)) return null
+    const valid = parsed.cards.filter(
+      (e: any) => e && typeof e.type === 'string' && typeof e.enabled === 'boolean' && e.position && typeof e.position.x === 'number' && e.size && typeof e.size.w === 'number'
+    )
+    return valid.length > 0 ? { version: 1, cards: valid as DefaultSetupCard[], updatedAt: parsed.updatedAt || Date.now() } : null
+  } catch { return null }
+}
+
+export function saveDefaultSetup(cards: DefaultSetupCard[]): void {
+  try {
+    const config: DefaultSetupConfig = { version: 1, cards, updatedAt: Date.now() }
+    localStorage.setItem(SETUP_KEY, JSON.stringify(config))
+  } catch { /* ignore */ }
+}
+
+export function clearDefaultSetup(): void {
+  try { localStorage.removeItem(SETUP_KEY) } catch { /* ignore */ }
+}
+
+// Built-in fallback: a balanced starter canvas, all pinned so the user can
+// re-arrange freely. Used when no saved setup exists AND the canvas is fresh.
+const BUILTIN_POSITIONS: Record<string, { position: { x: number; y: number }; size: { w: number; h: number } }> = {
+  focus:     { position: { x: 20,  y: 20 },  size: { w: 9, h: 6 } },
+  plan:      { position: { x: 420, y: 20 },  size: { w: 9, h: 6 } },
+  finance:   { position: { x: 820, y: 20 },  size: { w: 9, h: 6 } },
+  digest:    { position: { x: 1220, y: 20 }, size: { w: 9, h: 6 } },
+  schedule:  { position: { x: 20,  y: 330 }, size: { w: 11, h: 7 } },
+  deadlines: { position: { x: 500, y: 330 }, size: { w: 9, h: 7 } },
+  planner:   { position: { x: 900, y: 330 }, size: { w: 9, h: 7 } },
+  reflect:   { position: { x: 1280, y: 330 }, size: { w: 7, h: 7 } },
+  connectors:{ position: { x: 20,  y: 700 }, size: { w: 9, h: 6 } },
+  automation:{ position: { x: 430, y: 700 }, size: { w: 9, h: 6 } },
+}
+
+const BUILTIN_CARD_TYPES: CardType[] = ['focus', 'plan', 'finance', 'digest', 'schedule', 'deadlines', 'planner', 'reflect', 'connectors', 'automation']
+
+export const BUILTIN_DEFAULT_SETUP: DefaultSetupCard[] = BUILTIN_CARD_TYPES.map((type) => ({
+  type,
+  enabled: true,
+  defaultData: {},
+  ...BUILTIN_POSITIONS[type],
+  pinned: true,
+}))

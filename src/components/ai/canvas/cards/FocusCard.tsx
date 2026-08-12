@@ -1,34 +1,36 @@
-import { useEffect } from 'react'
 import type { CanvasCard } from '../../../../types/canvas'
+import { StateView, type ViewState } from '../shared/StateView'
+import { Target } from 'lucide-react'
 
 interface FocusCardProps {
   card: CanvasCard
   goals?: any[]
   onToggleGoal?: (goal: any) => void
   loading?: boolean
+  error?: string
 }
 
-export function FocusCard({ card, goals = [], onToggleGoal, loading }: FocusCardProps) {
+export function FocusCard({ card, goals = [], onToggleGoal, loading, error }: FocusCardProps) {
   const data = card.data || {}
   const activeGoals = goals.filter(g => g.status === 'done' || g.status === 'active')
 
-  if (loading) {
-    return (
-      <div className="card-focus">
-        <div className="card-focus-skeleton" />
-        <div className="card-focus-skeleton short" />
-      </div>
-    )
-  }
+  const state: ViewState = loading ? 'loading' : error ? 'error' : activeGoals.length === 0 ? 'empty' : 'populated'
 
   return (
-    <div className="card-focus">
-      <div className="card-focus-header">
-        <span className="card-focus-count">{activeGoals.length} active</span>
-      </div>
-      {activeGoals.length === 0 ? (
-        <p className="card-focus-empty">No active goals</p>
-      ) : (
+    <StateView
+      state={state}
+      loadingType="list"
+      emptyProps={{
+        icon: Target,
+        title: 'No active goals',
+        description: 'Ask the AI to suggest goals, or add them in the Focus page.',
+      }}
+      errorProps={{ message: error || 'Failed to load goals' }}
+    >
+      <div className="card-focus">
+        <div className="card-focus-header">
+          <span className="card-focus-count">{activeGoals.length} active</span>
+        </div>
         <ul className="card-focus-list">
           {activeGoals.map((g: any) => (
             <li key={g.id} className="card-focus-item">
@@ -42,7 +44,7 @@ export function FocusCard({ card, goals = [], onToggleGoal, loading }: FocusCard
             </li>
           ))}
         </ul>
-      )}
-    </div>
+      </div>
+    </StateView>
   )
 }

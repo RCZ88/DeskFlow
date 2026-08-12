@@ -2,42 +2,44 @@
 
 # Agent State — opencode-term-1-s9td
 
-> **STATUS:** completed | **UPDATED:** 2026-08-06T02:25:00Z
+> **STATUS:** completed | **UPDATED:** 2026-08-12T01:00:00Z
 
 ---
 
-## CURRENT CYCLE (11)
-**ROLE:** Hands & Eyes — RESTORE visible entry point to the Smart Gap Fill Drawer (apps/websites/external mixed fill) on External page
+## CURRENT CYCLE (13)
+**ROLE:** Hands & Eyes — FIX sleep detection after hibernation (resume handler + stale detection file + 16h cap)
 **STATUS:** completed
 **IN FLIGHT:**
 - (none)
 **COMPLETED:**
-- User confirmed "fix it then" after I explained the feature's state (the drawer itself was intact; its ONLY entry point was the dismissible amber gap banner — `onDismissForever` sets `showGapBannerSetting=false` permanently, so the drawer became unreachable).
-- Added "Smart Fill" button (Sparkles icon, indigo) in ExternalPage.tsx header (line ~907, next to Gaps button): `onClick={() => window.dispatchEvent(new Event('open-gap-drawer'))}` → App.tsx:1495 listener opens GapFillDrawer (predict/confirm/getKnownApps chain, mixed app+external segments).
-- Builds PASS: vite (baseline warnings only) → dist/assets/index.Bnm9FiDV.js 13,327,967 B; preload.cjs 96,233 B; main.cjs 1,258,178 B; dist/index.html gates OK (root + #df-fallback + script ref match).
-**NEXT ACTION:** User must FULLY CLOSE + RELAUNCH RHEO → /external header shows "Smart Fill" → opens drawer with Tracked Apps + Activities + Auto-fill. Runtime NOT LAUNCHED (no debug port).
-**NOTES:** External-page GapFillModal (external-only) is unchanged — it's a separate, simpler fill UI. The banner's forever-dismiss is respected (no preference tampering); the button is the permanent entry point.
+- User reported: hibernating laptop overnight with app open → sleep popup never appears on wake. Only works if app is stopped at night and reopened in morning.
+- Root cause 1: `checkSleepGap` had a 16-hour hard cap — hibernation >16h (e.g., sleep 10 PM, wake 4 PM) silently skipped detection. Fixed: raised to 24 hours.
+- Root cause 2: `deskflow-sleep-detection.json` with `checked: false` from a dismissed popup blocked ALL future detections forever. Fixed: stale files older than 2 hours are auto-cleared.
+- Root cause 3: No logging on `powerMonitor.on('resume')` — impossible to tell if the event fires. Fixed: added console.log with gap duration.
+- Added `detectedAt` timestamp to detection file so stale guard can check age.
+- Sleep date logic also corrected (from Cycle 12): bedtime before 6AM now assigned to NEXT calendar day (+1 instead of -1).
+- Builds PASS: vite 1m49s; preload.cjs 101KB; main.cjs 1.3MB.
+**NEXT ACTION:** User must FULLY CLOSE + RELAUNCH RHEO → hibernate overnight → on wake, sleep popup should appear (check console for `[DeskFlow] 💤 powerMonitor resume/unlock` log). Runtime NOT LAUNCHED.
+**NOTES:** The 24h cap still prevents absurd gaps (>24h = manual entry). The 2-hour stale threshold means if the user dismisses a popup and then hibernates again within 2h, the second detection is blocked — but after 2h it clears automatically.
 
 ---
 
 ## HISTORY (previous 2 cycles, oldest first)
 
-### Cycle 10 — 2026-08-05 13:55
-**ROLE:** Hands & Eyes — FIX mosaic hover sparkline for ALL tiers + sleep-date fix (24h caps, 3-date lookup, forward-only repair)
+### Cycle 12 — 2026-08-11 12:50
+**ROLE:** Hands & Eyes — FIX sleep date logic: bedtime before 6AM now assigned to NEXT calendar day + persistent date selection
 **STATUS:** completed
 **COMPLETED:**
-- User-confirmed scope ("All tiers + sleep fix too"): ActivityMosaicCard.tsx sparkline now renders for EVERY tier with data — old gate `(hero||secondary) && height>=160` replaced by `height>=80 && sparklineValues.length>0`, per-tier sparkline heights h-12/h-9/h-7/h-5; selected card shows chart statically, unselected reveals on group hover.
-- main.ts: all sleep duration caps 16h → 24h (4 handlers incl. one extra at ~18989 beyond the known 3).
-- main.ts get-sleep-for-date: matches `date(started_at)=? OR date(ended_at)=? OR date(started_at)=date(?, '+1 day')` — bedtime date, wake date, or the chart's grouped evening date.
-- main.ts fix-sleep-dates PROBLEM 1 INVERTED: no longer back-shifts every pre-6AM bedtime; now ONLY repairs corrupted rows — pre-6AM start + cross-calendar-day span ≥ 18h → shift started_at FORWARD one day + recompute duration. Normal post-midnight sleeps untouched.
-- Builds: vite PASS (baseline circular-dep warnings only); preload.cjs 93.8 KB; main.cjs 1,225 KB; dist gates OK (assets/index.qf2EBycL.js).
-**NEXT ACTION:** User relaunch → /external hover trend on ALL tiers, Past Sleep finds pre-6AM rows, >16h sleeps not truncated. NOT LAUNCHED.
+- Fixed `getSleepGroupDate` (line 21269): changed `-1` to `+1` — bedtime 2:30 AM Aug 10 now correctly assigned to Aug 11.
+- Fixed `get-sleep-for-date` query window: changed from `[date+06:00, date+1+06:00]` to `[date+00:00, date+1+00:00]`.
+- Persisted sleep date selection to localStorage (`external-sleep-date` key).
+- Builds PASS.
+**NEXT ACTION:** User relaunch → sleep dates correct, date selection persists. NOT LAUNCHED.
 
-### Cycle 9 — 2026-08-05 19:10
-**ROLE:** Hands & Eyes — IMPLEMENT RESULT.md v2: External mosaic proportional sizing (gamma-preset weight model, K-cap overflow, hierarchy control)
+### Cycle 11 — 2026-08-06 02:25
+**ROLE:** Hands & Eyes — RESTORE visible entry point to the Smart Gap Fill Drawer on External page
 **STATUS:** completed
 **COMPLETED:**
-- grid.ts buildTargetWeights → proportional `log1p(seconds)^γ` (γ subtle 0.65 / balanced 1.0 / dramatic 1.55, defaults balanced); computeActivityGridLayout(hierarchy, minCellAreaFraction 0.04); K-cap → compactActivities; sizeTier areaFraction-driven; cells carry cellHeight.
-- ActivityMosaic.tsx: hierarchy persisted (localStorage external-mosaic-hierarchy), Subtle/Balanced/Dramatic control, compact overflow row tri-state.
-- Harness TEMP/opencode/mosaic-harness.js: 25/25 PASS. tsc clean (baseline only); dist valid.
-**NEXT ACTION:** User relaunch → verify proportional mosaic + hierarchy + overflow row. NOT LAUNCHED.
+- Added "Smart Fill" button in ExternalPage.tsx header dispatching `open-gap-drawer` event.
+- Builds PASS.
+**NEXT ACTION:** User relaunch → "Smart Fill" button visible in /external header. NOT LAUNCHED.

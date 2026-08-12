@@ -290,7 +290,14 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [pastSleepError, setPastSleepError] = useState<string | null>(null);
   const [pastSleepSuccess, setPastSleepSuccess] = useState(false);
   const localDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const [pastSleepDate, setPastSleepDate] = useState(() => localDateStr(new Date()));
+  const [pastSleepDate, setPastSleepDate] = useState(() => {
+    try { return localStorage.getItem('external-sleep-date') || localDateStr(new Date()); }
+    catch { return localDateStr(new Date()); }
+  });
+  // Persist sleep date selection
+  useEffect(() => {
+    try { localStorage.setItem('external-sleep-date', pastSleepDate); } catch {}
+  }, [pastSleepDate]);
   const [pastWakeupDate, setPastWakeupDate] = useState<string | null>(null);
   const [pastSleepSessionId, setPastSleepSessionId] = useState<string | null>(null);
   const [pastOriginalStartedAt, setPastOriginalStartedAt] = useState<string | null>(null);
@@ -300,6 +307,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [wakeUpMinutes, setWakeUpMinutes] = useState(5);
   const [vizTab, setVizTab] = useState<'grid' | 'daily' | 'weekly' | 'monthly'>('grid');
   const [gapTarget, setGapTarget] = useState<{ id: string; start: Date; end: Date; duration_seconds: number } | null>(null);
+  const [gapTargets, setGapTargets] = useState<Gap[]>([]);
   const [showGapsList, setShowGapsList] = useState(false);
   const [viewDate, setViewDate] = useState<Date | null>(null);
 
@@ -3048,20 +3056,18 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       setPastSleepError(null);
                       setPastSleepSuccess(false);
 
-                      const baseDate = pastOriginalStartedAt
-                        ? new Date(pastOriginalStartedAt)
-                        : new Date(pastSleepDate + 'T00:00:00');
-                      const deviceOffDate = new Date(baseDate);
-                      deviceOffDate.setHours(pastDeviceOff.hours, pastDeviceOff.minutes, 0, 0);
+                      const selectedSleepDay = new Date(pastSleepDate + 'T00:00:00');
+                      const buildTimestampForSleepDay = (time: { hours: number; minutes: number }) => {
+                        const d = new Date(selectedSleepDay);
+                        d.setHours(time.hours, time.minutes, 0, 0);
+                        if (time.hours < 6) d.setDate(d.getDate() + 1);
+                        return d;
+                      };
 
-                      const fellAsleepDate = new Date(baseDate);
-                      fellAsleepDate.setHours(pastFellAsleepAt.hours, pastFellAsleepAt.minutes, 0, 0);
-
-                      const wakeupDate = new Date(baseDate);
-                      wakeupDate.setHours(pastWakeupTime.hours, pastWakeupTime.minutes, 0, 0);
-
-                      const deviceOnDate = new Date(baseDate);
-                      deviceOnDate.setHours(pastDeviceOn.hours, pastDeviceOn.minutes, 0, 0);
+                      const deviceOffDate = buildTimestampForSleepDay(pastDeviceOff);
+                      const fellAsleepDate = buildTimestampForSleepDay(pastFellAsleepAt);
+                      const wakeupDate = buildTimestampForSleepDay(pastWakeupTime);
+                      const deviceOnDate = buildTimestampForSleepDay(pastDeviceOn);
 
                       // If wakeup is before device off, it's next day
                       // DO NOT advance fellAsleepDate here — it's typically on the SAME evening
@@ -3078,7 +3084,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       if (fellAsleepDate <= deviceOffDate) {
                         const offMin = deviceOffDate.getHours() * 60 + deviceOffDate.getMinutes();
                         const sleepMin = fellAsleepDate.getHours() * 60 + fellAsleepDate.getMinutes();
-                        if (offMin - sleepMin >= 600) {
+                        if (offMin - sleepMin >= 600 || sleepMin > offMin) {
                           fellAsleepDate.setDate(fellAsleepDate.getDate() + 1);
                         }
                       }
@@ -3147,14 +3153,22 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
             setGapTarget(gap);
             setShowGapsList(false);
           }}
+          onFillGaps={(gaps) => {
+            setGapTargets(gaps);
+            setShowGapsList(false);
+          }}
         />
         {/* Gap Fill Modal */}
         <GapFillModal
-          open={!!gapTarget}
+          open={!!gapTarget || gapTargets.length > 0}
           gap={gapTarget as any}
+          multiGaps={gapTargets.length > 0 ? gapTargets : undefined}
           activities={activities}
           sessions={allSessions}
-          onClose={() => setGapTarget(null)}
+          onClose={() => {
+            setGapTarget(null);
+            setGapTargets([]);
+          }}
           onFillGap={async (gap, segments) => {
             await fillGapWithSegments(
               gap,

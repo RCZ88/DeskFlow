@@ -1,13 +1,18 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
+import { motion } from 'framer-motion'
 import { CanvasGrid } from './CanvasGrid'
 import { CanvasInput } from './CanvasInput'
 import { SaveIndicator } from './SaveIndicator'
 import { CanvasMinimap } from './CanvasMinimap'
 import { FindCardsArrow } from './FindCardsArrow'
 import { CanvasManagerPanel } from './CanvasManagerPanel'
+import { CardDrawer } from './CardDrawer'
+import { CustomConfirmDialog } from './CustomConfirmDialog'
+import { DefaultSetupDialog } from './DefaultSetupDialog'
 import { autoArrange } from '../../../lib/autoArrange'
 import { loadCanvasLayout } from '../../../services/canvasPersistence'
 import type { CanvasCard, CanvasGroup } from '../../../types/canvas'
+import type { CardType } from '../../../types/canvas'
 import type { CanvasSnapshot } from '../../../services/canvasPersistence'
 
 const PAN_STORAGE_KEY = 'rheo-canvas-pan-zoom'
@@ -43,17 +48,28 @@ interface CanvasContainerProps {
   onDeleteCanvas?: (id: string) => void
   onSaveAs?: (name: string) => void
   onSetPanZoom?: (pan: { x: number; y: number }, zoom: number) => void
+  onNewCanvas?: () => void
+  onAddCard?: (type: CardType) => void
+  onUndo?: () => void
+  onRedo?: () => void
+  canUndo?: boolean
+  canRedo?: boolean
 }
 
 export function CanvasContainer({
   cards, onMoveCard, onDismissCard, onArrangeCards, onPinCard, onResizeCard, onCardClick, onUpdateCard,
   groups, onUpdateGroup, onUngroup, onRemoveFromGroup,
   saveStatus, onSaveCanvas, onSend, onStop, streaming, thinking, focusedCardId, autoFocus, onToggleAutoFocus,
-  onOpenPalette, onGroupCards, canvasList, activeCanvasId, onLoadCanvas, onRenameCanvas, onDeleteCanvas, onSaveAs,
-  onSetPanZoom,
+  onOpenPalette, onGroupCards,   canvasList, activeCanvasId, onLoadCanvas, onRenameCanvas, onDeleteCanvas, onSaveAs,
+  onSetPanZoom, onNewCanvas, onAddCard, onUndo, onRedo, canUndo, canRedo,
 }: CanvasContainerProps) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showManager, setShowManager] = useState(false)
+  const [showDrawer, setShowDrawer] = useState(false)
+  const [showSetup, setShowSetup] = useState(false)
+  const [confirmNewCanvas, setConfirmNewCanvas] = useState(false)
+  const [showSaveAs, setShowSaveAs] = useState(false)
+  const [saveAsName, setSaveAsName] = useState('')
   const [pan, setPan] = useState<{ x: number; y: number }>(() => {
     try {
       const raw = localStorage.getItem(PAN_STORAGE_KEY)
@@ -183,6 +199,28 @@ export function CanvasContainer({
     setZoom(newZoom)
   }, [zoom])
 
+  // Keyboard shortcuts: Ctrl+Z (undo), Ctrl+Shift+Z / Ctrl+Y (redo)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Don't intercept when typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      const isMod = e.ctrlKey || e.metaKey
+      if (!isMod) return
+
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        onUndo?.()
+      } else if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault()
+        onRedo?.()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onUndo, onRedo])
+
   // Auto-pan to focused card ONLY when the AI actually updates its content or a
   // different card becomes focused. NEVER fight the user: skip while a card is
   // being dragged (mid-drag re-renders must not shift the camera), and never
@@ -282,11 +320,26 @@ export function CanvasContainer({
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
           </svg>
         </button>
+        <button onClick={() => setShowSetup(true)} title="Default canvas setup — choose cards for new canvases"
+          style={{ color: 'var(--dk-text-muted)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+        </button>
         <div className="dk-canvas-toolbar-separator" />
         <button onClick={handleArrange} title="Arrange cards neatly">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" />
+            <rect x="3" y="3" width="7" height="7" /><rect x1="14" y="3" width="7" height="7" />
             <rect x="3" y="14" width="7" height="7" /><rect x="14" y="14" width="7" height="7" />
+          </svg>
+        </button>
+        <button onClick={() => setShowDrawer(true)} title="Add card to canvas"
+          className="text-emerald-400 hover:text-emerald-300"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
         <button onClick={handleFocus} title="Focus — bring camera to cards">
@@ -327,6 +380,30 @@ export function CanvasContainer({
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
             <polyline points="17,21 17,13 7,13 7,21" />
             <polyline points="7,3 7,8 15,8" />
+          </svg>
+        </button>
+        <div className="dk-canvas-toolbar-separator" />
+        <button onClick={onUndo} title="Undo (Ctrl+Z)" disabled={!canUndo}
+          style={{ color: canUndo ? 'var(--dk-text-muted)' : 'var(--dk-text-faint)', opacity: canUndo ? 1 : 0.35, cursor: canUndo ? 'pointer' : 'not-allowed' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 7v6h6" /><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+          </svg>
+        </button>
+        <button onClick={onRedo} title="Redo (Ctrl+Shift+Z)" disabled={!canRedo}
+          style={{ color: canRedo ? 'var(--dk-text-muted)' : 'var(--dk-text-faint)', opacity: canRedo ? 1 : 0.35, cursor: canRedo ? 'pointer' : 'not-allowed' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M21 7v6h-6" /><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
+          </svg>
+        </button>
+        <div className="dk-canvas-toolbar-separator" />
+        <button onClick={() => setConfirmNewCanvas(true)}
+          title="New canvas"
+          style={{ color: 'var(--dk-text-muted)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
         <div className="dk-canvas-toolbar-separator" />
@@ -390,6 +467,66 @@ export function CanvasContainer({
       <div data-tutorial="ai.input">
         <CanvasInput onSend={onSend} onStop={onStop} streaming={streaming} thinking={thinking} onOpenPalette={onOpenPalette} />
       </div>
+
+      <CardDrawer
+        open={showDrawer}
+        onToggle={() => setShowDrawer(false)}
+        onAddCard={(type) => { onAddCard?.(type); setShowDrawer(false) }}
+      />
+
+      <DefaultSetupDialog open={showSetup} onClose={() => setShowSetup(false)} />
+
+      <CustomConfirmDialog
+        open={confirmNewCanvas}
+        title="Start New Canvas?"
+        message="This will save your current layout as a named canvas, then start with a blank canvas. Your cards are not deleted."
+        confirmLabel="New Canvas"
+        cancelLabel="Keep Current"
+        variant="warning"
+        onConfirm={() => { onSaveCanvas?.(); onNewCanvas?.(); setConfirmNewCanvas(false) }}
+        onCancel={() => setConfirmNewCanvas(false)}
+      />
+
+      {/* Save As Dialog */}
+      {showSaveAs && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowSaveAs(false)}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 10 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 10 }}
+            className="fixed inset-0 z-[210] flex items-center justify-center p-4"
+          >
+            <div className="w-full max-w-[380px] rounded-2xl border border-zinc-700/50 bg-[rgba(18,18,18,0.98)] backdrop-blur-xl shadow-2xl p-5" onClick={e => e.stopPropagation()}>
+              <h3 className="text-[14px] font-semibold text-white mb-1">Save Canvas As</h3>
+              <p className="text-[12px] text-zinc-400 mb-4">Create a new canvas with this layout.</p>
+              <input
+                type="text"
+                value={saveAsName}
+                onChange={e => setSaveAsName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && saveAsName.trim()) { onSaveAs?.(saveAsName.trim()); setShowSaveAs(false) } }}
+                autoFocus
+                className="w-full px-3 py-2 rounded-xl bg-zinc-900/60 border border-zinc-700/50 text-[13px] text-white placeholder-zinc-500 outline-none focus:border-zinc-500 transition-colors mb-4"
+                placeholder="Canvas name..."
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button onClick={() => setShowSaveAs(false)} className="px-4 py-2 rounded-xl text-[12px] font-medium text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors">Cancel</button>
+                <button
+                  onClick={() => { if (saveAsName.trim()) { onSaveAs?.(saveAsName.trim()); setShowSaveAs(false) } }}
+                  disabled={!saveAsName.trim()}
+                  className="px-4 py-2 rounded-xl text-[12px] font-medium text-white bg-emerald-500/80 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >Save</button>
+              </div>
+            </div>
+          </motion.div>
+        </>
+      )}
     </div>
   )
 }

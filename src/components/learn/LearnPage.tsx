@@ -24,7 +24,7 @@ import { useMasteryStats } from './useMasteryStats';
 import { useHighlights } from './useHighlights';
 import type { LessonSummary, LessonWithNodes, RenderableNode, TutorAnswer, ValidationIssue, MasteryLevel, NodeProgress, LessonSeed } from '../../shared/learn/types';
 import { DEFAULT_PROFILE } from '../../shared/learn/types';
-import { CURRICULUM_BLUEPRINT, type CurriculumPart } from '../../services/learn/curriculum';
+import { CURRICULUM_TOPICS, type CurriculumTopic } from '../../services/learn/curriculum';
 import { getSystemPromptForSlug } from '../../services/learn/topicPrompts';
 import { hasProfile, saveProfile, syncProfileFromDB, isSetupCompleteAsync } from '../../services/learn/learnerProfile';
 
@@ -67,7 +67,7 @@ export function LearnPage() {
   });
   const [mobileOutlineOpen, setMobileOutlineOpen] = useState(false);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [selectedPart, setSelectedPart] = useState<CurriculumPart | null>(null);
+  const [selectedPart, setSelectedPart] = useState<CurriculumTopic | null>(null);
   const [lessonSeed, setLessonSeed] = useState<LessonSeed | null>(null);
   const [completedParts, setCompletedParts] = useState<string[]>([]);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
@@ -236,6 +236,30 @@ export function LearnPage() {
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
+
+  // Persist a generated/uploaded illustration image_path back into the lesson doc
+  const persistIllustration = useCallback(async (blockId: string, imagePath: string) => {
+    if (!lessonData) return;
+    try {
+      const lessonId = String(lessonData.lesson.id);
+      const src = await api.learnGetLessonSource({ lessonId });
+      if (!src.ok || !src.data) return;
+      const doc = typeof src.data === 'string' ? JSON.parse(src.data) : src.data;
+      let found = false;
+      for (const node of (doc.nodes || [])) {
+        for (const block of (node.blocks || [])) {
+          if (block.id === blockId) {
+            block.meta = block.meta || {};
+            block.meta.image_path = imagePath;
+            found = true;
+          }
+        }
+      }
+      if (!found) return;
+      const result = await api.learnUpdateLessonDoc({ lessonId, docJson: JSON.stringify(doc) });
+      if (result.ok) loadLesson(lessonId);
+    } catch { /* ignore */ }
+  }, [lessonData]);
 
   const handleImport = async () => {
     try {
@@ -522,6 +546,7 @@ export function LearnPage() {
             onDeleteNote={handleDeleteNote}
             onTogglePin={handleTogglePin}
             tutorConfig={tutorConfig}
+            onPersistIllustration={persistIllustration}
           />
         ) : null;
       case 'study':
@@ -663,6 +688,7 @@ export function LearnPage() {
         onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }}
         onImported={() => { loadLessons(); navigate('library'); }}
         onBrowseSavedIdeas={() => { setShowCreateDialog(false); setIntentPanelOpen(true); }}
+        onOpenLesson={(id) => { setShowCreateDialog(false); setLessonSeed(null); loadLesson(id); }}
       />
       <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1122,15 +1123,16 @@ export function TransactionsTab({ transactions, accounts, categories, wallets, l
         onAddFtPerson={onAddFtPerson}
       />
 
-      {/* Floating Jump to Historical button */}
-      {showJumpBtn && historicalTxns.length > 0 && (
+      {/* Floating Jump to Historical button — portal avoids framer-motion transform containing block */}
+      {showJumpBtn && historicalTxns.length > 0 && createPortal(
         <button
           onClick={jumpToHistorical}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500/90 text-white text-xs font-medium shadow-lg shadow-violet-500/20 hover:bg-violet-400 transition-colors backdrop-blur-sm"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] flex items-center gap-2 px-4 py-2 rounded-full bg-violet-500/90 text-white text-xs font-medium shadow-lg shadow-violet-500/20 hover:bg-violet-400 transition-colors backdrop-blur-sm"
         >
           <Clock className="w-3.5 h-3.5" />
           Jump to Historical ({historicalTxns.length})
-        </button>
+        </button>,
+        document.body
       )}
     </div>
   );

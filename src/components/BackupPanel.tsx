@@ -4,7 +4,7 @@ import { EmptyState } from './EmptyState';
 
 interface BackupManifest {
   createdAt: string;
-  trigger: 'startup' | 'interval' | 'quit' | 'manual' | 'pre-restore';
+  trigger: 'startup' | 'interval' | 'quit' | 'manual' | 'pre-restore' | 'agent-session';
   backupFile: string;
   bytes: number;
   sha256: string;
@@ -19,6 +19,7 @@ const triggerLabel: Record<string, string> = {
   quit: 'Quit',
   manual: 'Manual',
   'pre-restore': 'Pre-Restore',
+  'agent-session': 'Agent Session',
 };
 
 const triggerColor: Record<string, string> = {
@@ -27,6 +28,7 @@ const triggerColor: Record<string, string> = {
   quit: 'text-orange-400',
   manual: 'text-green-400',
   'pre-restore': 'text-amber-400',
+  'agent-session': 'text-violet-400',
 };
 
 function formatBytes(bytes: number): string {

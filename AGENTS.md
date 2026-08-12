@@ -263,6 +263,12 @@ attach or the user hasn't launched the app, note "NOT LAUNCHED" and proceed.
   display): skip Step 6, note "NOT LAUNCHED" in the cycle report, and do NOT claim
   VERDICT PASS for visual features. Do NOT attempt to launch the app manually.
 
+### Step 7 — Rendered UI gate for feature work
+- Source presence and a successful build are not proof that a feature is visible.
+- For every UI feature, verify: (1) source markers and handlers, (2) the exact hashed chunk referenced by `dist/index.html`, and (3) runtime visibility, non-zero geometry, and pointer access.
+- For flex/grid changes, inspect parent direction, child sizing, overflow, and responsive breakpoints. A large normal-flow visualization can collapse a `flex-1` feature pane to zero width/height while all feature code remains present.
+- If runtime verification is unavailable, report `NOT LAUNCHED`; never call the UI feature fully verified.
+
 ### Root causes of black screen (never let these happen again)
 1. **Stale dist/ files**: Build doesn't clean `dist/` before writing. Old files from
    previous builds conflict with new code. Fix: `emptyOutDir: true` in vite.config.ts.

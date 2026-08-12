@@ -1,10 +1,11 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useCallback } from 'react';
 import {
   Target, TrendingUp, TrendingDown, Clock, Award, Zap,
-  Monitor, Globe, BarChart3, Info,
+  Monitor, Globe, BarChart3, Info, Timer, Eye, EyeOff,
   PieChart as PieChartIcon, ArrowUp, ArrowDown, Minus,
   ChevronRight, ChevronDown, ChevronLeft, Activity, Layers
 } from 'lucide-react';
+import { Switch } from '../components/ui/switch';
 import { Pie, Bar, Line } from 'react-chartjs-2';
 import { format, eachDayOfInterval, startOfDay, isToday } from 'date-fns';
 import { getDateRange } from '../lib/dateRange';
@@ -12,7 +13,6 @@ import type { Period } from '../lib/dateRange';
 import { PageShell } from '../components/PageShell';
 import { GlassCard } from '../components/GlassCard';
 import { MagicCard } from '../components/ui/magic-card';
-import { BorderBeam } from '../components/ui/border-beam';
 import { SectionHeader } from '../components/SectionHeader';
 import { NumberTicker } from '../components/ui/number-ticker';
 import { DotPattern } from '../components/ui/dot-pattern';
@@ -89,6 +89,18 @@ interface ExternalSession {
   activity_name: string;
   type: string;
   color: string;
+}
+
+interface FocusSession {
+  id: number;
+  started_at: string;
+  ended_at: string | null;
+  planned_sec: number;
+  actual_sec: number | null;
+  outcome: string;
+  strictness: string;
+  broke_on_type: string | null;
+  broke_on_name: string | null;
 }
 
 interface ProductivityPageProps {
@@ -195,6 +207,21 @@ export default function ProductivityPage({
   // External sessions state
   const [allExternalSessions, setAllExternalSessions] = useState<ExternalSession[]>([]);
 
+  // Focus sessions state
+  const [focusSessions, setFocusSessions] = useState<FocusSession[]>([]);
+
+  // Exclude external toggle (localStorage-backed)
+  const [excludeExternal, setExcludeExternal] = useState<boolean>(() => {
+    try { return localStorage.getItem('productivity-exclude-external') === 'true'; }
+    catch { return false; }
+  });
+
+  const toggleExcludeExternal = useCallback((checked: boolean) => {
+    setExcludeExternal(checked);
+    try { localStorage.setItem('productivity-exclude-external', String(checked)); } catch {}
+  }, []);
+
+  // Load external sessions
   useEffect(() => {
     if (window.deskflowAPI?.getExternalSessions) {
       window.deskflowAPI.getExternalSessions('all').then(setAllExternalSessions);
@@ -206,6 +233,15 @@ export default function ProductivityPage({
     };
     window.addEventListener('external-data-changed', handleRefresh);
     return () => window.removeEventListener('external-data-changed', handleRefresh);
+  }, []);
+
+  // Load focus sessions
+  useEffect(() => {
+    if (window.deskflowAPI?.focus?.history) {
+      window.deskflowAPI.focus.history({ limit: 500 }).then((data: any[]) => {
+        setFocusSessions((data || []).filter((s: any) => s.ended_at));
+      });
+    }
   }, []);
 
   // Map external activity id → configured tier (productive/neutral/distracting)
@@ -356,15 +392,33 @@ export default function ProductivityPage({
     const externalItems = filteredExtSessions.map((session: any) => {
       return {
         name: session.activity_name || 'Unknown',
-        category: 'Other',
+        category: session.activity_name || 'Other',
         type: 'external' as const,
         activity_id: session.activity_id,
         duration_sec: session.duration_seconds || 0,
       };
     });
 
-    // Combine all items - ALWAYS include both apps and websites
-    const allItems = [...appItems, ...browserItems, ...externalItems];
+    // Compute focus items from filtered focus sessions
+    const filteredFocusSessions = (focusSessions || []).filter((session: any) => {
+      const t = new Date(session.started_at).getTime();
+      return t >= range.start.getTime() && t < range.end.getTime();
+    });
+
+    const focusItems = filteredFocusSessions.map((session: any) => {
+      const dur = session.actual_sec || 0;
+      return {
+        name: session.strictness === 'non_allowed' ? 'Deep Focus' : 'Focus Session',
+        category: session.outcome === 'completed' ? 'Productivity' : session.outcome === 'failed' ? 'Entertainment' : 'Other',
+        type: 'focus' as const,
+        activity_id: -1,
+        duration_sec: dur,
+        _outcome: session.outcome,
+      };
+    });
+
+    // Combine all items - exclude external if toggle is off
+    const allItems = [...appItems, ...browserItems, ...(excludeExternal ? [] : externalItems), ...focusItems];
 
     // Calculate totals by tier
     const tierTotals = {
@@ -376,7 +430,11 @@ export default function ProductivityPage({
     for (const item of allItems) {
       let assignedTier: 'productive' | 'neutral' | 'distracting' | null = null;
 
-      if (item.type === 'external') {
+      if (item.type === 'focus') {
+        // Focus: completed=productive, failed/aborted=distracting, active=neutral
+        const outcome = (item as any)._outcome;
+        assignedTier = outcome === 'completed' ? 'productive' : outcome === 'failed' ? 'distracting' : 'neutral';
+      } else if (item.type === 'external') {
         assignedTier = (externalTierMap[(item as any).activity_id] || 'neutral') as 'productive' | 'neutral' | 'distracting';
       } else if (tierAssignments.productive.includes(item.category)) {
         assignedTier = 'productive';
@@ -435,14 +493,38 @@ export default function ProductivityPage({
     const displayedAppTotalSec = displayedAppItems.reduce((sum, a) => sum + a.duration_sec, 0);
     const displayedWebsiteTotalSec = displayedWebsiteItems.reduce((sum, b) => sum + b.duration_sec, 0);
 
+    // Source breakdown
+    const extTotalSec = externalItems.reduce((sum, e) => sum + e.duration_sec, 0);
+    const focusTotalSec = focusItems.reduce((sum, f) => sum + f.duration_sec, 0);
+
+    // Day utilization (for 'today' view: tracked / 24h, for ranges: avg daily / 24h)
+    const rangeDays = selectedPeriod === 'today' ? 1
+      : selectedPeriod === 'week' || selectedPeriod === '7day' ? 7
+      : selectedPeriod === 'month' || selectedPeriod === '30day' ? 30
+      : selectedPeriod === 'all' ? Math.max(1, Math.ceil((range.end.getTime() - range.start.getTime()) / (24 * 3600000)))
+      : 7;
+    const daySeconds = rangeDays > 0 ? totalSeconds / rangeDays : totalSeconds;
+    const dayUtilization = Math.min(100, (daySeconds / (24 * 3600)) * 100);
+
     return {
       score: productivityScore,
       totalSeconds,
       weightedSeconds,
       appSeconds: appTotalSec,
       websiteSeconds: websiteTotalSec,
+      externalSeconds: extTotalSec,
+      focusSeconds: focusTotalSec,
       displayedAppSeconds: displayedAppTotalSec,
       displayedWebsiteSeconds: displayedWebsiteTotalSec,
+      dayUtilization,
+      daySeconds,
+      rangeDays,
+      sources: {
+        app: { totalSec: appTotalSec, count: appItems.length },
+        website: { totalSec: websiteTotalSec, count: browserItems.length },
+        external: { totalSec: extTotalSec, count: externalItems.length },
+        focus: { totalSec: focusTotalSec, count: focusItems.length },
+      },
       appVsWeb: {
         app: { totalSec: appTotalSec, productiveSec: appProductiveSec, neutralSec: appNeutralSec, distractingSec: appDistractingSec, score: appScore, count: appItems.length },
         web: { totalSec: websiteTotalSec, productiveSec: webProductiveSec, neutralSec: webNeutralSec, distractingSec: webDistractingSec, score: webScore, count: browserItems.length }
@@ -457,7 +539,7 @@ export default function ProductivityPage({
       topDistracting,
       items: allItems
     };
-  }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments, allExternalSessions, externalTierMap]);
+  }, [logs, browserLogsProp, selectedPeriod, dateOffset, tierAssignments, allExternalSessions, externalTierMap, focusSessions, excludeExternal]);
 
   // Calculate daily trend data
   const dailyTrend = useMemo(() => {
@@ -908,13 +990,17 @@ export default function ProductivityPage({
               <h1 className="text-3xl font-semibold tracking-tight">Productivity</h1>
               <span className="text-sm text-zinc-500 font-mono tabular-nums">{getViewLabel()}</span>
             </div>
+            <div className="flex items-center gap-2">
+              {excludeExternal ? <EyeOff className="w-3.5 h-3.5 text-zinc-500" /> : <Eye className="w-3.5 h-3.5 text-zinc-500" />}
+              <span className="text-xs text-zinc-500">External</span>
+              <Switch checked={!excludeExternal} onCheckedChange={(v) => toggleExcludeExternal(!v)} />
+            </div>
           </div>
         </div>
       )}
 
       {/* Main Score Card */}
       <GlassCard data-tutorial="prod.score" className="group relative overflow-hidden border-zinc-800/50 hover:border-zinc-700/80 transition-colors duration-300">
-        <BorderBeam size={200} duration={8} colorFrom="#10b981" colorTo="#34d399" />
         <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-[radial-gradient(120%_120%_at_50%_0%,rgba(16,185,129,0.12),transparent_60%)]" />
         <div className="relative">
           <div className="flex items-center justify-between mb-6">
@@ -949,6 +1035,84 @@ export default function ProductivityPage({
           </div>
         </div>
       </GlassCard>
+
+      {/* Source Breakdown + Day Utilization */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Source Breakdown */}
+        <GlassCard className="group relative overflow-hidden border-zinc-800/50">
+          <SectionHeader title="Tracked Sources" icon={<Layers className="w-5 h-5 text-zinc-400" />} />
+          <div className="space-y-3">
+            {[
+              { key: 'app', label: 'Desktop Apps', icon: Monitor, bgClass: 'bg-indigo-500/15', iconClass: 'text-indigo-400', barClass: 'bg-indigo-400', sec: productivityData.sources.app.totalSec, count: productivityData.sources.app.count },
+              { key: 'website', label: 'Websites', icon: Globe, bgClass: 'bg-cyan-500/15', iconClass: 'text-cyan-400', barClass: 'bg-cyan-400', sec: productivityData.sources.website.totalSec, count: productivityData.sources.website.count },
+              { key: 'external', label: 'External', icon: Activity, bgClass: 'bg-amber-500/15', iconClass: 'text-amber-400', barClass: 'bg-amber-400', sec: productivityData.sources.external.totalSec, count: productivityData.sources.external.count, disabled: excludeExternal },
+              { key: 'focus', label: 'Focus', icon: Zap, bgClass: 'bg-violet-500/15', iconClass: 'text-violet-400', barClass: 'bg-violet-400', sec: productivityData.sources.focus.totalSec, count: productivityData.sources.focus.count },
+            ].map(src => {
+              const Icon = src.icon;
+              const pct = productivityData.totalSeconds > 0 ? (src.sec / productivityData.totalSeconds) * 100 : 0;
+              return (
+                <div key={src.key} className={`flex items-center gap-3 p-2 rounded-lg ${src.disabled ? 'opacity-40' : ''}`}>
+                  <div className={`w-8 h-8 rounded-lg ${src.bgClass} flex items-center justify-center flex-shrink-0`}>
+                    <Icon className={`w-4 h-4 ${src.iconClass}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-zinc-300">{src.label}{src.disabled ? ' (excluded)' : ''}</span>
+                      <span className="text-xs font-mono text-zinc-400">{formatHours(src.sec)}</span>
+                    </div>
+                    <div className="w-full bg-zinc-800 rounded-full h-1.5">
+                      <div className={`h-1.5 rounded-full ${src.barClass} transition-all duration-500`}
+                        style={{ width: `${Math.min(100, pct)}%` }} />
+                    </div>
+                  </div>
+                  <span className="text-xs text-zinc-500 w-12 text-right font-mono">{Math.round(pct)}%</span>
+                </div>
+              );
+            })}
+          </div>
+        </GlassCard>
+
+        {/* Day Utilization Ring */}
+        <GlassCard className="group relative overflow-hidden border-zinc-800/50 flex flex-col">
+          <SectionHeader title="Day Utilization" icon={<Clock className="w-5 h-5 text-zinc-400" />}
+            action={<span className="text-xs text-zinc-500">{formatHours(productivityData.daySeconds)} / day avg</span>} />
+          <div className="flex-1 flex items-center justify-center py-4">
+            <div className="relative w-40 h-40">
+              <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                <circle cx="50" cy="50" r="42" fill="none" stroke="rgba(39,39,42,0.8)" strokeWidth="8" />
+                <circle cx="50" cy="50" r="42" fill="none" stroke="url(#dayGrad)" strokeWidth="8"
+                  strokeLinecap="round"
+                  strokeDasharray={`${productivityData.dayUtilization * 2.639} ${263.9 - productivityData.dayUtilization * 2.639}`}
+                  className="transition-all duration-1000" />
+                <defs>
+                  <linearGradient id="dayGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#10b981" />
+                    <stop offset="100%" stopColor="#06b6d4" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold font-mono tabular-nums text-white">{Math.round(productivityData.dayUtilization)}%</span>
+                <span className="text-xs text-zinc-500 mt-0.5">of 24h tracked</span>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 px-4 pb-3">
+            <div className="text-center">
+              <div className="text-sm font-semibold font-mono text-emerald-400">{formatHours(productivityData.tiers.productive.seconds)}</div>
+              <div className="text-[10px] text-zinc-500">Productive</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-semibold font-mono text-blue-400">{formatHours(productivityData.tiers.neutral.seconds)}</div>
+              <div className="text-[10px] text-zinc-500">Neutral</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm font-semibold font-mono text-red-400">{formatHours(productivityData.tiers.distracting.seconds)}</div>
+              <div className="text-[10px] text-zinc-500">Distracting</div>
+            </div>
+          </div>
+        </GlassCard>
+      </div>
 
       <div className="space-y-4">
         {/* Time Breakdown - based on tierFilter */}
@@ -1186,6 +1350,15 @@ export default function ProductivityPage({
             let totalItems = productivityData.items;
             if (tierFilter !== 'all') {
               totalItems = productivityData.items.filter(item => {
+                if (item.type === 'external') {
+                  const t = (externalTierMap[(item as any).activity_id] || 'neutral');
+                  return t === tierFilter;
+                }
+                if (item.type === 'focus') {
+                  const outcome = (item as any)._outcome;
+                  const t = outcome === 'completed' ? 'productive' : outcome === 'failed' ? 'distracting' : 'neutral';
+                  return t === tierFilter;
+                }
                 const itemTier = tierAssignments.productive.includes(item.category) ? 'productive' :
                   tierAssignments.distracting.includes(item.category) ? 'distracting' : 'neutral';
                 return itemTier === tierFilter;
@@ -1193,10 +1366,12 @@ export default function ProductivityPage({
             }
             const appCount = totalItems.filter(i => i.type === 'app').length;
             const webCount = totalItems.filter(i => i.type === 'website').length;
+            const extCount = totalItems.filter(i => i.type === 'external').length;
+            const focusCount = totalItems.filter(i => i.type === 'focus').length;
             return (
               <div className="ml-auto text-xs text-zinc-500">
                 {tierFilter === 'all'
-                  ? `${appCount + webCount} items`
+                  ? `${appCount + webCount + extCount + focusCount} items`
                   : `${totalItems.length} items in ${tierFilter}`
                 }
               </div>
@@ -1430,8 +1605,12 @@ export default function ProductivityPage({
                   <div className="w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center">
                     {item.type === 'app' ? (
                       <Monitor className="w-4 h-4 text-red-400" />
-                    ) : (
+                    ) : item.type === 'website' ? (
                       <Globe className="w-4 h-4 text-red-400" />
+                    ) : item.type === 'focus' ? (
+                      <Timer className="w-4 h-4 text-red-400" />
+                    ) : (
+                      <Activity className="w-4 h-4 text-red-400" />
                     )}
                   </div>
                   <div>
@@ -1528,7 +1707,7 @@ export default function ProductivityPage({
       <GlassCard>
         <SectionHeader title="Insights" icon={<Info className="w-5 h-5" />} />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-emerald-500/40 transition-colors duration-200">
             <div className="flex items-center gap-2 mb-2">
               <Zap className="w-4 h-4 text-yellow-400" />
@@ -1555,42 +1734,55 @@ export default function ProductivityPage({
             </div>
           </div>
 
-          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-emerald-500/40 transition-colors duration-200">
+          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-indigo-500/40 transition-colors duration-200">
             <div className="flex items-center gap-2 mb-2">
               <Monitor className="w-4 h-4 text-indigo-400" />
               <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">App Time</span>
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums tracking-tight text-white">
-              {formatDuration(productivityData.appVsWeb.app.totalSec)}
+              {formatDuration(productivityData.sources.app.totalSec)}
             </div>
             <div className="text-xs text-zinc-500 mt-1">
               {Math.round(productivityData.appVsWeb.app.score)}% productive
             </div>
           </div>
 
-          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-emerald-500/40 transition-colors duration-200">
+          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-cyan-500/40 transition-colors duration-200">
             <div className="flex items-center gap-2 mb-2">
               <Globe className="w-4 h-4 text-cyan-400" />
               <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">Website Time</span>
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums tracking-tight text-white">
-              {formatDuration(productivityData.appVsWeb.web.totalSec)}
+              {formatDuration(productivityData.sources.website.totalSec)}
             </div>
             <div className="text-xs text-zinc-500 mt-1">
               {Math.round(productivityData.appVsWeb.web.score)}% productive
             </div>
           </div>
 
-          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-emerald-500/40 transition-colors duration-200">
+          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-amber-500/40 transition-colors duration-200">
             <div className="flex items-center gap-2 mb-2">
-              <Clock className="w-4 h-4 text-blue-400" />
-              <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">Total Tracked</span>
+              <Activity className="w-4 h-4 text-amber-400" />
+              <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">External</span>
             </div>
             <div className="text-2xl font-bold font-mono tabular-nums tracking-tight text-white">
-              {formatDuration(productivityData.totalSeconds)}
+              {formatDuration(productivityData.sources.external.totalSec)}
             </div>
             <div className="text-xs text-zinc-500 mt-1">
-              Apps + Websites
+              {productivityData.sources.external.count} sessions
+            </div>
+          </div>
+
+          <div className="group relative overflow-hidden p-5 bg-zinc-900/30 backdrop-blur-xl rounded-xl border border-zinc-800/50 hover:border-violet-500/40 transition-colors duration-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Timer className="w-4 h-4 text-violet-400" />
+              <span className="text-[11px] uppercase tracking-[0.08em] font-medium text-zinc-500">Focus Sessions</span>
+            </div>
+            <div className="text-2xl font-bold font-mono tabular-nums tracking-tight text-white">
+              {formatDuration(productivityData.sources.focus.totalSec)}
+            </div>
+            <div className="text-xs text-zinc-500 mt-1">
+              {productivityData.sources.focus.count} sessions
             </div>
           </div>
         </div>
@@ -1616,6 +1808,9 @@ export default function ProductivityPage({
           <ul className="list-disc list-inside space-y-1">
             <li>Desktop apps from activity tracking</li>
             <li>Websites from browser activity tracking</li>
+            <li>External activities (exercise, reading, etc.) — toggleable</li>
+            <li>Deep Focus sessions (completed = productive, failed = distracting)</li>
+            <li>Day utilization = tracked time / 24 hours</li>
             <li>Categories mapped using tier assignments from Settings</li>
           </ul>
         </div>

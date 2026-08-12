@@ -1,0 +1,28 @@
+{
+  "id": "chapter_title",
+  "version": "1.0.0",
+  "renderer": "card",
+  "label": "Chapter Title",
+  "description": "Section divider with large title and subtitle",
+  "intents": ["chapter"],
+  "constraints": {
+    "min_duration": 2.0,
+    "max_duration": 8,
+    "max_characters": 36,
+    "max_lines": 2,
+    "allowed_regions": ["full", "middle"]
+  },
+  "props_schema": {
+    "title": {"type": "string", "max_chars": 36},
+    "subtitle": {"type": "string", "max_chars": 64, "optional": true}
+  },
+  "animation_defaults": {
+    "title": "mask_wipe_left",
+    "subtitle": "fade_in",
+    "delay": 0.08
+  },
+  "fallback_template": "body_card",
+  "fallback_chain": ["hook_card", "body_card"],
+  "z_index_band": 85,
+  "supports_animation": true
+}

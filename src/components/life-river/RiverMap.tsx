@@ -117,6 +117,7 @@ export function RiverMap({
   return (
     <div
       data-lifephase="river-map"
+      data-river-map
       className="sticky top-0 z-40 bg-zinc-950/60 backdrop-blur-xl border-b border-zinc-800/50"
     >
       <div className="px-5 py-3">
@@ -157,7 +158,7 @@ export function RiverMap({
             <svg
               ref={svgRef}
               viewBox={`0 0 ${vbW} 100`}
-              className="w-full h-44"
+              className="h-[420px] w-full min-h-[420px] sm:h-[480px]"
               preserveAspectRatio="none"
             >
               {/* Background glow */}

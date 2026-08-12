@@ -1,6 +1,8 @@
 import type { CanvasCard as CanvasCardType } from '../../../types/canvas'
 import type { DynamicUIComponent } from '../../../types/dynamicUI'
 import { DynamicCardRenderer } from './DynamicCardRenderer'
+import { StateView } from '../shared/StateView'
+import { Blocks } from 'lucide-react'
 
 interface DynamicCardProps {
   card: CanvasCardType
@@ -10,7 +12,20 @@ interface DynamicCardProps {
 
 export function DynamicCard({ card, onDismiss, onAction }: DynamicCardProps) {
   const comp: DynamicUIComponent | undefined = card.data?.dynamicComponent
-  if (!comp) return <div className="p-4 text-xs text-zinc-500">No component data</div>
+  if (!comp) {
+    return (
+      <StateView
+        state="empty"
+        emptyProps={{
+          icon: Blocks,
+          title: 'Empty component',
+          description: 'Ask the AI to generate an interactive component to fill this card.',
+        }}
+      >
+        {null}
+      </StateView>
+    )
+  }
 
   return (
     <DynamicCardRenderer
