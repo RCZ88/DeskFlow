@@ -1,44 +1,45 @@
+<!-- AGENT STATE TEMPLATE — Copy this to create your spoke file -->
+<!-- Replace ALL {braces} with actual values before writing -->
 <!-- SESSION: opencode-term-1-gaia -->
 <!-- AGENT: opencode | TERMINAL: term-1786361395383-5dtaj0s7w | PROJECT: C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker -->
 
 # Agent State — opencode-term-1-gaia
 
-> **STATUS:** completed | **UPDATED:** 2026-08-12T08:00:00.000Z
+> **STATUS:** completed | **UPDATED:** 2026-08-13T16:30:00.000Z
 
 ---
 
-## CURRENT CYCLE (14)
-**ROLE:** Hands & Eyes — fix mermaid visualization: oversized height + off-center positioning
+## CURRENT CYCLE (13)
+**ROLE:** Hands & Eyes — AI Tools page stats fix: correct session counts + add daily averages + compact charts
 **STATUS:** completed
 **IN FLIGHT:**
-- User must relaunch RHEO and verify mermaid diagrams fit the card width and are centered
+- User to relaunch RHEO and verify: AI Sessions KPI shows ai_usage row counts (not terminal_sessions); daily avg cards visible in KPI row; charts smaller
 **COMPLETED:**
-- ROOT CAUSE: MermaidBlock set SVG to native width/height (e.g., 1200x800px). ZoomPan used `minH={220}` and measured `el.clientHeight` (which was 220px from minH) — the aspect ratio was wrong, causing the diagram to be positioned off-center and the card to be oversized.
-- Fix: ZoomPan's `fitToContainer` now computes container height from the SVG's aspect ratio (`aspectH = (cw / nw) * nh`), sets `el.style.height` dynamically, and centers with correct translate. Removed `minH` prop (unused). Min height floor = 120px.
-- MermaidBlock: removed `minH={220}` — ZoomPan handles height internally.
-- FlowBlock: removed `minH={220}` — same fix applies (flow diagrams also use mermaid).
-- SvgBlock: already correct (no minH).
-- Vite build OK (47s).
-**NEXT ACTION:** User relaunches RHEO → mermaid/flow diagrams should fit card width, correct height, centered
-**NOTES:** Curriculum rename phases 1-5 still queued.
+- deriveStats.ts: rewrote to sum sessions from aiUsage.byTool (ai_usage row counts), added activeDays set from daily keys, computed dailyAvgTokens/Cost/Messages
+- KpiRow.tsx: added second row of 3 KPI cards (Tokens/Day, Cost/Day, Messages/Day) with active day count in label; renamed "Active Sessions" to "AI Sessions"
+- KpiCard.tsx: added 'amber' accent variant for Messages/Day card
+- AIToolsTab.tsx: reduced chart heights — per-agent line h-64→h-48, stacked bar h-80→h-56, compare bar h-80→h-56, doughnut h-64→h-48, third bar chart h-80→h-56
+- Build: vite OK 47s, preload.cjs 99.8KB, main.cjs 1302KB
+**NEXT ACTION:** User relaunch + runtime verification
+**NOTES:** There are NO "language distribution" or "response time" charts in the codebase — user may have been confused about what's displayed. The existing charts are: Usage Trend (line), Distribution (doughnut), Heatmap (calendar), bar cards.
 
 ---
 
 ## HISTORY (previous 2 cycles, oldest first)
 
-### Cycle 13 — 2026-08-12T07:40:00Z
-**ROLE:** Hands & Eyes — fix wizard import sending wrong IPC payload
+### Cycle 12 — 2026-08-13T08:45:00Z
+**ROLE:** Hands & Eyes — Focus BUFFER MODEL (user's clarified semantics): categories = tolerance buffer for lenient sessions only; strict = exact apps/sites only
 **STATUS:** completed
 **COMPLETED:**
-- Wizard sent `{ json: text, source: 'paste' }` but IPC handler parsed `source` ('paste') as .lmd → fails
-- Fixed: both paste + file upload now send `{ source: text }`
-- All 6 callers verified
-**NEXT ACTION:** User relaunch + test
+- focusManager.isAllowed rewritten: explicit apps/domains always allowed; STRICT group session = explicit list ONLY; LENIENT group session = explicit list + apps whose real category ∈ allowed_categories
+- FocusGroupEditor labels updated; FocusTimer pills updated
+- Build: vite OK, main.cjs OK
+**NEXT ACTION:** User relaunch + runtime verification
 
-### Cycle 12 — 2026-08-12T07:20:00Z
-**ROLE:** Hands & Eyes — bare-frontmatter fallback
+### Cycle 11 — 2026-08-12T20:15:00Z
+**ROLE:** Hands & Eyes — Focus refactor: groups = pure allowed-set; strictness/duration at session start; per-mode daily goals
 **STATUS:** completed
 **COMPLETED:**
-- Added tryParseBareFrontmatter for missing opening ---
-- 5-case repro + 12-case harness all pass
-**NEXT ACTION:** User relaunch + test
+- FocusGroupEditor stripped of strictness/duration/goal fields; focus_goal_config table + focusGoal:get/save IPC; new FocusGoals.tsx
+- Build: vite OK
+**NEXT ACTION:** User verification

@@ -132,6 +132,15 @@ export default function LifePage() {
     return () => { cancelled = true }
   }, [])
 
+  const redirectToPage = useCallback((lens: LensId) => {
+    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories' }
+    const tab = tabMap[lens]
+    if (tab) {
+      setPageTab(tab)
+      setMode('pages')
+    }
+  }, [setMode])
+
   const redirectToPageForAdd = useCallback((type: 'covenant' | 'gold' | 'memory') => {
     const lensMap: Record<string, LensId> = { covenant: 'covenant', gold: 'gold', memory: 'memories' }
     setLens(lensMap[type] || 'phases')
@@ -142,15 +151,6 @@ export default function LifePage() {
       setConfirmRedirect({ lens: type, label: labelMap[type] || type })
     }
   }, [redirectMode, redirectToPage])
-
-  const redirectToPage = useCallback((lens: LensId) => {
-    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories' }
-    const tab = tabMap[lens]
-    if (tab) {
-      setPageTab(tab)
-      setMode('pages')
-    }
-  }, [setMode])
 
   const openAddForLens = useCallback((nextLens: LensId) => {
     setLens(nextLens)

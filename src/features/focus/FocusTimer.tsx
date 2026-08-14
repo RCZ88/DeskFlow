@@ -145,7 +145,7 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
               className="w-full"
             >
               <p className="text-center text-[11px] text-zinc-500 mb-3">
-                {state!.strictness === 'non_allowed' ? 'Strict mode -- only allowed & productive apps' : 'Blocking distracting apps and sites'}
+                {state!.strictness === 'non_allowed' ? 'Strict mode -- only the exact apps & sites of the group' : 'Lenient -- exact apps & sites plus the category buffer'}
               </p>
               <motion.button
                 whileTap={tapScale}
@@ -244,15 +244,19 @@ export function FocusTimer({ state, mins, onMinsChange, strict, onStrictChange, 
                   Strict mode
                 </span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full ${strict === 'non_allowed' ? 'bg-amber-500/15 text-amber-300' : 'bg-zinc-800 text-zinc-500'}`}>
-                  {strict === 'non_allowed' ? 'Only allowed & productive' : 'Blocks distracting apps only'}
+                  {strict === 'non_allowed' ? 'Exact apps & sites only' : 'Allowed apps + buffer'}
                 </span>
               </button>
-              {strict === 'non_allowed' && (
+              {strict === 'non_allowed' ? (
                 <p className="text-[10px] text-amber-400/60 leading-relaxed text-center mb-3 px-2">
-                  Hard whitelist: your allowed apps, sites and categories, plus productive apps — everything else triggers a focus reminder overlay.
-                  Requires tracking set to "Track as Normal" in Settings for full enforcement.
+                  Hard whitelist: only the group's exact apps &amp; sites are allowed — the category buffer is blocked.
+                  Everything else triggers a focus reminder overlay. Requires tracking set to "Track as Normal" in Settings for full enforcement.
                 </p>
-              )}
+              ) : activeGroup && activeGroup.allowed_categories.length > 0 ? (
+                <p className="text-[10px] text-emerald-400/60 leading-relaxed text-center mb-3 px-2">
+                  Category buffer tolerated: apps from your group's categories are allowed alongside the exact list.
+                </p>
+              ) : null}
 
               <ShinyButton
                 accent="16,185,129"

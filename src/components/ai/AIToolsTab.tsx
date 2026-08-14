@@ -298,6 +298,23 @@ export default function AIToolsTab({
     } catch { return 'popup' }
   })
 
+  // ── Language distribution + response time data ──
+  const [usageDetails, setUsageDetails] = useState<{
+    languageDistribution: Record<string, { count: number; tokens: number }>
+    avgResponseTime: number
+    responseTimeByDay: Record<string, number>
+  } | null>(null)
+
+  useEffect(() => {
+    const fetchDetails = async () => {
+      try {
+        const details = await window.deskflowAPI?.getAIUsageDetails(effectiveAiPeriod === 'all' ? 'all' : effectiveAiPeriod === 'week' ? 'week' : 'month')
+        if (details) setUsageDetails(details)
+      } catch {}
+    }
+    fetchDetails()
+  }, [effectiveAiPeriod])
+
   // ── Derived period ──
   const effectiveAiPeriod = useMemo<'week' | 'month' | 'all'>(() => {
     if (timeLock) return 'all'
@@ -1237,6 +1254,165 @@ export default function AIToolsTab({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ── Language Distribution + Response Time ── */}
+      {usageDetails && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Language Distribution */}
+          {Object.keys(usageDetails.languageDistribution).length > 0 && (
+            <GlassCard>
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                  <Hash className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-[13px] font-semibold text-zinc-100">
+                    Language Distribution
+                  </h3>
+                  <p className="text-[11px] text-zinc-500">
+                    By project type detection
+                  </p>
+                </div>
+              </div>
+              <div className="h-48">
+                <Doughnut
+                  data={{
+                    labels: Object.entries(usageDetails.languageDistribution)
+                      .sort(([, a], [, b]) => b.tokens - a.tokens)
+                      .map(([lang]) => lang),
+                    datasets: [
+                      {
+                        data: Object.entries(usageDetails.languageDistribution)
+                          .sort(([, a], [, b]) => b.tokens - a.tokens)
+                          .map(([, v]) => v.tokens),
+                        backgroundColor: [
+                          '#3b82f6', '#f97316', '#22c55e', '#a855f7',
+                          '#f59e0b', '#ef4444', '#06b6d4', '#ec4899',
+                        ],
+                        borderColor: 'rgba(0,0,0,0.3)',
+                        borderWidth: 2,
+                      },
+                    ],
+                  }}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '60%',
+                    plugins: {
+                      legend: {
+                        position: 'right',
+                        labels: {
+                          color: '#a1a1aa',
+                          font: { size: 11 },
+                          padding: 8,
+                          usePointStyle: true,
+                          pointStyleWidth: 8,
+                        },
+                      },
+                      tooltip: {
+                        backgroundColor: 'rgba(9, 9, 11, 0.95)',
+                        titleColor: '#fff',
+                        bodyColor: '#a1a1aa',
+                        borderColor: '#27272a',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        callbacks: {
+                          label: (ctx) => {
+                            const val = ctx.parsed || 0
+                            const total = ctx.dataset.data.reduce((a: number, b: number) => a + b, 0)
+                            const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0'
+                            return ` ${formatTokens(val)} tokens (${pct}%)`
+                          },
+                        },
+                      },
+                    },
+                  }}
+                />
+              </div>
+            </GlassCard>
+          )}
+
+          {/* Response Time */}
+          {usageDetails.avgResponseTime > 0 && (
+            <GlassCard>
+              <div className="flex items-center gap-2.5 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-cyan-500/15 flex items-center justify-center">
+                  <Clock className="w-4 h-4 text-cyan-400" />
+                </div>
+                <div>
+                  <h3 className="text-[13px] font-semibold text-zinc-100">
+                    Avg Response Time
+                  </h3>
+                  <p className="text-[11px] text-zinc-500">
+                    {usageDetails.avgResponseTime}ms average
+                  </p>
+                </div>
+              </div>
+              <div className="h-48">
+                {Object.keys(usageDetails.responseTimeByDay).length > 0 ? (
+                  <Line
+                    data={{
+                      labels: Object.keys(usageDetails.responseTimeByDay).sort().map(d => format(new Date(d), 'MMM dd')),
+                      datasets: [
+                        {
+                          label: 'Response Time (ms)',
+                          data: Object.keys(usageDetails.responseTimeByDay).sort().map(d => usageDetails.responseTimeByDay[d]),
+                          borderColor: '#06b6d4',
+                          backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                          borderWidth: 2,
+                          pointRadius: 3,
+                          pointBackgroundColor: '#06b6d4',
+                          fill: true,
+                          tension: 0.3,
+                        },
+                      ],
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                          backgroundColor: 'rgba(9, 9, 11, 0.95)',
+                          titleColor: '#fff',
+                          bodyColor: '#a1a1aa',
+                          borderColor: '#27272a',
+                          borderWidth: 1,
+                          cornerRadius: 8,
+                          callbacks: {
+                            label: (ctx) => ` ${ctx.parsed.y}ms`,
+                          },
+                        },
+                      },
+                      scales: {
+                        x: {
+                          grid: { display: false },
+                          border: { color: 'rgba(113,113,122,0.12)' },
+                          ticks: { color: '#71717a', font: { size: 10 } },
+                        },
+                        y: {
+                          grid: { color: 'rgba(113,113,122,0.06)' },
+                          border: { color: 'rgba(113,113,122,0.12)' },
+                          ticks: {
+                            color: '#71717a',
+                            font: { size: 10 },
+                            callback: (v) => `${v}ms`,
+                          },
+                          beginAtZero: true,
+                        },
+                      },
+                    }}
+                  />
+                ) : (
+                  <div className="h-full flex items-center justify-center text-zinc-500 text-sm">
+                    No response time data yet
+                  </div>
+                )}
+              </div>
+            </GlassCard>
+          )}
+        </div>
+      )}
 
       {/* ── Tool Selector ── */}
       <GlassCard>
@@ -2637,7 +2813,7 @@ export default function AIToolsTab({
                         {agentChart.metricLabel}
                       </span>
                     </div>
-                    <div className="h-64">
+                    <div className="h-48">
                       <Line
                         data={agentChart.chartData}
                         options={{
@@ -2742,7 +2918,7 @@ export default function AIToolsTab({
                     </div>
                   </div>
                 </div>
-                <div className="h-64 flex items-center justify-center">
+                <div className="h-48 flex items-center justify-center">
                   {agentDistributionData.labels.length > 0 ? (
                     <Doughnut
                       data={agentDistributionData}
@@ -3033,7 +3209,7 @@ export default function AIToolsTab({
                         </div>
                       )
                     })()}
-                    <div className="h-80">
+                    <div className="h-56">
                       <Bar
                         data={{
                           labels: periodDays.map((d) =>
@@ -3345,7 +3521,7 @@ export default function AIToolsTab({
                           })}
                         </div>
                       )}
-                    <div className="h-80">
+                    <div className="h-56">
                       <Bar
                         data={{
                           labels: periodDays.map((d) =>
@@ -3530,7 +3706,7 @@ export default function AIToolsTab({
                       ))}
                   </div>
 
-                  <div className="h-80">
+                  <div className="h-56">
                     {(() => {
                       let numDays =
                         effectiveAiPeriod === 'week'

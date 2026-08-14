@@ -2,7 +2,14 @@ export interface AnalyticsRawData {
   aiUsage?: {
     totalTokens?: number;
     totalCost?: number;
-    byTool?: Record<string, { tokens?: number; cost?: number; sessions?: number }>;
+    totalMessages?: number;
+    byTool?: Record<string, {
+      tokens?: number;
+      cost?: number;
+      sessions?: number;
+      messageCount?: number;
+      daily?: Record<string, { tokens?: number; cost?: number; sessions?: number; messageCount?: number }>;
+    }>;
   } | null;
   sessions?: Array<{ agent?: string; status?: string }>;
 }
@@ -16,6 +23,13 @@ export interface DerivedStats {
   totalCostNum: number;
   activeSessionsNum: number;
   toolsModelsNum: number;
+  dailyAvgTokens: string;
+  dailyAvgCost: string;
+  dailyAvgMessages: string;
+  dailyAvgTokensNum: number;
+  dailyAvgCostNum: number;
+  dailyAvgMessagesNum: number;
+  activeDays: number;
   tokensByTool: { labels: string[]; values: number[] };
   sessionsByAgent: { labels: string[]; values: number[] };
   hasData: boolean;
@@ -42,14 +56,40 @@ export function deriveStats(raw: AnalyticsRawData): DerivedStats {
 
   const totalTokens = aiUsage?.totalTokens || 0;
   const totalCost = aiUsage?.totalCost || 0;
-  const activeSessions = sessions.filter(s => s.status === 'active' || s.status === 'running').length;
+  const totalMessages = aiUsage?.totalMessages || 0;
   const toolsModels = aiUsage?.byTool ? Object.keys(aiUsage.byTool).length : 0;
 
+  // Count AI sessions from byTool (ai_usage row counts), not terminal_sessions
   const byTool = aiUsage?.byTool || {};
+  let totalAISessions = 0;
+  const activeDaysSet = new Set<string>();
+  let dailyTotalTokens = 0;
+  let dailyTotalCost = 0;
+  let dailyTotalMessages = 0;
+
+  for (const data of Object.values(byTool)) {
+    totalAISessions += (data as any)?.sessions || 0;
+    const daily = (data as any)?.daily;
+    if (daily) {
+      for (const [dayStr, dayData] of Object.entries(daily)) {
+        activeDaysSet.add(dayStr);
+        dailyTotalTokens += (dayData as any)?.tokens || 0;
+        dailyTotalCost += (dayData as any)?.cost || 0;
+        dailyTotalMessages += (dayData as any)?.messageCount || 0;
+      }
+    }
+  }
+
+  const activeDays = activeDaysSet.size || 1;
+  const dailyAvgTokens = totalTokens / activeDays;
+  const dailyAvgCost = totalCost / activeDays;
+  const dailyAvgMessages = totalMessages / activeDays;
+
   const tokenEntries = Object.entries(byTool)
-    .map(([tool, data]) => ({ tool, tokens: data?.tokens || 0 }))
+    .map(([tool, data]) => ({ tool, tokens: (data as any)?.tokens || 0 }))
     .sort((a, b) => b.tokens - a.tokens);
 
+  // Session counts by agent from terminal_sessions (for the bar chart)
   const sessionCounts: Record<string, number> = {};
   for (const s of sessions) {
     const agent = s.agent || 'Unknown';
@@ -60,14 +100,21 @@ export function deriveStats(raw: AnalyticsRawData): DerivedStats {
   return {
     totalTokens: fmtNum(totalTokens),
     totalCost: fmtCost(totalCost),
-    activeSessions: String(activeSessions),
+    activeSessions: String(totalAISessions),
     toolsModels: String(toolsModels),
     totalTokensNum: totalTokens,
     totalCostNum: totalCost,
-    activeSessionsNum: activeSessions,
+    activeSessionsNum: totalAISessions,
     toolsModelsNum: toolsModels,
+    dailyAvgTokens: fmtNum(Math.round(dailyAvgTokens)),
+    dailyAvgCost: fmtCost(dailyAvgCost),
+    dailyAvgMessages: fmtNum(Math.round(dailyAvgMessages)),
+    dailyAvgTokensNum: Math.round(dailyAvgTokens),
+    dailyAvgCostNum: dailyAvgCost,
+    dailyAvgMessagesNum: Math.round(dailyAvgMessages),
+    activeDays,
     tokensByTool: { labels: tokenEntries.map(e => e.tool), values: tokenEntries.map(e => e.tokens) },
     sessionsByAgent: { labels: sessionEntries.map(e => e[0]), values: sessionEntries.map(e => e[1]) },
-    hasData: totalTokens > 0 || sessions.length > 0,
+    hasData: totalTokens > 0 || totalAISessions > 0,
   };
 }

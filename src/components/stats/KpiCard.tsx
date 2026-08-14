@@ -8,7 +8,7 @@ export type KpiTrend = { direction: 'up' | 'down'; label: string };
 
 export interface KpiCardProps {
   icon: LucideIcon;
-  accent: 'violet' | 'emerald' | 'pink' | 'cyan';
+  accent: 'violet' | 'emerald' | 'pink' | 'cyan' | 'amber';
   value: string;
   label: string;
   sublabel?: string;
@@ -60,6 +60,14 @@ const accentMap: Record<string, {
     valueColor: 'text-white',
     ring: 'ring-cyan-500/30',
     dot: 'bg-cyan-400',
+  },
+  amber: {
+    bg: 'bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-transparent',
+    iconBg: 'bg-amber-500/20',
+    iconColor: 'text-amber-400',
+    valueColor: 'text-white',
+    ring: 'ring-amber-500/30',
+    dot: 'bg-amber-400',
   },
 };
 

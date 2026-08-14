@@ -16,7 +16,7 @@ import IssuesWorkspace from '../components/IssuesWorkspace';
 import { BugReportPanel } from '../components/BugReportPanel';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
-import { WorkspaceMindMap } from '../components/WorkspaceMindMap';
+import { CodeArchitectureMap } from '../components/workspace/CodeArchitectureMap';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { DEFAULT_SYSTEM_PROMPT, getDefaultAgent } from '../lib/defaults';
 import { stripAnsi } from '../lib/stripAnsi';
@@ -4053,7 +4053,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               <WorkspaceShell accent="amber" tabs={[
                 { key: 'context', icon: Settings2, label: 'Context' },
                 { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
-                { key: 'context-map', icon: Network, label: 'Context Map' },
+                { key: 'context-map', icon: Network, label: 'Architecture Map' },
                 { key: 'page-context', icon: FileText, label: 'Page Context' },
                 { key: 'feature-logic', icon: GitBranch, label: 'Feature Logic' },
               ]} storageKey="context" render={(sub) => {
@@ -4077,7 +4077,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   );
                   case 'context-map': return (
                     <GroupPanel accent="cyan">
-                      <WorkspaceMindMap projectPath={propProjectPath || ''} />
+                       <CodeArchitectureMap projectPath={propProjectPath || ''} />
                     </GroupPanel>
                   );
                   case 'page-context': return (
@@ -4899,7 +4899,7 @@ const FEATURES = [
     color: 'amber',
     items: [
       { name: 'Context Systems', desc: 'Toggle context sources (LLM Wiki, Obsidian Skills, Graphify, PARÁ, QMD, Automations, Design Skills)' },
-      { name: 'Context Map', desc: 'Visual map showing active context systems and token budget' },
+      { name: 'Architecture Map', desc: 'Interactive visual map of project structure — files, components, and dependencies' },
       { name: 'Context Assembly', desc: 'Build and preview assembled context before starting a session' },
       { name: 'Maintenance', desc: 'Manage context optimization, summarization, and deep memory' },
     ],

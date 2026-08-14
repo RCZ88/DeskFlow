@@ -107,12 +107,16 @@ export class FocusManager {
     const a = this.state.allowed;
     if (kind === 'app' && a.apps.includes(name)) return true;
     if (kind === 'website' && a.domains.includes(name)) return true;
+    const hasExplicit = a.apps.length > 0 || a.domains.length > 0;
     if (this.state.strictness === 'non_allowed') {
-      // Hard whitelist: only apps of the picked categories (or explicit list above).
-      if (a.categories.length > 0) return !!category && a.categories.includes(category);
-      return a.tiers.includes(tier);
+      // STRICT: exact whitelist only — the category buffer is BLOCKED here.
+      // A group session (explicit list present) allows ONLY its exact apps/sites.
+      if (hasExplicit) return false;
+      return a.tiers.includes(tier); // plain session (no group): productive tier only
     }
-    return tier !== 'distracting';
+    // LENIENT: the category buffer is tolerated alongside the exact list.
+    if (a.categories.length > 0) return !!category && a.categories.includes(category);
+    return tier !== 'distracting'; // plain session (no buffer): blocks distracting only
   }
 
   onForegroundApp(appName: string, category?: string) {

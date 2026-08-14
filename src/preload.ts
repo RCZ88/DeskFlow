@@ -327,6 +327,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
 
   // AI & Git Metrics
   getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => ipcRenderer.invoke('get-ai-usage-summary', period, dateOffset, projectId),
+  getAIUsageDetails: (period?: string, dateOffset?: number) => ipcRenderer.invoke('get-ai-usage-details', period, dateOffset),
   getCommitStats: (projectId?: string, period?: 'week' | 'month') => ipcRenderer.invoke('get-commit-stats', projectId, period),
 
   // Dashboard Overview

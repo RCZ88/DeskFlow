@@ -151,17 +151,25 @@ export function deleteCanvas(id: string): void {
 }
 
 export function clearCanvasLayout(): void {
-  // Remove ALL canvas entries — not just the active one.
-  // listCanvases() iterates all deskflow-canvas-* keys; remove them all
-  // so loadCanvasLayout() returns null (empty state) on next startup.
-  const keysToRemove: string[] = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (key && (key.startsWith(STORAGE_PREFIX) || key === ACTIVE_KEY || key === 'deskflow-canvas-layout')) {
-      keysToRemove.push(key)
-    }
-  }
-  keysToRemove.forEach(k => localStorage.removeItem(k))
+  // Only clear the ACTIVE canvas pointer — never delete saved canvases.
+  // Saved canvases persist in the canvas manager list for later loading.
+  localStorage.removeItem(ACTIVE_KEY)
+}
+
+/**
+ * Create a brand new canvas: save current state under a generated name,
+ * then return a fresh DEFAULT_STATE for the new canvas.
+ * The old canvas remains in the canvas list.
+ */
+export function createNewCanvas(currentState: CanvasState): { newState: CanvasState; savedId: string } {
+  // Save the current canvas with an auto-generated name
+  const savedId = saveCanvasLayout(currentState, `Canvas ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`)
+
+  // Generate a new active canvas ID
+  const newId = crypto.randomUUID()
+  localStorage.setItem(ACTIVE_KEY, newId)
+
+  return { newState: { cards: {}, groups: {}, nextZIndex: 1, pan: { x: 0, y: 0 }, zoom: 1 }, savedId }
 }
 
 // ─── Default Canvas Setup (R1: saved configuration for NEW canvases) ───

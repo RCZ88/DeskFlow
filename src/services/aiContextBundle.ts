@@ -37,6 +37,83 @@ export const PAGE_CATALOG = [
   "- Finance (/finance): transactions, budgets, net worth, crypto, subscriptions.",
   "- AI (/ai): goals/focus, long-term plan, daily digest, connectors, and this chat.",
   "",
+  "## Canvas Card System (CRITICAL — how your output becomes visible)",
+  "The AI page has a CANVAS MODE where your structured JSON responses become interactive cards.",
+  "When you output the correct JSON format below, a card is automatically created on the user's canvas.",
+  "If a card of that type already exists, your new data is MERGED into it (not duplicated).",
+  "",
+  "### Card types you can create:",
+  "",
+  "1. FOCUS CARD (goal_suggestion) — shows as a checklist of goals",
+  "   Output: { type: \"goal_suggestion\", goals: [{title, category, reason, priority}], source }",
+  "   - title: short goal name (e.g. \"Review PR #42\")",
+  "   - category: \"work\" | \"personal\" | \"health\" | \"learning\" | \"finance\"",
+  "   - reason: why this goal matters (1 sentence)",
+  "   - priority: 1 (high) to 5 (low)",
+  "   - source: why you suggested this (e.g. \"based on your recent coding activity\")",
+  "   - When to use: user asks for goals, focus suggestions, what to do today, productivity advice",
+  "",
+  "2. PLAN CARD (plan_update) — shows as a long-term goals list with categories",
+  "   Output: { type: \"plan_update\", changes: [{action: \"add\"|\"modify\"|\"complete\", goal: {title, priority, category}}], note }",
+  "   - action \"add\": adds a new goal to the plan",
+  "   - action \"complete\": marks a goal as done",
+  "   - action \"modify\": changes an existing goal's properties",
+  "   - note: optional commentary about the changes",
+  "   - When to use: user wants to plan long-term, update goals, mark goals complete",
+  "",
+  "3. FINANCE CARD (stats_summary) — shows balance, income, expense with metrics",
+  "   Output: { type: \"stats_summary\", metrics: [{label, value, change, icon, format}], period }",
+  "   - Required metrics: \"Balance\" (total), \"Income\" (monthly), \"Expense\" (monthly)",
+  "   - icon: \"Activity\" | \"Clock\" | \"Flame\" | \"Target\" | \"Zap\" | \"BarChart3\"",
+  "   - format: \"number\" | \"duration\" | \"hours\" | \"percent\"",
+  "   - change: percentage change from last period (e.g. 12.5 for +12.5%)",
+  "   - When to use: user asks about finances, spending, income, budget status",
+  "",
+  "4. DIGEST CARD (digest_item) — shows research topics with summaries",
+  "   Output: { type: \"digest_item\", topic, summary, sources: [{title, url}] }",
+  "   - topic: research area (e.g. \"React 19 new features\")",
+  "   - summary: 2-3 sentence overview",
+  "   - sources: links to relevant articles/docs",
+  "   - When to use: user asks for research, digest, topic summary, what's trending",
+  "",
+  "5. ACTION CARD (action_list) — shows actionable items with approve/reject buttons",
+  "   Output: { type: \"action_list\", actions: [{label, description, priority, actionButton: {label, ipc, payload}}], note }",
+  "   - label: short action name",
+  "   - description: what this action does",
+  "   - priority: 1 (high) to 5 (low)",
+  "   - actionButton: optional IPC call when approved (label=button text, ipc=handler name, payload=data)",
+  "   - When to use: user needs confirmation for something, approval workflow, batch actions",
+  "",
+  "6. CONNECTOR CARD (connector_status) — shows email/calendar connector health",
+  "   Output: { type: \"connector_status\", connectors: [{name, status, lastSync, itemsCount, id}] }",
+  "   - status: \"connected\" | \"error\" | \"syncing\" | \"idle\"",
+  "   - When to use: user asks about email, calendar, connected services",
+  "",
+  "7. FORM CARD (form_fill) — shows a structured form with fields",
+  "   Output: { type: \"form_fill\", title, submitLabel, fields: [{name, label, type, value, options}] }",
+  "   - field type: \"text\" | \"number\" | \"select\" | \"toggle\"",
+  "   - options: for select type, array of {label, value}",
+  "   - When to use: user needs to input structured data, fill a form, configure settings",
+  "",
+  "8. CHART CARD (chart_data) — shows a bar/line/pie chart",
+  "   Output: { type: \"chart_data\", chartType: \"bar\"|\"line\"|\"pie\", labels: [], datasets: [{label, data, color}], title }",
+  "   - data: array of numbers matching labels",
+  "   - color: hex color for the dataset",
+  "   - When to use: user asks for visualization, comparison, data over time",
+  "",
+  "9. ERROR CARD (error) — shows error with recovery suggestion",
+  "   Output: { type: \"error\", message, recovery }",
+  "   - When to use: something went wrong and you need to tell the user what happened and how to fix it",
+  "",
+  "### Rules for structured output:",
+  "- Output ONLY the JSON block — no prose around it (the card UI replaces your text)",
+  "- Use ```json fenced blocks for the JSON",
+  "- For ordinary conversation, reply in plain text (no JSON)",
+  "- NEVER mix prose and a JSON block in the same message",
+  "- When data is already on the canvas, UPDATE the existing card by merging data",
+  "- Multiple structured responses in one message: output multiple separate JSON blocks",
+  "- If the user asks a question AND you have structured data, answer the question first (plain text), then output the JSON block",
+  "",
   "## Structured output contract",
   "When a rich, actionable answer fits one of these shapes, reply with ONLY a fenced",
   "```json block (no prose outside it) using one of these `type` values:",
@@ -134,7 +211,46 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
     null,
   )
 
+  // ADDED — canvas state (what cards exist)
+  let canvasCards: any[] = []
+  try {
+    const activeId = localStorage.getItem('deskflow-canvas-active')
+    if (activeId) {
+      const raw = localStorage.getItem('deskflow-canvas-' + activeId)
+      if (raw) {
+        const snapshot = JSON.parse(raw)
+        if (snapshot?.state?.cards) {
+          canvasCards = Object.values(snapshot.state.cards).filter((c: any) => !c.dismissedAt)
+        }
+      }
+    }
+  } catch {
+    // canvas state not available
+  }
+
   const lines: string[] = ["## Live user context (" + date + ")"]
+
+  // Canvas cards — tells the AI what already exists so it can update instead of duplicate
+  if (canvasCards.length > 0) {
+    lines.push("### Existing canvas cards")
+    for (const c of canvasCards) {
+      const type = c.type
+      const pinned = c.pinned ? ' [pinned]' : ''
+      const data = c.data || {}
+      let summary = ''
+      if (type === 'focus') summary = `${(data.goals || []).length} goals`
+      else if (type === 'plan') summary = `${(data.goals || []).length} goals, notes: ${data.notes ? 'yes' : 'no'}`
+      else if (type === 'finance') summary = `balance: ${data.summary?.totalBalance || '?'}`
+      else if (type === 'digest') summary = `${(data.topics || []).length} topics`
+      else if (type === 'approval') summary = `${(data.actions || []).length} actions`
+      else if (type === 'connectors') summary = `${(data.connectors || []).length} connectors`
+      else if (type === 'response') summary = data.content ? data.content.slice(0, 80) + '...' : 'response'
+      else if (type === 'annotation') summary = data.text || 'note'
+      else summary = type
+      lines.push(`- ${type.toUpperCase()}${pinned}: ${summary}`)
+    }
+    lines.push("")
+  }
   if (goals) lines.push("### Today's goals", clip(goals))
   else warnings.push('Goals unavailable')
   if (longterm) lines.push("### Long-term goals", clip(longterm))

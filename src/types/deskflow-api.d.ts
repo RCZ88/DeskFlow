@@ -144,6 +144,7 @@ interface DeskflowAPI {
   removeProject: (projectId: string) => Promise<{ success: boolean }>;
   openProject: (projectId: string, ideId?: string) => Promise<{ success: boolean; ide?: string; message?: string }>;
   getAIUsageSummary: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;
+  getAIUsageDetails: (period?: string, dateOffset?: number) => Promise<{ languageDistribution: Record<string, { count: number; tokens: number }>; avgResponseTime: number; responseTimeByDay: Record<string, number> }>;
   getCommitStats: (projectId?: string, period?: string) => Promise<any>;
   getIDEProjectsOverview: (period?: string, dateOffset?: number) => Promise<any>;
   getCodeChangeStats: (period?: string, dateOffset?: number, projectId?: string) => Promise<any>;

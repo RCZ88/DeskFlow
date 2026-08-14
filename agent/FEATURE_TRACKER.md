@@ -31,6 +31,17 @@
 
 ---
 
+## NEW: Code Architecture Map — interactive project structure visualization — 2026-08-13
+
+| # | Feature | Status | Where |
+|---|---------|--------|-------|
+| CAM1 | CodeArchitectureMap component: two-panel layout (file tree + cytoscape/dagre graph), nodes colored by file type, edges from parent relationships, zoom/pan/search/filter by type, node detail panel with dependents/dependencies | Implemented (build OK, NOT LAUNCHED) | `src/components/workspace/CodeArchitectureMap.tsx` |
+| CAM2 | Replaced WorkspaceMindMap in Context → Architecture Map subtab; renamed tab from "Context Map" to "Architecture Map" | Implemented (build OK, NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
+| CAM3 | Fallback tree with 200+ known project paths when file listing API unavailable | Implemented | `src/components/workspace/CodeArchitectureMap.tsx` (buildFallbackTree) |
+| CAM4 | In-app file viewer: click node → "View" button → reads file via `readProjectFile` IPC → shows content with line numbers, copy button, simple syntax highlighting (TS/TSX/CSS/JSON/MD keywords) | Implemented (build OK, NOT LAUNCHED) | `src/components/workspace/CodeArchitectureMap.tsx` (FileViewerPanel + CodeLine) |
+
+---
+
 ## NEW: Workspace New Session trigger hardening — 2026-08-12
 
 | # | Feature | Status | Where |

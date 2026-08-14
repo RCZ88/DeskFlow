@@ -42,7 +42,7 @@ import FocusPage from './pages/FocusPage';
 import ConductorPage from './pages/ConductorPage';
 
 import { AiPage } from './pages/AiPage';
-import { FeatureStudioPage } from './pages/FeatureStudioPage';
+import { FeatureStudioPage } from './features/overlay-studio/OverlayStudioPage';
 import { AppBackground } from './components/AppBackground';
 
 import InsightsPage from './pages/InsightsPage';

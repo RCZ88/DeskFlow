@@ -253,18 +253,125 @@ export function AiPage() {
     })
   }, [canvas.cards, automationActions.automations, toggleAutomation, deleteAutomation, testRun])
 
+  // Map parsed type → canvas card type for finding existing cards
+  const PARSED_TO_CARD_TYPE: Record<string, string> = {
+    goal_suggestion: 'focus',
+    plan_update: 'plan',
+    stats_summary: 'finance',
+    digest_item: 'digest',
+    action_list: 'approval',
+    connector_status: 'connectors',
+    form_fill: 'response',
+    chart_data: 'response',
+    reminder_create: 'annotation',
+    goal_event_link: 'annotation',
+    error: 'response',
+  }
+
   function spawnTypedCard(parsed: any, pos: { x: number; y: number }, msgId: string): string | null {
     // Use message ID for dedup — each message is unique, content hash can false-positive
     if (recentCardSpawns.current.has(msgId)) return null
     recentCardSpawns.current.set(msgId, Date.now())
 
+    const cardType = PARSED_TO_CARD_TYPE[parsed.type]
+
+    // FIND existing card of this type (non-dismissed, non-user)
+    const existingCard = Object.values(canvas.allCards).find((c: any) =>
+      c.type === cardType && !c.dismissedAt && c.source !== 'user' && c.data?.msgId !== msgId
+    )
+
+    // ── UPDATE existing card with merged data ──
+    if (existingCard) {
+      const d = existingCard.data || {}
+      let patch: Record<string, any> = { msgId }
+
+      switch (parsed.type) {
+        case 'goal_suggestion': {
+          // Merge goals by title (dedup)
+          const oldGoals = d.goals || []
+          const newGoals = parsed.goals || []
+          const merged = [...oldGoals]
+          for (const g of newGoals) {
+            if (!merged.some((eg: any) => eg.title === g.title)) merged.push(g)
+          }
+          patch.goals = merged
+          break
+        }
+        case 'plan_update': {
+          const oldGoals = d.goals || []
+          const newChanges = parsed.changes || []
+          const merged = [...oldGoals]
+          for (const ch of newChanges) {
+            if (ch.action === 'add') {
+              if (!merged.some((g: any) => g.title === ch.goal?.title)) merged.push(ch.goal)
+            } else if (ch.action === 'complete') {
+              const idx = merged.findIndex((g: any) => g.title === ch.goal?.title)
+              if (idx >= 0) merged[idx] = { ...merged[idx], status: 'done' }
+            } else if (ch.action === 'modify') {
+              const idx = merged.findIndex((g: any) => g.title === ch.goal?.title)
+              if (idx >= 0) merged[idx] = { ...merged[idx], ...ch.goal }
+            }
+          }
+          patch.goals = merged
+          if (parsed.note) patch.notes = d.notes ? d.notes + '\n\n' + parsed.note : parsed.note
+          break
+        }
+        case 'stats_summary': {
+          const metrics = parsed.metrics || []
+          const balance = metrics.find((m: any) => m.label?.toLowerCase().includes('balance'))?.value ?? d.summary?.totalBalance ?? 0
+          const income = metrics.find((m: any) => m.label?.toLowerCase().includes('income'))?.value ?? d.summary?.monthlyBudget ?? 0
+          const expense = metrics.find((m: any) => m.label?.toLowerCase().includes('expense'))?.value ?? d.summary?.monthlySpent ?? 0
+          patch.summary = { totalBalance: balance, monthlySpent: expense, monthlyBudget: income, subscriptions: d.summary?.subscriptions || [] }
+          patch.metrics = [...(d.metrics || []), ...metrics]
+          break
+        }
+        case 'digest_item': {
+          const oldTopics = d.topics || []
+          const newTopic = { topic: parsed.topic, summary: parsed.summary, sources: parsed.sources }
+          if (!oldTopics.some((t: any) => t.topic === newTopic.topic)) {
+            patch.topics = [...oldTopics, newTopic]
+          } else {
+            patch.topics = oldTopics // already exists
+          }
+          break
+        }
+        case 'action_list': {
+          const oldActions = d.actions || []
+          const newActions = parsed.actions || []
+          const merged = [...oldActions]
+          for (const a of newActions) {
+            if (!merged.some((ea: any) => ea.label === a.label)) merged.push(a)
+          }
+          patch.actions = merged
+          patch.title = parsed.actions?.[0]?.label || d.title
+          patch.description = parsed.note || d.description
+          break
+        }
+        case 'connector_status': {
+          patch.connectors = parsed.connectors
+          break
+        }
+        default:
+          // For response/annotation types, don't merge — always create new
+          canvas.updateCard(existingCard.id, { data: { ...d, ...patch } })
+          return existingCard.id
+      }
+
+      canvas.updateCard(existingCard.id, { data: { ...d, ...patch } })
+      setFocusedCardId(existingCard.id)
+      return existingCard.id
+    }
+
+    // ── CREATE new card ──
     switch (parsed.type) {
       case 'goal_suggestion':
         return canvas.addCard('focus', { goals: parsed.goals, source: parsed.source, msgId },
           { size: { w: 8, h: 6 }, pinned: false, source: 'ai', position: pos })
-      case 'plan_update':
-        return canvas.addCard('plan', { goals: parsed.changes?.map((c: any) => c.goal) || [], notes: parsed.note, msgId },
+      case 'plan_update': {
+        const goals = parsed.changes?.filter((c: any) => c.action === 'add').map((c: any) => c.goal) || []
+        return canvas.addCard('plan', { goals, notes: parsed.note, msgId },
           { size: { w: 8, h: 6 }, pinned: false, source: 'ai', position: pos })
+      }
       case 'stats_summary': {
         const metrics = parsed.metrics || []
         const balance = metrics.find((m: any) => m.label?.toLowerCase().includes('balance'))?.value || 0
@@ -294,7 +401,6 @@ export function AiPage() {
         const chartType = parsed.chartType || 'bar'
         const labels = parsed.labels || []
         const datasets = parsed.datasets || []
-        // Build a visual representation
         const maxVal = Math.max(...(datasets.flatMap((ds: any) => ds.data || [])), 1)
         const barLines = labels.map((label: string, i: number) => {
           const vals = datasets.map((ds: any) => ds.data?.[i] || 0)

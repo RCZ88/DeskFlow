@@ -3,7 +3,7 @@ import { canvasReducer, DEFAULT_STATE } from '../types/canvas'
 import {
   loadCanvasLayout, saveCanvasLayout, clearCanvasLayout,
   listCanvases, loadCanvasById, renameCanvas, deleteCanvas,
-  loadDefaultSetup, BUILTIN_DEFAULT_SETUP,
+  loadDefaultSetup, BUILTIN_DEFAULT_SETUP, createNewCanvas,
   type CanvasSnapshot
 } from '../services/canvasPersistence'
 import { generateUUID } from '../lib/uuid'
@@ -370,19 +370,23 @@ export function useCanvasState() {
     dismissTimers.current.clear()
     // Reset the loaded flag so live-data attachment re-runs on this fresh canvas.
     loadedFromStorage.current = false
-    // Update stateRef immediately so beforeunload/unmount saves the empty
+    // Create a new canvas: saves current state, returns fresh state
+    const { newState } = createNewCanvas(stateRef.current)
+    // Update stateRef immediately so beforeunload/unmount saves the new empty
     // state, not the old state (React batches the dispatch).
-    stateRef.current = DEFAULT_STATE
-    dispatch({ type: 'RESET_LAYOUT' })
-    clearCanvasLayout()
-    // R1: createNewCanvas seeds from the saved Default Canvas Setup
-    // (falling back to built-in defaults) so New Canvas is never blank.
+    stateRef.current = newState
+    // Clear history stacks for the fresh canvas
+    pastRef.current = []
+    futureRef.current = []
+    dispatch({ type: 'HYDRATE', state: newState })
+    // Seed from the saved Default Canvas Setup
     const config = loadDefaultSetup() ?? { version: 1 as const, cards: BUILTIN_DEFAULT_SETUP, updatedAt: Date.now() }
     seedCardsFromSetup(dispatch, config)
     // Bump the epoch so AiPage's seeding/live-data effect re-runs for this
     // fresh canvas (wasLoaded is a ref — ref changes alone never re-trigger).
     setCanvasEpoch((e) => e + 1)
-  }, [])
+    setCanvasList(listCanvases())
+  }, [dispatch])
 
   const forceSave = useCallback(() => {
     setSaveStatus('saving')

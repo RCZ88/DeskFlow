@@ -53,6 +53,231 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 const CATEGORY_ORDER = ['core', 'content', 'tools', 'special']
 
+// ── Mini card previews ──
+function MiniFocusPreview() {
+  const goals = ['Review PR #42', 'Ship feature', 'Write docs']
+  return (
+    <div className="rounded-lg border border-pink-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Target size={9} className="text-pink-400" />
+        <span className="text-[8px] font-semibold text-pink-300 uppercase tracking-wider">Focus</span>
+      </div>
+      {goals.map((g, i) => (
+        <div key={i} className="flex items-center gap-1.5 py-0.5">
+          <div className="w-2.5 h-2.5 rounded-full border border-zinc-600 flex items-center justify-center">
+            {i === 0 && <div className="w-1.5 h-1.5 rounded-full bg-pink-400" />}
+          </div>
+          <span className="text-[8px] text-zinc-400 truncate">{g}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MiniPlanPreview() {
+  const items = [{ t: 'Learn Rust', c: 'work' }, { t: 'Run marathon', c: 'health' }, { t: 'Read 12 books', c: 'learning' }]
+  return (
+    <div className="rounded-lg border border-violet-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <TrendingUp size={9} className="text-violet-400" />
+        <span className="text-[8px] font-semibold text-violet-300 uppercase tracking-wider">Plan</span>
+        <span className="text-[7px] text-zinc-600 ml-auto">3 goals</span>
+      </div>
+      {items.map((item, i) => (
+        <div key={i} className="flex items-center gap-1.5 py-0.5">
+          <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.c === 'work' ? '#ec4899' : item.c === 'health' ? '#34d399' : '#22d3ee' }} />
+          <span className="text-[8px] text-zinc-400 truncate">{item.t}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MiniFinancePreview() {
+  return (
+    <div className="rounded-lg border border-emerald-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <TrendingUp size={9} className="text-emerald-400" />
+        <span className="text-[8px] font-semibold text-emerald-300 uppercase tracking-wider">Finance</span>
+      </div>
+      <div className="text-[11px] font-bold text-zinc-200 font-mono">$12,450</div>
+      <div className="flex gap-3 mt-1">
+        <div><span className="text-[7px] text-zinc-600">Income</span><div className="text-[8px] text-emerald-400 font-mono">$5,200</div></div>
+        <div><span className="text-[7px] text-zinc-600">Expense</span><div className="text-[8px] text-red-400 font-mono">$3,800</div></div>
+      </div>
+    </div>
+  )
+}
+
+function MiniDigestPreview() {
+  return (
+    <div className="rounded-lg border border-cyan-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Newspaper size={9} className="text-cyan-400" />
+        <span className="text-[8px] font-semibold text-cyan-300 uppercase tracking-wider">Digest</span>
+      </div>
+      <div className="space-y-1">
+        {['AI trends', 'Web dev', 'DevOps'].map((t, i) => (
+          <div key={i} className="text-[7px] text-zinc-500 flex items-center gap-1">
+            <div className="w-1 h-1 rounded-full bg-cyan-400" />
+            <span className="truncate">{t}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniReflectPreview() {
+  return (
+    <div className="rounded-lg border border-purple-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Bell size={9} className="text-purple-400" />
+        <span className="text-[8px] font-semibold text-purple-300 uppercase tracking-wider">Reflect</span>
+      </div>
+      <div className="text-[7px] text-zinc-500 italic leading-relaxed">"Today I focused on..."</div>
+    </div>
+  )
+}
+
+function MiniResponsePreview() {
+  return (
+    <div className="rounded-lg border border-blue-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <MessageSquare size={9} className="text-blue-400" />
+        <span className="text-[8px] font-semibold text-blue-300 uppercase tracking-wider">Response</span>
+      </div>
+      <div className="space-y-1">
+        <div className="h-1.5 bg-zinc-700/50 rounded w-full" />
+        <div className="h-1.5 bg-zinc-700/50 rounded w-4/5" />
+        <div className="h-1.5 bg-zinc-700/50 rounded w-3/5" />
+      </div>
+    </div>
+  )
+}
+
+function MiniAnnotationPreview() {
+  return (
+    <div className="rounded-lg border border-orange-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1">
+        <MessageSquare size={9} className="text-orange-400" />
+        <span className="text-[8px] font-semibold text-orange-300 uppercase tracking-wider">Note</span>
+      </div>
+      <div className="text-[7px] text-zinc-500">Reminder: Buy groceries</div>
+    </div>
+  )
+}
+
+function MiniConnectorsPreview() {
+  return (
+    <div className="rounded-lg border border-teal-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Plug size={9} className="text-teal-400" />
+        <span className="text-[8px] font-semibold text-teal-300 uppercase tracking-wider">Connectors</span>
+      </div>
+      <div className="space-y-1">
+        {['Gmail', 'Calendar'].map((n, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <span className="text-[7px] text-zinc-500">{n}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniSchedulePreview() {
+  return (
+    <div className="rounded-lg border border-red-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Calendar size={9} className="text-red-400" />
+        <span className="text-[8px] font-semibold text-red-300 uppercase tracking-wider">Schedule</span>
+      </div>
+      <div className="flex gap-0.5">
+        {['M','T','W','T','F','S','S'].map((d, i) => (
+          <div key={i} className="flex-1 text-center">
+            <div className="text-[6px] text-zinc-600">{d}</div>
+            <div className={`h-3 rounded-sm mt-0.5 ${i === 2 ? 'bg-red-400/30' : 'bg-zinc-800/50'}`} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniDeadlinesPreview() {
+  return (
+    <div className="rounded-lg border border-orange-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Clock size={9} className="text-orange-400" />
+        <span className="text-[8px] font-semibold text-orange-300 uppercase tracking-wider">Deadlines</span>
+      </div>
+      <div className="space-y-1">
+        {['Report due', 'Tax filing'].map((d, i) => (
+          <div key={i} className="flex items-center gap-1.5 py-0.5">
+            <div className="w-1 h-1 rounded-full" style={{ background: i === 0 ? '#f87171' : '#fbbf24' }} />
+            <span className="text-[7px] text-zinc-500 truncate">{d}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MiniPlannerPreview() {
+  return (
+    <div className="rounded-lg border border-sky-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <ListTodo size={9} className="text-sky-400" />
+        <span className="text-[8px] font-semibold text-sky-300 uppercase tracking-wider">Planner</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <div className="text-[7px] text-zinc-600 font-mono">9:00</div>
+        <div className="flex-1 h-1.5 rounded bg-sky-400/20" />
+      </div>
+      <div className="flex items-center gap-1 mt-0.5">
+        <div className="text-[7px] text-zinc-600 font-mono">14:00</div>
+        <div className="flex-1 h-1.5 rounded bg-violet-400/20" />
+      </div>
+    </div>
+  )
+}
+
+function MiniGroupPreview() {
+  return (
+    <div className="rounded-lg border border-indigo-500/20 bg-[rgba(24,24,27,0.8)] p-2 w-full">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <Layers size={9} className="text-indigo-400" />
+        <span className="text-[8px] font-semibold text-indigo-300 uppercase tracking-wider">Group</span>
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        <div className="h-4 rounded bg-zinc-800/60 border border-zinc-700/30" />
+        <div className="h-4 rounded bg-zinc-800/60 border border-zinc-700/30" />
+      </div>
+    </div>
+  )
+}
+
+const PREVIEW_MAP: Record<CardType, React.FC> = {
+  focus: MiniFocusPreview,
+  plan: MiniPlanPreview,
+  finance: MiniFinancePreview,
+  digest: MiniDigestPreview,
+  reflect: MiniReflectPreview,
+  response: MiniResponsePreview,
+  annotation: MiniAnnotationPreview,
+  connectors: MiniConnectorsPreview,
+  schedule: MiniSchedulePreview,
+  deadlines: MiniDeadlinesPreview,
+  planner: MiniPlannerPreview,
+  group: MiniGroupPreview,
+  approval: MiniResponsePreview,
+  transient: MiniResponsePreview,
+  generated: MiniResponsePreview,
+  automation: MiniConnectorsPreview,
+}
+
 export function CardDrawer({ open, onToggle, onAddCard }: CardDrawerProps) {
   const [hoveredType, setHoveredType] = useState<string | null>(null)
 
@@ -85,13 +310,13 @@ export function CardDrawer({ open, onToggle, onAddCard }: CardDrawerProps) {
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 bottom-0 z-[190] w-[320px] bg-[rgba(18,18,18,0.95)] backdrop-blur-xl border-l border-zinc-800/60 flex flex-col"
+            className="fixed right-0 top-0 bottom-0 z-[190] w-[380px] bg-[rgba(18,18,18,0.95)] backdrop-blur-xl border-l border-zinc-800/60 flex flex-col"
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-zinc-800/50">
               <div>
                 <h3 className="text-sm font-semibold text-white">Add Card</h3>
-                <p className="text-[11px] text-zinc-500 mt-0.5">Click to add to canvas</p>
+                <p className="text-[11px] text-zinc-500 mt-0.5">Click a card to add it to your canvas</p>
               </div>
               <button
                 onClick={onToggle}
@@ -108,37 +333,37 @@ export function CardDrawer({ open, onToggle, onAddCard }: CardDrawerProps) {
                   <div className="px-1 mb-2">
                     <span className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider">{label}</span>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-2">
                     {cards.map(template => {
                       const Icon = template.icon
                       const isHovered = hoveredType === template.type
+                      const Preview = PREVIEW_MAP[template.type]
                       return (
                         <button
                           key={template.type}
                           onClick={() => handleAdd(template.type)}
                           onMouseEnter={() => setHoveredType(template.type)}
                           onMouseLeave={() => setHoveredType(null)}
-                          className="w-full flex items-center gap-3 p-2.5 rounded-xl text-left transition-all duration-150"
+                          className="flex flex-col items-stretch rounded-xl text-left transition-all duration-200 overflow-hidden"
                           style={{
-                            background: isHovered
-                              ? `linear-gradient(135deg, ${template.color}10, ${template.color}05)`
-                              : 'transparent',
-                            border: `1px solid ${isHovered ? template.color + '30' : 'transparent'}`,
+                            border: `1px solid ${isHovered ? template.color + '40' : 'rgba(63,63,70,0.3)'}`,
+                            boxShadow: isHovered ? `0 0 20px ${template.color}15, 0 4px 12px rgba(0,0,0,0.3)` : '0 2px 8px rgba(0,0,0,0.2)',
                           }}
                         >
-                          <div
-                            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-all duration-150"
-                            style={{
-                              background: `${template.color}15`,
-                              color: template.color,
-                              boxShadow: isHovered ? `0 0 12px ${template.color}20` : 'none',
-                            }}
-                          >
-                            <Icon size={18} />
+                          {/* Card preview */}
+                          <div className="p-2">
+                            {Preview ? <Preview /> : (
+                              <div className="h-16 rounded-lg bg-zinc-800/40 flex items-center justify-center">
+                                <Icon size={20} style={{ color: template.color, opacity: 0.4 }} />
+                              </div>
+                            )}
                           </div>
-                          <div className="min-w-0">
-                            <div className="text-[13px] font-medium text-zinc-200 truncate">{template.label}</div>
-                            <div className="text-[11px] text-zinc-500 truncate">{template.description}</div>
+                          {/* Card label */}
+                          <div className="px-2.5 py-1.5 border-t border-zinc-800/40 bg-[rgba(24,24,27,0.5)]">
+                            <div className="flex items-center gap-1.5">
+                              <Icon size={10} style={{ color: template.color }} />
+                              <span className="text-[11px] font-medium text-zinc-300">{template.label}</span>
+                            </div>
                           </div>
                         </button>
                       )

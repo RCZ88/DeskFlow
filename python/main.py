@@ -47,6 +47,36 @@ def cmd_composite(args):
 def cmd_export(args):
     print(f'✓ Export: {args.input} → {args.output} (stub)')
 
+def cmd_vision_plan(args):
+    from clement.vision import build_frame_plan
+    from clement.contracts.transcript import TranscriptInput
+    data = json.loads(Path(args.transcript).read_text())
+    transcript = TranscriptInput.from_v1_dict(data)
+    segment_starts = [s.timing.start_us / 1e6 for s in transcript.segments]
+    plan = build_frame_plan(transcript.video_id, transcript.duration_us / 1e6, segment_starts, args.mode)
+    out = Path(args.output)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(plan.model_dump_json(indent=2))
+    print(f'[OK] Vision plan: {len(plan.frames)} frames, mode={plan.mode}')
+
+def cmd_vision_analyze(args):
+    print(f'[OK] Vision analyze: session={args.session} (stub - needs frame data)')
+
+def cmd_vision_shots(args):
+    print(f'[OK] Vision shots: session={args.session} (stub - needs frame signatures)')
+
+def cmd_vision_validate(args):
+    from clement.vision import validate_visual_digest_response
+    import json
+    data = json.loads(Path(args.input).read_text())
+    result = validate_visual_digest_response(data)
+    if result['valid']:
+        print('[OK] Visual digest validated successfully')
+    else:
+        print(f'[FAIL] Validation failed: {len(result["errors"])} errors')
+        for e in result['errors']:
+            print(f'  - {e}')
+
 def main():
     parser = argparse.ArgumentParser(description='Clement Overlay Engine v2')
     sub = parser.add_subparsers(dest='command')
@@ -79,6 +109,20 @@ def main():
     p_export.add_argument('--input', required=True)
     p_export.add_argument('--output', required=True)
 
+    p_vision_plan = sub.add_parser('vision-plan', help='Build frame sampling plan')
+    p_vision_plan.add_argument('--transcript', required=True)
+    p_vision_plan.add_argument('--output', required=True)
+    p_vision_plan.add_argument('--mode', default='evidence', choices=['fingerprint', 'evidence', 'localization'])
+
+    p_vision_analyze = sub.add_parser('vision-analyze', help='Run visual analysis on session')
+    p_vision_analyze.add_argument('--session', required=True)
+
+    p_vision_shots = sub.add_parser('vision-shots', help='Detect shot boundaries')
+    p_vision_shots.add_argument('--session', required=True)
+
+    p_vision_validate = sub.add_parser('vision-validate', help='Validate visual digest JSON')
+    p_vision_validate.add_argument('--input', required=True)
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -86,7 +130,9 @@ def main():
 
     {'ingest': cmd_ingest, 'extract': cmd_extract, 'plan': cmd_plan,
      'validate': cmd_validate, 'render': cmd_render, 'composite': cmd_composite,
-     'export': cmd_export}[args.command](args)
+     'export': cmd_export, 'vision-plan': cmd_vision_plan, 'vision-analyze': cmd_vision_analyze,
+     'vision-shots': cmd_vision_shots, 'vision-validate': cmd_vision_validate,
+    }[args.command](args)
 
 if __name__ == '__main__':
     main()

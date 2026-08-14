@@ -107,7 +107,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
             {group ? 'Edit focus group' : 'New focus group'}
           </DialogTitle>
           <DialogDescription>
-            A named set of apps, sites and categories that define what a focus session is allowed to use.
+            A named set of exact apps &amp; sites, plus a category buffer that lenient sessions tolerate. Strictness is picked when you start a session.
           </DialogDescription>
         </DialogHeader>
 
@@ -133,7 +133,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            {fieldLabel(<AppWindow className="w-3 h-3" />, 'Allowed apps')}
+            {fieldLabel(<AppWindow className="w-3 h-3" />, 'Allowed apps — always')}
             {appsLoading ? (
               <div className="p-3 rounded-xl bg-zinc-800/40 border border-zinc-800/50 flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 text-pink-400 animate-spin" />
@@ -168,7 +168,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            {fieldLabel(<Globe className="w-3 h-3" />, 'Allowed sites')}
+            {fieldLabel(<Globe className="w-3 h-3" />, 'Allowed sites — always')}
             <FocusAppPicker
               knownApps={knownSites}
               selected={domains}
@@ -180,7 +180,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           </div>
 
           <div>
-            {fieldLabel(<Tag className="w-3 h-3" />, 'Allowed categories')}
+            {fieldLabel(<Tag className="w-3 h-3" />, 'Tolerance buffer — lenient only')}
             <FocusAppPicker
               knownApps={
                 [...new Set(knownApps.map(a => a.category).filter(Boolean))]
@@ -193,6 +193,9 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
               emptyText="No tracked categories yet — type one to add"
               addLabel="custom category"
             />
+            <p className="text-[10px] text-zinc-600 leading-relaxed mt-1.5">
+              Apps from these categories are <span className="text-zinc-400">tolerated in LENIENT sessions only</span>. In STRICT sessions they are blocked — only the exact apps &amp; sites above are allowed.
+            </p>
           </div>
 
           {apps.length === 0 && domains.length === 0 && categories.length === 0 && (

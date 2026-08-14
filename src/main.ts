@@ -2,6 +2,15 @@
 // Prevent EPIPE crashes when stdout/stderr pipes break (e.g. terminal closes)
 process.stdout.on('error', (err: any) => { if (err.code === 'EPIPE') return; console.error(err); });
 process.stderr.on('error', (err: any) => { if (err.code === 'EPIPE') return; console.error(err); });
+// Crash resilience: log uncaught exceptions instead of dying silently
+process.on('uncaughtException', (err) => {
+    console.error('[DeskFlow] UNCAUGHT EXCEPTION (non-fatal):', err?.message || err);
+    console.error(err?.stack || '');
+});
+process.on('unhandledRejection', (reason: any) => {
+    console.error('[DeskFlow] UNHANDLED REJECTION (non-fatal):', reason?.message || reason);
+    console.error(reason?.stack || '');
+});
  var __importDefault = function (mod) {
         return (mod && mod.__importDefault) ? mod : { "default": mod };
     };
@@ -430,6 +439,25 @@ function calculateCost(session: ParsedSession): number {
     if (session.cacheReadTokens) cost += (session.cacheReadTokens / 1_000_000) * pricing.cacheRead;
     if (session.cacheWriteTokens) cost += (session.cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
     return Math.round(cost * 10000) / 10000;
+}
+
+function detectLanguageFromProject(projectPath?: string): string | null {
+    if (!projectPath) return null;
+    const p = projectPath.toLowerCase().replace(/\\/g, '/');
+    if (p.includes('package.json') || p.includes('node_modules') || p.includes('tsconfig')) return 'JavaScript/TypeScript';
+    if (p.includes('requirements.txt') || p.includes('setup.py') || p.includes('pyproject.toml') || p.includes('pipfile')) return 'Python';
+    if (p.includes('cargo.toml') || p.includes('src/main.rs')) return 'Rust';
+    if (p.includes('go.mod') || p.includes('go.sum')) return 'Go';
+    if (p.includes('pom.xml') || p.includes('build.gradle') || p.includes('build.gradle.kts')) return 'Java';
+    if (p.includes('gemfile') || p.includes('.rb')) return 'Ruby';
+    if (p.includes('.csproj') || p.includes('.sln')) return 'C#';
+    if (p.includes('cmakelists.txt') || p.includes('makefile') || p.includes('c.cpp')) return 'C/C++';
+    if (p.includes('pubspec.yaml')) return 'Dart';
+    if (p.includes('swift')) return 'Swift';
+    if (p.includes('php')) return 'PHP';
+    // Check for common file patterns in the path
+    if (p.includes('/src/') || p.includes('/lib/')) return 'Code';
+    return null;
 }
 
 // Claude Code Plugin
@@ -1629,8 +1657,8 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
 
                 // Batch inserts in a transaction for massive speedup
                 const insertBatch = db!.prepare(`
-                    INSERT OR REPLACE INTO ai_usage (id, tool, date, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd, model, message_count, project_path)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO ai_usage (id, tool, date, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd, model, message_count, project_path, language, avg_response_time_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 `);
 
                 const batchSize = 100;
@@ -1643,6 +1671,8 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
                                 const id = `${plugin.id}-${session.sessionId}`;
                                 const date = session.timestamp.toISOString().split('T')[0];
                                 const cost = calculateCost(session);
+                                const language = detectLanguageFromProject(session.projectPath);
+                                const avgResponseTime = (session as any).durationMs || 0;
 
                                 insertBatch.run(
                                     id,
@@ -1655,7 +1685,9 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
                                     cost,
                                     session.model || null,
                                     session.messageCount || 0,
-                                    session.projectPath || null
+                                    session.projectPath || null,
+                                    language,
+                                    avgResponseTime
                                 );
                                 results[plugin.id] = (results[plugin.id] || 0) + 1;
                             }
@@ -2105,6 +2137,8 @@ function initializeStorage() {
         // Safe migration for existing databases
         try { db.exec('ALTER TABLE ai_usage ADD COLUMN message_count INTEGER DEFAULT 0'); } catch {}
         try { db.exec('ALTER TABLE ai_usage ADD COLUMN project_path TEXT'); } catch {}
+        try { db.exec('ALTER TABLE ai_usage ADD COLUMN language TEXT'); } catch {}
+        try { db.exec('ALTER TABLE ai_usage ADD COLUMN avg_response_time_ms REAL DEFAULT 0'); } catch {}
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_date ON ai_usage(date)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool ON ai_usage(tool)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_project_path ON ai_usage(project_path)');
@@ -4682,7 +4716,7 @@ function saveWindowState(state: WindowState): void {
 }
 function createWindow() {
     electron_1.Menu.setApplicationMenu(null);
-    console.log('BUILD MARKER v4');
+    console.log('BUILD MARKER v5');
     const preloadPath = path_1.default.join(__dirname, 'preload.cjs');
     console.log('[DeskFlow] Preload path:', preloadPath);
     console.log('[DeskFlow] __dirname:', __dirname);
@@ -4798,6 +4832,26 @@ function createWindow() {
     });
     mainWindow.webContents.on('did-finish-load', () => {
         console.log('[DeskFlow] Page loaded successfully');
+    });
+    // Renderer crash recovery — reload instead of dying silently
+    mainWindow.webContents.on('render-process-gone', (event, details) => {
+        console.error('[DeskFlow] RENDERER CRASHED:', details.reason, details.exitCode);
+        if (details.reason === 'crashed' || details.reason === 'oom') {
+            console.log('[DeskFlow] Attempting renderer recovery in 2s...');
+            setTimeout(() => {
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                    mainWindow.webContents.reload();
+                }
+            }, 2000);
+        }
+    });
+    mainWindow.on('unresponsive', () => {
+        console.warn('[DeskFlow] Renderer unresponsive — attempting reload');
+        setTimeout(() => {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.reload();
+            }
+        }, 5000);
     });
     
     // Handle window close — ask renderer if unsaved changes exist first
@@ -4930,6 +4984,21 @@ function createWindow() {
     // Start polling (configurable via settings, default 1 second)
     const pollInterval = userPreferences.trackingPollInterval || 1000;
     trackingInterval = setInterval(pollForeground, pollInterval);
+    // Watchdog: verify tracking is alive every 30s, restart if dead
+    const trackingWatchdog = setInterval(() => {
+        if (!isTracking) return; // user intentionally disabled
+        if (!trackingInterval) {
+            console.warn('[DeskFlow] ⚠️ Tracking interval missing — restarting polling');
+            trackingInterval = setInterval(pollForeground, pollInterval);
+        }
+        // Verify pollForeground is actually running by checking lastPollTime
+        const staleMs = Date.now() - lastPollTime;
+        if (staleMs > 30000) {
+            console.warn(`[DeskFlow] ⚠️ Tracking stale (${Math.round(staleMs/1000)}s since last poll) — restarting`);
+            if (trackingInterval) clearInterval(trackingInterval);
+            trackingInterval = setInterval(pollForeground, pollInterval);
+        }
+    }, 30000);
     // Send tracking heartbeat to renderer every 5 seconds
     const heartbeatInterval = setInterval(() => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -10546,6 +10615,75 @@ electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week', dateO
         return { totalTokens, totalCost, byTool, period };
     } catch {
         return { totalTokens: 0, totalCost: 0, byTool: {} };
+    }
+});
+
+// Get language distribution and response time stats
+electron_1.ipcMain.handle('get-ai-usage-details', (event, period = 'all', dateOffset = 0) => {
+    if (useJson) return { languageDistribution: {}, avgResponseTime: 0, responseTimeByDay: {} };
+
+    try {
+        const now = new Date();
+        let sinceDateStr: string | null = null;
+
+        if (period === 'today') {
+            const d = new Date(now);
+            d.setDate(d.getDate() - dateOffset);
+            sinceDateStr = d.toISOString().split('T')[0];
+        } else if (period === 'week') {
+            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (period === '7day') {
+            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (period === 'month') {
+            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        } else if (period === '30day') {
+            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        }
+
+        let whereClause = '';
+        const params: any[] = [];
+        if (sinceDateStr) {
+            whereClause = 'WHERE date >= ?';
+            params.push(sinceDateStr);
+        }
+
+        // Language distribution
+        const langQuery = `
+            SELECT language, COUNT(*) as count, SUM(input_tokens + output_tokens) as tokens
+            FROM ai_usage
+            ${whereClause}
+            ${sinceDateStr ? 'AND' : 'WHERE'} language IS NOT NULL AND language != ''
+            GROUP BY language
+            ORDER BY tokens DESC
+        `;
+        const langRows = db.prepare(langQuery).all(...params);
+        const languageDistribution: Record<string, { count: number; tokens: number }> = {};
+        for (const row of langRows) {
+            languageDistribution[row.language] = { count: row.count, tokens: row.tokens };
+        }
+
+        // Average response time
+        const rtQuery = `
+            SELECT AVG(avg_response_time_ms) as avg_rt, date
+            FROM ai_usage
+            ${whereClause}
+            ${sinceDateStr ? 'AND' : 'WHERE'} avg_response_time_ms > 0
+            GROUP BY date
+            ORDER BY date
+        `;
+        const rtRows = db.prepare(rtQuery).all(...params);
+        let totalAvgRt = 0;
+        const responseTimeByDay: Record<string, number> = {};
+        for (const row of rtRows) {
+            responseTimeByDay[row.date] = Math.round(row.avg_rt);
+            totalAvgRt += row.avg_rt;
+        }
+        const avgResponseTime = rtRows.length > 0 ? Math.round(totalAvgRt / rtRows.length) : 0;
+
+        return { languageDistribution, avgResponseTime, responseTimeByDay };
+    } catch (err) {
+        console.error('[DeskFlow] get-ai-usage-details error:', err);
+        return { languageDistribution: {}, avgResponseTime: 0, responseTimeByDay: {} };
     }
 });
 
@@ -19825,6 +19963,11 @@ if (db) {
   }
 }
 
+// Single instance lock — prevent duplicate RHEO processes
+const gotTheLock = electron_1.app.requestSingleInstanceLock();
+if (!gotTheLock) {
+    electron_1.app.quit();
+} else {
 electron_1.app.whenReady().then(() => {
     electron_1.app.setName('RHEO');
     // Content Security Policy — defense in depth against XSS
@@ -21855,6 +21998,8 @@ electron_1.ipcMain.handle('reset-window-state', () => {
         return { success: false, error: String(e) };
     }
 });
+
+} // end single instance lock else block
 
 electron_1.app.on('window-all-closed', () => {
     // Keep app running in background (tray mode)
