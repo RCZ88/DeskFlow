@@ -65,23 +65,26 @@ export function CoreSample({
   }, [covenant.completions])
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/30" data-lifephase="core-sample">
+    <div className="relative overflow-hidden rounded-xl border border-zinc-800/60 bg-zinc-900/75 backdrop-blur-xl" data-lifephase="core-sample">
       {/* ambient glow */}
       <div className="pointer-events-none absolute inset-0 opacity-40" style={{ background: 'radial-gradient(circle at 50% 40%, rgba(251,191,36,0.08), transparent 60%)' }} />
 
       <div className="flex flex-col items-center px-6 pb-6 pt-6">
         <div data-core-sample-stage className="relative h-72 w-72 sm:h-[420px] sm:w-[420px] lg:h-[460px] lg:w-[460px]">
-          <RingCanvas
-            phases={phases}
-            lens={lens}
-            grainByPhase={grainByPhase}
-            todayCompletions={todayCompletions}
-            memoriesByPhase={memoriesByPhase}
-            ltgsByPhase={ltgsByPhase}
-            selectedPhaseId={selectedPhaseId}
-            onPhaseClick={onPhaseClick}
-            onOpenMemory={onOpenMemories}
-          />
+          {/* RingCanvas */}
+          <div className="relative z-10 h-full w-full">
+            <RingCanvas
+              phases={phases}
+              lens={lens}
+              grainByPhase={grainByPhase}
+              todayCompletions={todayCompletions}
+              memoriesByPhase={memoriesByPhase}
+              ltgsByPhase={ltgsByPhase}
+              selectedPhaseId={selectedPhaseId}
+              onPhaseClick={onPhaseClick}
+              onOpenMemory={onOpenMemories}
+            />
+          </div>
         </div>
 
         {/* Lens switcher */}

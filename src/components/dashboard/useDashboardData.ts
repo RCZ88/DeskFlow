@@ -6,9 +6,9 @@
 //         Impeccable Design (clean API surface)
 // ============================================================
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type {
-  Goal, Deadline, ScheduleEntry, LongTermGoal,
+  Goal, Deadline, Reminder, ScheduleEntry, LongTermGoal,
   DashboardInsights, CategoryBalance, GoalCategory, MomentumScore
 } from './types';
 
@@ -85,6 +85,7 @@ function calculateInsights(
 export function useDashboardData() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [deadlines, setDeadlines] = useState<Deadline[]>([]);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [longTermGoals, setLongTermGoals] = useState<LongTermGoal[]>([]);
   const [suggestions, setSuggestions] = useState<Goal[]>([]);
@@ -104,9 +105,10 @@ export function useDashboardData() {
 
     try {
       const date = todayStr();
-      const [goalsRes, deadlinesRes, scheduleRes, ltgRes, momentumRes] = await Promise.all([
+      const [goalsRes, deadlinesRes, remindersRes, scheduleRes, ltgRes, momentumRes] = await Promise.all([
         api?.getGoals?.(date).catch(() => ({ goals: [] })),
         api?.getDeadlines?.({ days: 30 }).catch(() => ({ deadlines: [] })),
+        api?.getReminders?.().catch(() => ({ reminders: [] })),
         api?.getSchedule?.().catch(() => ({ entries: [] })),
         api?.getLongtermGoals?.().catch(() => ({ goals: [] })),
         api?.getMomentumScore?.(date).catch(() => null),
@@ -114,6 +116,7 @@ export function useDashboardData() {
 
       setGoals(goalsRes?.goals || []);
       setDeadlines(deadlinesRes?.deadlines || []);
+      setReminders(remindersRes?.reminders || []);
       setSchedule(scheduleRes?.entries || []);
       setLongTermGoals(ltgRes?.goals || []);
       setMomentum(momentumRes);
@@ -285,12 +288,16 @@ export function useDashboardData() {
     setSuggestions(prev => prev.filter(s => s.id !== id));
   }, []);
 
-  const insights = calculateInsights(goals, deadlines, suggestions);
+  const insights = useMemo(
+    () => calculateInsights(goals, deadlines, suggestions),
+    [goals, deadlines, suggestions],
+  );
 
   return {
     // Data
     goals,
     deadlines,
+    reminders,
     schedule,
     longTermGoals,
     suggestions,

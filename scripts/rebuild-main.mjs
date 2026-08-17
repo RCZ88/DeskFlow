@@ -1,6 +1,7 @@
 import { build as viteBuild } from 'vite';
+import { execSync } from 'child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SRC = resolve(ROOT, 'src');
@@ -61,6 +62,24 @@ async function main() {
   const content = readFileSync(resolve(OUT, 'main.cjs'), 'utf-8');
   if (content.includes('./services/') || content.includes('./gameDetection')) {
     console.log('  ✅ Services left as external require() (expected)');
+  }
+
+  // Pre-compile src/main/ai/ files that main.cjs requires at runtime
+  console.log('\n=== Compiling main/ai/ service files ===');
+  const aiDir = resolve(SRC, 'main', 'ai');
+  if (existsSync(aiDir)) {
+    for (const entry of readdirSync(aiDir)) {
+      if (entry.endsWith('.ts') && !entry.endsWith('.d.ts') && !entry.endsWith('.test.ts')) {
+        const srcPath = resolve(aiDir, entry);
+        const outPath = resolve(OUT, 'main', 'ai', entry.replace(/\.ts$/, '.js'));
+        mkdirSync(dirname(outPath), { recursive: true });
+        execSync(
+          `npx esbuild "${srcPath}" --outfile="${outPath}" --format=cjs --platform=node --target=node22 2>&1`,
+          { cwd: ROOT, stdio: 'inherit', shell: true }
+        );
+        console.log(`  main/ai/${entry} → ${entry.replace(/\.ts$/, '.js')}`);
+      }
+    }
   }
 
   console.log('✅ Build complete!');

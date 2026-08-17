@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "DeskFlow Browser Tracker",
-  "version": "1.1.2",
-  "description": "Tracks active tab browsing activity and sends data to DeskFlow Electron app. Includes Deep Focus soft-block overlay and a status popup.",
+  "version": "1.2.0",
+  "description": "Tracks active tab browsing activity and captures AI assistant conversations for DeskFlow. Includes Deep Focus overlay, status popup, and AI context capture.",
   "permissions": [
     "tabs",
     "webNavigation",
     "activeTab",
     "alarms",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -26,6 +27,19 @@
       "matches": ["<all_urls>"],
       "js": ["focusOverlay.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://perplexity.ai/*",
+        "https://you.com/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["ai-context-content.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
     }
   ]
 }

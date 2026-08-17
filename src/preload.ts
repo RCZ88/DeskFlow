@@ -74,6 +74,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Toggle tracking on/off
   toggleTracking: () => ipcRenderer.invoke('toggle-tracking'),
   setTracking: (enabled: boolean) => ipcRenderer.invoke('set-tracking', enabled),
+  restartTracking: () => ipcRenderer.invoke('restart-tracking'),
 
   // Clear all stored data
   clearData: () => ipcRenderer.invoke('clear-data'),
@@ -126,6 +127,15 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   setPageVisibility: (page: 'browser' | 'dashboard', visible: boolean) => ipcRenderer.invoke('set-page-visibility', { page, visible }),
   setBrowserWithExtension: (browser: string) => ipcRenderer.invoke('set-browser-with-extension', browser),
   setBrowsersWithExtension: (browsers: string[]) => ipcRenderer.invoke('set-browsers-with-extension', browsers),
+
+  // AI Context Captures (external AI conversations from browser extension)
+  aiContextList: (opts?: { provider?: string; search?: string; limit?: number; offset?: number }) => ipcRenderer.invoke('ai-context:list', opts || {}),
+  aiContextStats: () => ipcRenderer.invoke('ai-context:stats'),
+  aiContextDelete: (id: number) => ipcRenderer.invoke('ai-context:delete', id),
+  aiContextClear: (provider?: string) => ipcRenderer.invoke('ai-context:clear', provider),
+  onAiContextCaptured: (cb: (data: { count: number }) => void) => { ipcRenderer.on('ai-context-captured', (_e, data) => cb(data)); },
+  aiContextGetBrainLinks: (captureId: number) => ipcRenderer.invoke('ai-context:get-brain-links', captureId),
+  aiContextTopics: () => ipcRenderer.invoke('ai-context:topics'),
 
   // Game detection - rescan Steam library
   rescanGames: () => ipcRenderer.invoke('rescan-games'),
@@ -242,6 +252,59 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // Feature Studio: AI Director pipeline (runs provider chain via main process)
   featureStudioCompile: (script: string) => ipcRenderer.invoke('feature-studio:compile', { script }),
 
+  // Overlay Studio: auto-transcribe video/audio via faster-whisper
+  overlayStudioTranscribe: (payload: { filePath: string }) => ipcRenderer.invoke('overlay-studio:transcribe', payload),
+
+  // Content Engine: ideas/themes/scripts/gates/seo/analytics/lessons/frameworks
+  contentEngine: {
+    ideasList: () => ipcRenderer.invoke('content:ideas:list'),
+    ideaSave: (idea: any) => ipcRenderer.invoke('content:ideas:save', idea),
+    ideaDelete: (id: number) => ipcRenderer.invoke('content:ideas:delete', id),
+    episodesList: (opts?: any) => ipcRenderer.invoke('content:episodes:list', opts),
+    episodeGet: (id: number) => ipcRenderer.invoke('content:episodes:get', id),
+    episodeSave: (ep: any) => ipcRenderer.invoke('content:episodes:save', ep),
+    episodeDelete: (id: number) => ipcRenderer.invoke('content:episodes:delete', id),
+    scriptGenerate: (payload: any) => ipcRenderer.invoke('content:script:generate', payload),
+    scriptRegenerateLine: (payload: any) => ipcRenderer.invoke('content:script:regenerate-line', payload),
+    validateScriptEvidence: (payload: any) => ipcRenderer.invoke('content:validate-script-evidence', payload),
+    validateGates: (payload: any) => ipcRenderer.invoke('content:validate-gates', payload),
+    gateOverride: (payload: any) => ipcRenderer.invoke('content:gate-override', payload),
+    injectSeo: (payload: any) => ipcRenderer.invoke('content:inject-seo', payload),
+    synthesizeIdeas: (payload?: any) => ipcRenderer.invoke('ideas:synthesize', payload),
+    brainstormClassify: (payload: any) => ipcRenderer.invoke('content:brainstorm:classify', payload),
+    brainstormSummary: (payload?: any) => ipcRenderer.invoke('content:brainstorm:summary', payload),
+    themesCreate: (theme: any) => ipcRenderer.invoke('themes:create', theme),
+    themesGenerate: (payload?: any) => ipcRenderer.invoke('themes:generate', payload),
+    themesGetAll: () => ipcRenderer.invoke('themes:get-all'),
+    themesApply: (payload: any) => ipcRenderer.invoke('themes:apply', payload),
+    themesDelete: (id: number) => ipcRenderer.invoke('themes:delete', id),
+    analyticsGet: (payload?: any) => ipcRenderer.invoke('content:analytics:get', payload),
+    analyticsUpsertVideo: (video: any) => ipcRenderer.invoke('content:analytics:upsert-video', video),
+    analyticsDeleteVideo: (id: number) => ipcRenderer.invoke('content:analytics:delete-video', id),
+    analyticsInsight: (payload?: any) => ipcRenderer.invoke('content:analytics:insight', payload),
+    lessonsList: () => ipcRenderer.invoke('content:lessons:list'),
+    lessonSave: (lesson: any) => ipcRenderer.invoke('content:lessons:save', lesson),
+    lessonDelete: (id: number) => ipcRenderer.invoke('content:lessons:delete', id),
+    lessonExtract: (payload: any) => ipcRenderer.invoke('content:lessons:extract', payload),
+    lessonConfirm: (payload: any) => ipcRenderer.invoke('content:lessons:confirm', payload),
+    frameworksList: () => ipcRenderer.invoke('content:frameworks:list'),
+    frameworkSave: (fw: any) => ipcRenderer.invoke('content:frameworks:save', fw),
+    frameworkRollback: (payload: any) => ipcRenderer.invoke('content:frameworks:rollback', payload),
+    reflectionSave: (payload: any) => ipcRenderer.invoke('content:reflection:save', payload),
+    reflectionGet: (payload?: any) => ipcRenderer.invoke('content:reflection:get', payload),
+    reflectionAnalyze: (payload: any) => ipcRenderer.invoke('content:reflection:analyze', payload),
+    characteristicsGet: (payload: any) => ipcRenderer.invoke('content:characteristics:get', payload),
+    characteristicsSave: (payload: any) => ipcRenderer.invoke('content:characteristics:save', payload),
+    analyticsParseRaw: (payload: any) => ipcRenderer.invoke('content:analytics:parse-raw', payload),
+    scoringSchemes: () => ipcRenderer.invoke('content:scoring:schemes'),
+    scoringCurrent: (payload: any) => ipcRenderer.invoke('content:scoring:current', payload),
+    scoringCalibrate: (payload: any) => ipcRenderer.invoke('content:scoring:calibrate', payload),
+    processTimeline: (payload?: any) => ipcRenderer.invoke('content:process:timeline', payload),
+    processLog: (payload: any) => ipcRenderer.invoke('content:process:log', payload),
+    processSummary: (payload: any) => ipcRenderer.invoke('content:process:summary', payload),
+    processGallery: () => ipcRenderer.invoke('content:process:gallery'),
+  },
+
   // File operations
   saveFile: (options: { content: string; filename: string; fileType: string }) => ipcRenderer.invoke('save-file', options),
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
@@ -340,6 +403,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getAISyncStatus: () => ipcRenderer.invoke('get-ai-sync-status'),
   clearAISyncState: () => ipcRenderer.invoke('clear-ai-sync-state'),
   getAISessionsPaginated: (tool: string, limit?: number, offset?: number) => ipcRenderer.invoke('get-ai-sessions-paginated', tool, limit, offset),
+  getAISessionMessages: (sessionId: string, tool: string) => ipcRenderer.invoke('get-ai-session-messages', sessionId, tool),
   debugAIAgents: () => ipcRenderer.invoke('debug-ai-agents'),
   onAISyncProgress: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
@@ -647,6 +711,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
    getTypicalDay: (days?: number, dateOffset?: number) => ipcRenderer.invoke('get-typical-day', days, dateOffset),
    getTypicalActivityAtTime: (timestamp: string) => ipcRenderer.invoke('get-typical-activity-at-time', timestamp),
    detectUsageGaps: (options?: { period?: string; minGapMinutes?: number }) => ipcRenderer.invoke('detect-usage-gaps', options || {}),
+   manualAssignList: (date: string) => ipcRenderer.invoke('manual-assign:list', { date }),
+   manualAssignDayContext: (date: string) => ipcRenderer.invoke('manual-assign:day-context', { date }),
+   manualAssignCreate: (data: { startedAt: string; endedAt: string; mode?: 'random' | 'custom'; app?: string | null; category?: string | null }) => ipcRenderer.invoke('manual-assign:create', data),
+   manualAssignDelete: (id: number) => ipcRenderer.invoke('manual-assign:delete', { id }),
    getHourlyHeatmap: (days?: number) => ipcRenderer.invoke('get-hourly-heatmap', days),
   getBestDays: () => ipcRenderer.invoke('get-best-days'),
    getDayDetail: (date: string) => ipcRenderer.invoke('get-day-detail', date),
@@ -820,7 +888,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========= Actions JSON Bridge =========
   writeAgentFile: (data: { relativePath: string; content: string }) =>
     ipcRenderer.invoke('write-agent-file', data),
-  assembleContext: (data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number }) =>
+  assembleContext: (data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number; topic?: string; sessionId?: string }) =>
     ipcRenderer.invoke('assemble-context', data),
   writeAgentActions: (data: { projectPath: string; terminalId: string; actions: any[] }) =>
     ipcRenderer.invoke('write-agent-actions', data),
@@ -919,6 +987,17 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   aiChatSend: (data: { threadDate: string; message: string; providerId?: string }) =>
     ipcRenderer.invoke('ai-chat:send', data),
 
+  // AI Debug Vault
+  aiDebugLog: (ev: { source?: string; event: string; feature?: string; provider?: string; model?: string; contextId?: string; role?: string; payload?: unknown; tokensIn?: number; tokensOut?: number }) =>
+    ipcRenderer.invoke('ai-debug:log', ev),
+  aiDebugQuery: (opts: { sources?: string[]; events?: string[]; search?: string; fromMs?: number; toMs?: number; limit?: number; offset?: number }) =>
+    ipcRenderer.invoke('ai-debug:query', opts),
+  aiDebugStats: () => ipcRenderer.invoke('ai-debug:stats'),
+  aiDebugExport: (opts: { sources?: string[]; events?: string[]; search?: string; fromMs?: number; toMs?: number; limit?: number }) =>
+    ipcRenderer.invoke('ai-debug:export', opts),
+  aiDebugClear: (opts: { sources?: string[]; events?: string[]; olderThanMs?: number }) =>
+    ipcRenderer.invoke('ai-debug:clear', opts),
+
   // Streaming provider chat (AiChat)
   providerChatCall: (data: { provider: any; messages: Array<{ role: string; content: string }>; model?: string; maxTokens?: number; temperature?: number }) =>
     ipcRenderer.invoke('provider-chat-call', data),
@@ -966,9 +1045,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   lifePhaseAiSummarize: (phases: any[]) => ipcRenderer.invoke('lifePhase:aiSummarize', phases),
 
   // Notes
-  notesList: (params?: { search?: string; tag?: string; group?: string }) => ipcRenderer.invoke('notes:list', params),
-  notesCreate: (data: { title?: string; content: string; tags?: string[]; group_name?: string }) => ipcRenderer.invoke('notes:create', data),
-  notesUpdate: (data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string }) => ipcRenderer.invoke('notes:update', data),
+  notesList: (params?: { search?: string; tag?: string; group?: string; includeDrafts?: boolean; upcomingDeadlines?: boolean }) => ipcRenderer.invoke('notes:list', params),
+  notesCreate: (data: { title?: string; content: string; tags?: string[]; group_name?: string; deadline?: string; deadline_time?: string; reminder?: string; is_draft?: number; links?: string[] }) => ipcRenderer.invoke('notes:create', data),
+  notesUpdate: (data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string; deadline?: string | null; deadline_time?: string | null; reminder?: string; is_draft?: number; status?: string; links?: string[] }) => ipcRenderer.invoke('notes:update', data),
   notesDelete: (id: string) => ipcRenderer.invoke('notes:delete', id),
   notesGroups: () => ipcRenderer.invoke('notes:groups'),
 
@@ -1498,6 +1577,34 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   memoryDelete: (id: string) => ipcRenderer.invoke('memory:delete', id),
   memoryStats: () => ipcRenderer.invoke('memory:stats'),
   memoryCompact: () => ipcRenderer.invoke('memory:compact'),
+
+  // ========== User Context Profile ==========
+  contextGetProfile: () => ipcRenderer.invoke('context:get-profile'),
+  contextUpdateProfile: (patch: any) => ipcRenderer.invoke('context:update-profile', patch),
+  contextAddSignal: (signalType: string, content: string, source: string, confidence?: number) => ipcRenderer.invoke('context:add-signal', signalType, content, source, confidence),
+  contextGetSignals: (signalType?: string, source?: string, limit?: number) => ipcRenderer.invoke('context:get-signals', signalType, source, limit),
+  contextRebuild: () => ipcRenderer.invoke('context:rebuild'),
+  contextGetGrowth: () => ipcRenderer.invoke('context:get-growth'),
+  contextGetMemoryHighlights: () => ipcRenderer.invoke('context:get-memory-highlights'),
+  contextGetDebug: () => ipcRenderer.invoke('context:get-debug'),
+  contextRunNow: (kind: string) => ipcRenderer.invoke('context:run-now', kind),
+
+  // ========== Context Brain ==========
+  brainSearch: (query: string, strategies?: string[]) => ipcRenderer.invoke('brain:search', query, strategies),
+  brainGetEntity: (name: string) => ipcRenderer.invoke('brain:get-entity', name),
+  brainGetEntityHistory: (name: string) => ipcRenderer.invoke('brain:get-entity-history', name),
+  brainLogEpisode: (source: string, content: string, sourceRef?: string) => ipcRenderer.invoke('brain:log-episode', source, content, sourceRef),
+  brainStats: () => ipcRenderer.invoke('brain:stats'),
+  brainExport: () => ipcRenderer.invoke('brain:export'),
+  brainGetEpisodes: (opts?: any) => ipcRenderer.invoke('brain:get-episodes', opts),
+  brainGetEntities: (opts?: any) => ipcRenderer.invoke('brain:get-entities', opts),
+  brainGetFacts: (opts?: any) => ipcRenderer.invoke('brain:get-facts', opts),
+  brainGetEntityRelated: (entityId: string) => ipcRenderer.invoke('brain:get-entity-related', entityId),
+  brainGetJobs: () => ipcRenderer.invoke('brain:get-jobs'),
+  brainRetryJob: (jobId: string) => ipcRenderer.invoke('brain:retry-job', jobId),
+  brainCreateEpisode: (data: { source: string; content: string; sourceRef?: string; metadata?: any }) => ipcRenderer.invoke('brain:create-episode', data),
+  brainMcpStatus: () => ipcRenderer.invoke('brain:mcp-status'),
+  brainReindexEmbeddings: () => ipcRenderer.invoke('brain:reindex-embeddings'),
 
   // ========== Compositions System ==========
   compositionsList: () => ipcRenderer.invoke('compositions:list'),

@@ -4,7 +4,8 @@ import { FileJson, Play, Sparkles } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export function ScenePlanView() {
-  const { state, dispatch, activeSession, async: asyncState } = useStudio()
+  const { state, dispatch, activeSession } = useStudio()
+  const asyncState = state.async
 
   if (asyncState.scenePlan.state === 'loading') return (
     <div className="p-5 space-y-3"><div className="h-4 w-48 bg-zinc-800/50 rounded-lg animate-pulse" /><div className="grid gap-3 sm:grid-cols-2">{[1,2,3,4].map(i => <div key={i} className="h-32 bg-zinc-800/30 rounded-xl animate-pulse" />)}</div></div>

@@ -93,6 +93,7 @@ export function GapsListModal({
   onClose,
   onPickGap,
   onFillGaps,
+  onAssignTime,
 }: {
   open: boolean;
   activities: ExternalActivity[];
@@ -101,6 +102,7 @@ export function GapsListModal({
   onClose: () => void;
   onPickGap: (gap: Gap) => void;
   onFillGaps?: (gaps: Gap[]) => void;
+  onAssignTime?: (gap: Gap) => void;
 }) {
   const [timeframe, setTimeframe] = useState<Timeframe>(defaultTimeframe);
 
@@ -361,6 +363,16 @@ export function GapsListModal({
                                 >
                                   Fill
                                 </button>
+
+                                {onAssignTime && (
+                                  <button
+                                    onClick={() => onAssignTime(gap)}
+                                    title="Assign manual time into this empty span"
+                                    className="rounded-lg border border-violet-400/30 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-400/10"
+                                  >
+                                    Time
+                                  </button>
+                                )}
                               </div>
                             </motion.div>
                           );

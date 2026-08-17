@@ -89,12 +89,12 @@ export function KpiRow({ data }: { data: KpiData }) {
         />
       </div>
       {/* Daily Averages */}
-      {data.activeDays && data.activeDays > 0 && (
+      {data.activeDays !== undefined && data.activeDays > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <KpiCard
             icon={TrendingUp}
-            accent="violet"
-            value={data.dailyAvgTokens || '—'}
+            accent="amber"
+            value={data.dailyAvgTokens || '0'}
             numericValue={data.dailyAvgTokensNum}
             label={`Tokens/Day (${data.activeDays}d)`}
             loading={loading}
@@ -105,8 +105,8 @@ export function KpiRow({ data }: { data: KpiData }) {
           />
           <KpiCard
             icon={DollarSign}
-            accent="emerald"
-            value={data.dailyAvgCost || '—'}
+            accent="cyan"
+            value={data.dailyAvgCost || '$0'}
             numericValue={data.dailyAvgCostNum}
             label="Cost/Day"
             loading={loading}
@@ -117,8 +117,8 @@ export function KpiRow({ data }: { data: KpiData }) {
           />
           <KpiCard
             icon={CalendarDays}
-            accent="amber"
-            value={data.dailyAvgMessages || '—'}
+            accent="pink"
+            value={data.dailyAvgMessages || '0'}
             numericValue={data.dailyAvgMessagesNum}
             label="Messages/Day"
             loading={loading}

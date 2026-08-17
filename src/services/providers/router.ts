@@ -2,10 +2,38 @@ import { CanonicalRequest, CanonicalResponse, ResolvedProvider, AiProvidersState
 import { PROVIDER_TEMPLATES } from './templates';
 import { callProvider } from './callProvider';
 
+// ---- AI Debug Vault sink (registered by main.ts; keeps router DB-free) ----
+export type DebugSinkFn = (ev: {
+  source: string;
+  event: string;
+  feature?: string;
+  provider?: string;
+  model?: string;
+  contextId?: string;
+  role?: string;
+  tokensIn?: number;
+  tokensOut?: number;
+  payload?: unknown;
+}) => void;
+
+export let debugSink: DebugSinkFn | null = null;
+let currentFeature = 'default';
+
+export function setDebugSink(fn: DebugSinkFn | null) {
+  debugSink = fn;
+}
+
+export function sink(ev: Parameters<DebugSinkFn>[0]) {
+  try {
+    debugSink?.({ source: 'provider-router', feature: currentFeature, ...ev });
+  } catch { /* sink is best-effort */ }
+}
+
 export function buildChain(
   state: AiProvidersState,
-  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder' | 'category' | 'colors' | 'lifeAssistant' | 'monthlyRecap',
+  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder' | 'category' | 'colors' | 'lifeAssistant' | 'monthlyRecap' | 'contentEngine',
 ): Array<{ provider: ResolvedProvider; model: string }> {
+  currentFeature = feature;
   const enabled = state.providers.filter(p => p.enabled);
   const assigned = state.routing[feature] ?? state.routing.default;
 
@@ -112,6 +140,25 @@ export async function runWithFallback(
       console.log(`[RESULT] ============ AI RESULT (provider=${link.provider.config.id}) ============`);
       console.log(`[RESULT] ${String(result.content)}`);
       console.log(`[RESULT] ============ END AI RESULT ============`);
+      sink({
+        event: 'prompt',
+        provider: link.provider.config.id,
+        model: link.model,
+        role: 'system',
+        payload: { systemPrompt: req.systemPrompt, messages: req.messages },
+      });
+      const reasoning = (result as any).reasoning;
+      if (reasoning != null && String(reasoning).trim()) {
+        sink({ event: 'thinking', provider: link.provider.config.id, model: link.model, payload: reasoning });
+      }
+      sink({
+        event: 'output',
+        provider: link.provider.config.id,
+        model: link.model,
+        payload: result.content,
+        tokensIn: result.usage?.prompt_tokens,
+        tokensOut: result.usage?.completion_tokens,
+      });
       return { result, usedProviderId: link.provider.config.id };
     } catch (err: any) {
       console.log(`[PROV] runWithFallback: chain[${i}] ${link.provider.config.id} FAILED: ${err.message?.slice(0, 150)}`);
@@ -121,6 +168,7 @@ export async function runWithFallback(
     }
   }
   console.log(`[PROV] runWithFallback: ALL providers failed`);
+  sink({ event: 'error', payload: { errors, message: errors.map(e => `${e.name}: ${e.error}`) } });
   // CHANGED — distinguish timeouts from failures in the aggregate message
   const timeouts = errors.filter(e => e.kind === 'timeout');
   const failures = errors.filter(e => e.kind === 'failure');

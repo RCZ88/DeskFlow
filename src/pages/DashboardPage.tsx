@@ -477,7 +477,7 @@ export default function DashboardPage({
 
   // Dashboard data via unified hook (goals, deadlines, schedule, suggestions, insights)
   const {
-    goals, deadlines, schedule, longTermGoals, suggestions, insights: dashInsights,
+    goals, deadlines, reminders, schedule, longTermGoals, suggestions, insights: dashInsights,
     momentum,
     loading: dashLoading, error: dashError, lastUpdated,
     addGoal, updateGoal, deleteGoal, toggleGoal,
@@ -2443,9 +2443,13 @@ export default function DashboardPage({
   }, [dashboardData?.websiteStats]);
 
   // Notify backend when dashboard is visible/hidden for on-view recording mode
+  // Also restart tracking if the interval died (safety net for long-running sessions)
   useEffect(() => {
     if (window.deskflowAPI?.setPageVisibility) {
       window.deskflowAPI.setPageVisibility('dashboard', true);
+    }
+    if (window.deskflowAPI?.restartTracking) {
+      window.deskflowAPI.restartTracking();
     }
     return () => {
       if (window.deskflowAPI?.setPageVisibility) {
@@ -2512,7 +2516,7 @@ export default function DashboardPage({
 
            {/* Row 4: Quadruple Column — Goals + Deadlines + Focus + Longest Focus */}
            <BlurFade delay={0.14} duration={0.4}>
-             <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4 items-stretch">
+             <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4 mb-4 items-stretch">
                 <GoalsCard
                   goals={goals}
                   longTermGoals={longTermGoals}
@@ -2535,12 +2539,19 @@ export default function DashboardPage({
                 />
                 <DeadlinesCard
                   deadlines={deadlines}
+                  reminders={reminders}
                   loading={dashLoading}
                   error={dashError}
                   onAdd={addDeadline}
                   onDelete={deleteDeadline}
                   onUpdate={updateDeadline}
                   onComplete={completeDeadline}
+                  onToggleReminder={async (id, done) => {
+                    try { await (window as any).deskflowAPI.toggleReminder(id, done); refreshDashboard(); } catch {}
+                  }}
+                  onDeleteReminder={async (id) => {
+                    try { await (window as any).deskflowAPI.deleteReminder(id); refreshDashboard(); } catch {}
+                  }}
                 />
                 <LongestFocusCard data={longestFocus} loading={longestFocusLoading} />
              </div>

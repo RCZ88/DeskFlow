@@ -11,7 +11,7 @@ export function StudioShell() {
     <div className="flex h-full min-h-0 overflow-hidden">
       {!sidebarCollapsed && <StudioSidebar />}
       <StudioWorkspace />
-      {!inspectorCollapsed && <StudioInspector />}
+      <StudioInspector />
     </div>
   )
 }

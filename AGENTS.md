@@ -130,6 +130,14 @@ How it works:
 If you ever find yourself wondering "should I load a skill for this?" — the answer is YES.
 Load the Skill Router, find your category, and follow the mapping.
 
+**The Router is a LIVING document — KEEP IT SYNCED (user-mandated, never skip):**
+- Whenever a new skill is added to `agent/skills/`, update `skill-router/SKILL.md`
+  IN THE SAME CYCLE: Decision Tree category, scenario table, load order, version bump.
+- Before loading the Router, if you know a skill exists on disk that the Router
+  doesn't mention, update the Router IMMEDIATELY, then load it. A stale Router
+  means forgotten skills — the user's #1 rage trigger.
+- Syncing the Router is part of loading it — same step, never deferred.
+
 ## 2. SHUTDOWN RITUAL (do this at the end of EVERY cycle, no exceptions)
 1. REWRITE YOUR SPOKE `agent/state/{SESSION_ID}.md` IN PLACE (overwrite, NEVER append)
    using the Section 1b template: bump the cycle number, demote the old CURRENT CYCLE into

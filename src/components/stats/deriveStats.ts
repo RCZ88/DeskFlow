@@ -81,9 +81,9 @@ export function deriveStats(raw: AnalyticsRawData): DerivedStats {
   }
 
   const activeDays = activeDaysSet.size || 1;
-  const dailyAvgTokens = totalTokens / activeDays;
-  const dailyAvgCost = totalCost / activeDays;
-  const dailyAvgMessages = totalMessages / activeDays;
+  const dailyAvgTokens = dailyTotalTokens > 0 ? dailyTotalTokens / activeDays : totalTokens / activeDays;
+  const dailyAvgCost = dailyTotalCost > 0 ? dailyTotalCost / activeDays : totalCost / activeDays;
+  const dailyAvgMessages = dailyTotalMessages > 0 ? dailyTotalMessages / activeDays : totalMessages / activeDays;
 
   const tokenEntries = Object.entries(byTool)
     .map(([tool, data]) => ({ tool, tokens: (data as any)?.tokens || 0 }))

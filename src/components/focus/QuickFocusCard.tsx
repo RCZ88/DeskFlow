@@ -4,7 +4,6 @@ import { Badge } from '../../components/ui/badge';
 import { AnimatedCircularProgressBar } from '../../components/ui/animated-circular-progress-bar';
 import { Particles } from '../../components/ui/particles';
 import { NumberTicker } from '../../components/ui/number-ticker';
-import { BorderBeam } from '../../components/ui/border-beam';
 import { AuroraText } from '../../components/ui/aurora-text';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Focus, Play, Square, Clock, Timer } from 'lucide-react';
@@ -69,7 +68,6 @@ export function QuickFocusCard({ state, onStart, onEnd }: QuickFocusCardProps) {
                         bg-[radial-gradient(ellipse_at_center,_rgba(139,92,246,0.15)_0%,_transparent_70%)]
                         blur-2xl pointer-events-none" />
         {active && <Particles className="opacity-40" quantity={14} color="#8b5cf6" />}
-        {active && <BorderBeam size={200} duration={8} colorFrom="#8b5cf6" colorTo="#6366f1" />}
       <div className="relative z-10 flex flex-col items-center gap-4">
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">

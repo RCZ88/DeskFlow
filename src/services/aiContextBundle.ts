@@ -129,6 +129,45 @@ export const PAGE_CATALOG = [
   "For ordinary conversation, reply in plain text (no JSON). Never mix prose and a JSON block.",
   'Valid metric `icon` values: Activity, Clock, Flame, Target, Zap, BarChart3.',
   'Valid `format` values: number, duration (seconds), hours (seconds), percent.',
+  "",
+  "## Canvas Control",
+  "You can control the user's canvas through structured JSON responses:",
+  "- To ADD a card: output the appropriate JSON type (goal_suggestion, plan_update, etc.) — a card is created automatically",
+  "- To UPDATE an existing card: output the same type — the data is merged into the existing card of that type",
+  "- To HIGHLIGHT a card: output { type: \"highlight\", cardType: \"<type>\" } — the canvas will flash the matching card",
+  "- To SAVE the canvas: output { type: \"canvas_action\", action: \"save\" }",
+  "- To ARRANGE cards: output { type: \"canvas_action\", action: \"arrange\" }",
+  "- To CLEAR the canvas: output { type: \"canvas_action\", action: \"clear\" } — only with user confirmation",
+  "",
+  "## Automation Creation",
+  "When the user asks to create an automation, output a fenced ```automation block:",
+  '```automation',
+  '{ "name": "Daily standup reminder", "config": { "trigger": { "type": "cron", "expression": "0 9 * * *" }, "actions": [{ "type": "send_message", "text": "Good morning! Time for standup." }], "priority": "medium", "category": "productivity", "lifecycle": "active" } }',
+  '```',
+  "The system will automatically create the automation rule from this block.",
+  "",
+  "## Conversation Style",
+  "- Be concise and actionable — the user is productive and values speed",
+  "- When showing data, prefer cards/visuals over text dumps",
+  "- When the user asks vague questions, clarify with 1-2 specific options",
+  "- Proactively suggest actions based on context (e.g. 'You have 3 unread emails' → offer to show them)",
+  "- When the user seems overwhelmed, simplify and prioritize",
+  "- Match the user's energy — if they're casual, be casual; if they're focused, be precise",
+  "- Reference the user's ACTUAL data from the context below, not generic advice",
+  "",
+  "## What You Have Access To",
+  "The user's productivity data is provided in the live context below. You can see:",
+  "- Today's goals and their completion status",
+  "- Long-term goals and their progress",
+  "- Finance summary (balance, income, expenses)",
+  "- App usage stats (which apps, how long)",
+  "- Sleep data from last night",
+  "- Email and calendar connector status",
+  "- Research digest topics",
+  "- Active projects",
+  "- Planning notes",
+  "- What cards exist on the canvas right now",
+  "Use this data to give personalized, data-driven responses — not generic advice.",
 ].join("\n")
 
 function clip(v: unknown, max = 1200): string {
@@ -152,7 +191,7 @@ export interface ContextBundleResult {
   warnings: string[]
 }
 
-const MAX_CONTEXT_CHARS = 6000  // ~1500 tokens safety budget
+const MAX_CONTEXT_CHARS = 12000  // ~3000 tokens — enough for prompt + live data
 
 export async function buildContextBundle(): Promise<string> {
   const result = await buildContextBundleDetailed()
@@ -164,7 +203,7 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
   const date = todayIso()
   const warnings: string[] = []
 
-  const [goals, longterm, goalCtx, usage, projects, planning] = await Promise.all([
+  const [goals, longterm, goalCtx, usage, projects, planning, sleep, externalSessions] = await Promise.all([
     safe<unknown>(b && (() => (b.getGoals as (d: string) => Promise<unknown>)(date)), null),
     safe<unknown>(b && (() => (b.getLongtermGoals as () => Promise<unknown>)()), null),
     safe<unknown>(b && (() => (b.getGoalContext as () => Promise<unknown>)()), null),
@@ -174,6 +213,8 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
     ),
     safe<unknown>(b && (() => (b.getProjects as () => Promise<unknown>)()), null),
     safe<unknown>(b && (() => (b.readPlanningMd as () => Promise<unknown>)()), null),
+    safe<unknown>(b && (() => (b.getSleepForDate as (d: string) => Promise<unknown>)(date)), null),
+    safe<unknown>(b && (() => (b.getExternalSessions as (p: string) => Promise<unknown>)('today')), null),
   ])
 
   // ADDED — connectors context (enhanced)
@@ -226,6 +267,14 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
     }
   } catch {
     // canvas state not available
+  }
+
+  // ADDED — user context profile
+  let userProfile: any = null
+  try {
+    userProfile = await safe<any>(b && (() => (b.contextGetProfile as () => Promise<any>)()), null)
+  } catch {
+    // context profile not available
   }
 
   const lines: string[] = ["## Live user context (" + date + ")"]
@@ -301,8 +350,75 @@ export async function buildContextBundleDetailed(): Promise<ContextBundleResult>
   }
   if (financeSubscriptions) lines.push("### Subscriptions", clip(financeSubscriptions, 600))
 
+  // Sleep data
+  if (sleep) {
+    const sleepData = sleep as any
+    if (sleepData.sleeps && sleepData.sleeps.length > 0) {
+      const last = sleepData.sleeps[0]
+      const hours = last.total_sleep_seconds ? Math.round(last.total_sleep_seconds / 3600 * 10) / 10 : '?'
+      lines.push(`### Sleep last night: ${hours}h (quality: ${last.quality || 'unknown'})`)
+    } else if (sleepData.total_sleep_seconds) {
+      const hours = Math.round(sleepData.total_sleep_seconds / 3600 * 10) / 10
+      lines.push(`### Sleep last night: ${hours}h`)
+    }
+  }
+
+  // External/off-device sessions
+  if (externalSessions) {
+    const ext = externalSessions as any
+    const sessions = ext?.sessions || ext || []
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      lines.push("### Off-device activity today")
+      for (const s of sessions.slice(0, 5)) {
+        const dur = s.duration_minutes ? `${s.duration_minutes}m` : s.duration || '?'
+        lines.push(`- ${s.activity || s.type || 'unknown'}: ${dur}`)
+      }
+    }
+  }
+
   // ADDED — current focus (active goals)
   if (activeGoals) lines.push("### Current focus", clip(activeGoals, 400))
+
+  // Available card types (so the AI knows what it can create)
+  lines.push("### Available card types on canvas")
+  lines.push("focus, plan, finance, digest, reflect, connectors, schedule, deadlines, planner, response, annotation, approval, group")
+
+  // User profile (who this person is)
+  if (userProfile) {
+    const p = userProfile as any
+    const traitKeys = Object.keys(p.traits || {})
+    const interestKeys = Object.keys(p.interests || {})
+    const habitKeys = Object.keys(p.habits || {})
+    const commKeys = Object.keys(p.communicationStyle || {})
+
+    if (traitKeys.length > 0 || interestKeys.length > 0 || habitKeys.length > 0) {
+      lines.push("### User profile (auto-derived from interactions)")
+      if (traitKeys.length > 0) {
+        lines.push("Traits: " + traitKeys.map((k: string) => {
+          const t = p.traits[k]
+          return `${t.content} (${Math.round((t.confidence || 0) * 100)}% confidence, seen ${t.occurrences || 1}x)`
+        }).join('; '))
+      }
+      if (interestKeys.length > 0) {
+        lines.push("Interests: " + interestKeys.map((k: string) => {
+          const i = p.interests[k]
+          return `${i.content}`
+        }).join(', '))
+      }
+      if (habitKeys.length > 0) {
+        lines.push("Habits: " + habitKeys.map((k: string) => {
+          const h = p.habits[k]
+          return `${h.content}`
+        }).join(', '))
+      }
+      if (commKeys.length > 0) {
+        lines.push("Communication style: " + commKeys.map((k: string) => {
+          const c = p.communicationStyle[k]
+          return `${c.content}`
+        }).join(', '))
+      }
+    }
+  }
 
   if (lines.length === 1) lines.push("(No live data available right now.)")
 

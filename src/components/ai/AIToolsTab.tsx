@@ -288,6 +288,21 @@ export default function AIToolsTab({
   const [showDataOnly, setShowDataOnly] = useState(false)
   const [heatmapToolFilter, setToolFilter] = useState<string>('all')
 
+  // ── Chart type toggle (line vs bar) ──
+  const [chartType, setChartType] = useState<'line' | 'bar'>(() => {
+    try { return (localStorage.getItem('ide-ai-chart-type') as 'line' | 'bar') || 'line' }
+    catch { return 'line' }
+  })
+
+  // ── Model selection for timeline filtering ──
+  const [selectedTimelineModels, setSelectedTimelineModels] = useState<string[]>([])
+
+  // ── Popup-internal period override ──
+  const [modalPeriod, setModalPeriod] = useState<'week' | 'month' | 'all'>('week')
+
+  // ── Popup-internal model filter ──
+  const [modalSelectedModels, setModalSelectedModels] = useState<string[]>([])
+
   // ── Session history tool selection ──
   const [sessionTool, setSessionTool] = useState<string | null>(null)
 
@@ -305,16 +320,6 @@ export default function AIToolsTab({
     responseTimeByDay: Record<string, number>
   } | null>(null)
 
-  useEffect(() => {
-    const fetchDetails = async () => {
-      try {
-        const details = await window.deskflowAPI?.getAIUsageDetails(effectiveAiPeriod === 'all' ? 'all' : effectiveAiPeriod === 'week' ? 'week' : 'month')
-        if (details) setUsageDetails(details)
-      } catch {}
-    }
-    fetchDetails()
-  }, [effectiveAiPeriod])
-
   // ── Derived period ──
   const effectiveAiPeriod = useMemo<'week' | 'month' | 'all'>(() => {
     if (timeLock) return 'all'
@@ -330,6 +335,16 @@ export default function AIToolsTab({
         return 'week'
     }
   }, [selectedPeriod, timeLock])
+
+  useEffect(() => {
+    const fetchDetails = async () => {
+      try {
+        const details = await window.deskflowAPI?.getAIUsageDetails(effectiveAiPeriod === 'all' ? 'all' : effectiveAiPeriod === 'week' ? 'week' : 'month')
+        if (details) setUsageDetails(details)
+      } catch {}
+    }
+    fetchDetails()
+  }, [effectiveAiPeriod])
 
   // ── AI agents computation ──
   const aiAgentsRef = useRef<AIAgent[]>([])
@@ -1010,7 +1025,38 @@ export default function AIToolsTab({
       </GlassCard>
 
       {/* ── Chart Controls ── */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
+          <button
+            onClick={() => { setChartType('line'); try { localStorage.setItem('ide-ai-chart-type', 'line') } catch {} }}
+            className={cn(
+              'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors duration-150',
+              chartType === 'line'
+                ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/30'
+                : 'text-zinc-500 hover:text-zinc-300'
+            )}
+          >
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3 h-3" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="2,12 5,6 9,9 14,3" /></svg>
+              Line
+            </span>
+          </button>
+          <button
+            onClick={() => { setChartType('bar'); try { localStorage.setItem('ide-ai-chart-type', 'bar') } catch {} }}
+            className={cn(
+              'px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors duration-150',
+              chartType === 'bar'
+                ? 'bg-violet-500/20 text-violet-400 ring-1 ring-violet-500/30'
+                : 'text-zinc-500 hover:text-zinc-300'
+            )}
+          >
+            <span className="flex items-center gap-1.5">
+              <BarChart3 className="w-3 h-3" />
+              Bar
+            </span>
+          </button>
+        </div>
+        <div className="w-px h-5 bg-zinc-700/40" />
         <button
           onClick={() => {
             setLogScale(!logScale)
@@ -1613,9 +1659,10 @@ export default function AIToolsTab({
           (() => {
             const agent = selectedAgentDetail
             const toolDaily = overview?.aiUsage?.byTool?.[agent.id]?.daily || {}
+            const toolModelDaily = overview?.aiUsage?.byTool?.[agent.id]?.modelDaily || {}
             const periodDays = eachDayOfInterval({
               start: (() => {
-                if (effectiveAiPeriod === 'all') {
+                if (modalPeriod === 'all') {
                   const dateStrs = Object.keys(toolDaily).filter(
                     (d) => isSaneDay(new Date(d).getTime())
                   )
@@ -1627,11 +1674,9 @@ export default function AIToolsTab({
                 }
                 return subDays(
                   new Date(),
-                  effectiveAiPeriod === 'week'
+                  modalPeriod === 'week'
                     ? 6
-                    : effectiveAiPeriod === 'month'
-                      ? 29
-                      : 29
+                    : 29
                 )
               })(),
               end: new Date(),
@@ -1668,7 +1713,7 @@ export default function AIToolsTab({
             const tokensPerMsg = totalMessages > 0 ? Math.round(totalTokens / totalMessages) : 0
 
             const modalChartLabels = periodDays.map((d) =>
-              format(d, effectiveAiPeriod === 'week' ? 'EEE' : 'MMM dd')
+              format(d, modalPeriod === 'week' ? 'EEE' : 'MMM dd')
             )
             const modalMetricField =
               aiChartMode === 'tokens'
@@ -1774,15 +1819,37 @@ export default function AIToolsTab({
                           </div>
                         </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          setSelectedAgent(null)
-                          setSelectedAgentDetail(null)
-                        }}
-                        className="p-2 hover:bg-zinc-800 rounded-lg transition-colors duration-150 text-zinc-500 hover:text-zinc-200"
-                      >
-                        <X className="w-5 h-5" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
+                          {([
+                            { key: 'week' as const, label: '7D' },
+                            { key: 'month' as const, label: '30D' },
+                            { key: 'all' as const, label: 'All' },
+                          ]).map((p) => (
+                            <button
+                              key={p.key}
+                              onClick={() => setModalPeriod(p.key)}
+                              className={cn(
+                                'px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors duration-150',
+                                modalPeriod === p.key
+                                  ? 'bg-violet-500/20 text-violet-400'
+                                  : 'text-zinc-500 hover:text-zinc-300'
+                              )}
+                            >
+                              {p.label}
+                            </button>
+                          ))}
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedAgent(null)
+                            setSelectedAgentDetail(null)
+                          }}
+                          className="p-2 hover:bg-zinc-800 rounded-lg transition-colors duration-150 text-zinc-500 hover:text-zinc-200"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
 
                     {agent.status !== 'inactive' ? (
@@ -1833,6 +1900,30 @@ export default function AIToolsTab({
                           ))}
                         </div>
 
+                        {/* Daily Averages row */}
+                        {(() => {
+                          const activeDays = periodData.filter(d => (d.tokens || 0) > 0).length || 1
+                          const dTokens = totalTokens / activeDays
+                          const dCost = totalCost / activeDays
+                          const dMsgs = totalMessages / activeDays
+                          return (
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-amber-500/20">
+                                <div className="text-base font-bold text-amber-400 tabular-nums"><TokenValue value={Math.round(dTokens)} /></div>
+                                <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Tokens/Day ({activeDays}d)</div>
+                              </div>
+                              <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-cyan-500/20">
+                                <div className="text-base font-bold text-cyan-400 tabular-nums"><CostValue value={dCost} /></div>
+                                <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Cost/Day</div>
+                              </div>
+                              <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-pink-500/20">
+                                <div className="text-base font-bold text-pink-400 tabular-nums">{Math.round(dMsgs).toLocaleString()}</div>
+                                <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Msgs/Day</div>
+                              </div>
+                            </div>
+                          )
+                        })()}
+
                         {/* Daily Usage Timeline Chart */}
                         <div className="bg-zinc-950/60 rounded-xl p-4 ring-1 ring-zinc-800/50">
                           <div className="flex items-center justify-between mb-4">
@@ -1878,17 +1969,31 @@ export default function AIToolsTab({
                                 </>
                               )}
                             </div>
+                            <div className="flex items-center gap-0.5 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
+                              <button
+                                onClick={() => { setChartType('line'); try { localStorage.setItem('ide-ai-chart-type', 'line') } catch {} }}
+                                className={cn(
+                                  'px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors duration-150',
+                                  chartType === 'line' ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-500 hover:text-zinc-300'
+                                )}
+                              >Line</button>
+                              <button
+                                onClick={() => { setChartType('bar'); try { localStorage.setItem('ide-ai-chart-type', 'bar') } catch {} }}
+                                className={cn(
+                                  'px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors duration-150',
+                                  chartType === 'bar' ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-500 hover:text-zinc-300'
+                                )}
+                              >Bar</button>
+                            </div>
                           </div>
                           <div className="h-56">
-                            <Line
-                              data={{
+                            {(() => {
+                              const lineData = {
                                 labels: modalChartLabels,
                                 datasets: [
                                   {
                                     label: `${agent.name} - ${modalChartLabel}`,
-                                    data: modalChartClean.map((v) =>
-                                      logScale && v === 0 ? null : v
-                                    ) as (number | null)[],
+                                    data: modalChartClean.map((v) => logScale && v === 0 ? null : v) as (number | null)[],
                                     borderColor: agent.color,
                                     backgroundColor: (ctx: any) => {
                                       const chart = ctx.chart
@@ -1901,10 +2006,7 @@ export default function AIToolsTab({
                                       return g
                                     },
                                     borderWidth: 2,
-                                    pointRadius: (ctx: any) => {
-                                      const val = ctx.raw
-                                      return val !== null && val !== 0 ? 3 : 0
-                                    },
+                                    pointRadius: (ctx: any) => { const val = ctx.raw; return val !== null && val !== 0 ? 3 : 0 },
                                     pointBackgroundColor: agent.color,
                                     pointBorderColor: agent.color,
                                     pointHoverRadius: 5,
@@ -1913,70 +2015,121 @@ export default function AIToolsTab({
                                     tension: 0.35,
                                   },
                                 ],
-                              }}
-                              options={{
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                plugins: {
-                                  legend: { display: false },
-                                  tooltip: {
-                                    backgroundColor: 'rgba(9, 9, 11, 0.95)',
-                                    titleColor: '#fff',
-                                    bodyColor: '#a1a1aa',
-                                    borderColor: '#27272a',
-                                    borderWidth: 1,
-                                    cornerRadius: 8,
-                                    padding: { top: 10, bottom: 10, left: 14, right: 14 },
-                                    callbacks: {
-                                      label: (ctx) => {
-                                        const val = ctx.parsed?.y ?? 0
-                                        if (aiChartMode === 'tokens')
-                                          return ` ${formatTokens(val)} tokens`
-                                        if (aiChartMode === 'cost')
-                                          return ` ${formatCurrency(val)}`
-                                        if (aiChartMode === 'messages')
-                                          return ` ${val} messages`
-                                        return ` ${val} sessions`
-                                      },
-                                    },
-                                  },
-                                },
-                                scales: {
-                                  x: {
-                                    grid: { display: false },
-                                    border: { color: 'rgba(113,113,122,0.12)' },
-                                    ticks: {
-                                      color: '#71717a',
-                                      maxTicksLimit: 10,
-                                      font: { size: 10, weight: '500' as const },
-                                    },
-                                  },
-                                  y: {
-                                    type: logScale
-                                      ? ('logarithmic' as const)
-                                      : ('linear' as const),
-                                    grid: { color: 'rgba(113,113,122,0.06)' },
-                                    border: { color: 'rgba(113,113,122,0.12)' },
-                                    ticks: {
-                                      color: '#71717a',
-                                      font: { size: 10 },
-                                      padding: 8,
-                                      callback: (v) => {
-                                        if (v === null) return ''
-                                        if (aiChartMode === 'tokens')
-                                          return formatTokens(v as number)
-                                        if (aiChartMode === 'cost')
-                                          return `$${(v as number).toFixed(2)}`
-                                        return String(v)
-                                      },
-                                    },
-                                    ...(logScale ? {} : { beginAtZero: true }),
-                                  },
-                                },
-                              }}
-                            />
+                              }
+                              const barData = {
+                                labels: modalChartLabels,
+                                datasets: [{
+                                  label: `${agent.name} - ${modalChartLabel}`,
+                                  data: modalChartClean.map((v) => logScale && v === 0 ? null : v) as (number | null)[],
+                                  backgroundColor: agent.color + '80',
+                                  borderColor: agent.color,
+                                  borderWidth: 1.5,
+                                  borderRadius: 4,
+                                  borderSkipped: false,
+                                }],
+                              }
+                              const tooltipCfg = { backgroundColor: 'rgba(9, 9, 11, 0.95)', titleColor: '#fff', bodyColor: '#a1a1aa', borderColor: '#27272a', borderWidth: 1, cornerRadius: 8, callbacks: { label: (ctx: any) => { const val = ctx.parsed?.y ?? 0; if (aiChartMode === 'tokens') return ` ${formatTokens(val)} tokens`; if (aiChartMode === 'cost') return ` ${formatCurrency(val)}`; if (aiChartMode === 'messages') return ` ${val} messages`; return ` ${val} sessions` } } }
+                              const scaleCfg = {
+                                x: { grid: { display: false }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', maxTicksLimit: 10, font: { size: 10, weight: '500' as const } } },
+                                y: { type: logScale ? ('logarithmic' as const) : ('linear' as const), grid: { color: 'rgba(113,113,122,0.06)' }, border: { color: 'rgba(113,113,122,0.12)' }, ticks: { color: '#71717a', font: { size: 10 }, padding: 8, callback: (v: any) => { if (v === null) return ''; if (aiChartMode === 'tokens') return formatTokens(v as number); if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`; return String(v) } }, ...(logScale ? {} : { beginAtZero: true }) },
+                              }
+                              if (chartType === 'line') {
+                                return <Line data={lineData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: tooltipCfg }, scales: scaleCfg }} />
+                              }
+                              return <Bar data={barData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: tooltipCfg }, scales: scaleCfg, barPercentage: 0.82, categoryPercentage: 0.85 }} />
+                            })()}
                           </div>
                         </div>
+
+                        {/* Per-Model Breakdown */}
+                        {Object.keys(toolModelDaily).length > 0 && (() => {
+                          const modelNames = Object.keys(toolModelDaily).sort((a, b) => {
+                            const aT = Object.values(toolModelDaily[a] as Record<string, any>).reduce((s: number, d: any) => s + (d.tokens || 0), 0)
+                            const bT = Object.values(toolModelDaily[b] as Record<string, any>).reduce((s: number, d: any) => s + (d.tokens || 0), 0)
+                            return bT - aT
+                          })
+                          const filteredModels = modalSelectedModels.length > 0
+                            ? modelNames.filter(m => modalSelectedModels.includes(m))
+                            : modelNames
+                          const modelMetricField = aiChartMode === 'tokens' ? (tokenDisplayMode === 'input' ? 'tokens_in' : tokenDisplayMode === 'output' ? 'tokens_out' : 'tokens') : aiChartMode === 'messages' ? 'messageCount' : aiChartMode === 'cost' ? 'cost' : 'sessions'
+                          const modelMetricLabel = aiChartMode === 'tokens' ? (tokenDisplayMode === 'input' ? 'Input Tokens' : tokenDisplayMode === 'output' ? 'Output Tokens' : 'Tokens') : aiChartMode.charAt(0).toUpperCase() + aiChartMode.slice(1)
+
+                          const modelDatasets = filteredModels.slice(0, 8).map((modelName, idx) => {
+                            const color = MODEL_COLORS[idx % MODEL_COLORS.length]
+                            return {
+                              label: modelName.length > 22 ? modelName.slice(0, 19) + '...' : modelName,
+                              data: periodDays.map(d => {
+                                const dayStr = format(d, 'yyyy-MM-dd')
+                                const dayData = (toolModelDaily[modelName] as Record<string, any>)?.[dayStr]
+                                return dayData ? Number(dayData[modelMetricField]) || 0 : 0
+                              }),
+                              backgroundColor: color + '80',
+                              borderColor: color,
+                              borderWidth: 1.5,
+                              borderRadius: 4,
+                              borderSkipped: false,
+                            }
+                          })
+
+                          if (modelDatasets.length === 0) return null
+
+                          return (
+                            <div className="bg-zinc-950/60 rounded-xl p-4 ring-1 ring-zinc-800/50">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="text-[11px] text-zinc-600 uppercase tracking-wider font-semibold">
+                                  Models — {modelMetricLabel}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => setModalSelectedModels([])}
+                                    className={cn(
+                                      'px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150',
+                                      modalSelectedModels.length === 0 ? 'bg-violet-500/20 text-violet-400' : 'text-zinc-500 hover:text-zinc-300'
+                                    )}
+                                  >All</button>
+                                  {modelNames.slice(0, 6).map((m, i) => {
+                                    const isActive = modalSelectedModels.length === 0 || modalSelectedModels.includes(m)
+                                    return (
+                                      <button
+                                        key={m}
+                                        onClick={() => setModalSelectedModels(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])}
+                                        className={cn(
+                                          'px-1.5 py-0.5 rounded-md text-[9px] font-medium transition-colors duration-150 max-w-[90px] truncate',
+                                          isActive ? 'bg-zinc-700/60 text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
+                                        )}
+                                        title={m}
+                                      >
+                                        <span className="flex items-center gap-1">
+                                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: MODEL_COLORS[i % MODEL_COLORS.length] }} />
+                                          {m.length > 10 ? m.slice(0, 8) + '..' : m}
+                                        </span>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              </div>
+                              <div className="h-44">
+                                <Bar
+                                  data={{ labels: periodDays.map(d => format(d, modalPeriod === 'week' ? 'EEE' : 'MMM dd')), datasets: modelDatasets }}
+                                  options={{
+                                    responsive: true, maintainAspectRatio: false,
+                                    plugins: {
+                                      legend: { display: true, position: 'bottom', labels: { color: '#71717a', font: { size: 9 }, boxWidth: 10, padding: 8, usePointStyle: true } },
+                                      tooltip: { backgroundColor: 'rgba(20,22,30,0.85)', titleColor: '#fff', bodyColor: '#8E95A5', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, cornerRadius: 8, usePointStyle: true,
+                                        callbacks: { label: (ctx: any) => ` ${ctx.dataset.label}: ${aiChartMode === 'tokens' ? formatTokens(ctx.parsed.y) : aiChartMode === 'cost' ? formatCurrency(ctx.parsed.y) : ctx.parsed.y}` }
+                                      },
+                                    },
+                                    scales: {
+                                      x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: '#71717a', maxTicksLimit: modalPeriod === 'week' ? 7 : 10, font: { size: 9 }, maxRotation: 0 } },
+                                      y: { stacked: true, grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false }, border: { display: false }, ticks: { color: '#71717a', font: { size: 9 }, padding: 6, callback: (v: any) => aiChartMode === 'tokens' ? formatTokens(v) : aiChartMode === 'cost' ? `$${v.toFixed(2)}` : String(v) }, beginAtZero: true },
+                                    },
+                                    barPercentage: 0.82, categoryPercentage: 0.85,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          )
+                        })()}
 
                         {/* Models list */}
                         {agent.models.length > 0 && (
@@ -2814,88 +2967,150 @@ export default function AIToolsTab({
                       </span>
                     </div>
                     <div className="h-48">
-                      <Line
-                        data={agentChart.chartData}
-                        options={{
-                          responsive: true,
-                          maintainAspectRatio: false,
-                          interaction: {
-                            mode: 'index',
-                            intersect: false,
-                          },
-                          plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                              backgroundColor: 'rgba(20, 22, 30, 0.85)',
-                              titleColor: '#FFFFFF',
-                              bodyColor: '#8E95A5',
-                              borderColor: 'rgba(255,255,255,0.12)',
-                              borderWidth: 1,
-                              cornerRadius: 10,
-                              padding: { top: 12, bottom: 12, left: 16, right: 16 },
-                              titleFont: { weight: '700' as const, size: 13 },
-                              bodyFont: { size: 12 },
-                              displayColors: true,
-                              boxPadding: 4,
-                              usePointStyle: true,
-                              callbacks: {
-                                label: (ctx) => {
-                                  const val = ctx.parsed?.y ?? 0
-                                  if (aiChartMode === 'tokens') {
-                                    const mode =
-                                      tokenDisplayMode === 'input'
-                                        ? ' input'
-                                        : tokenDisplayMode === 'output'
-                                          ? ' output'
-                                          : ''
-                                    return ` ${formatTokens(val)}${mode} tokens`
-                                  }
-                                  if (aiChartMode === 'cost')
-                                    return ` ${formatCurrency(val)}`
-                                  if (aiChartMode === 'messages')
-                                    return ` ${val} messages`
-                                  return ` ${val} sessions`
+                      {chartType === 'line' ? (
+                        <Line
+                          data={agentChart.chartData}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                              mode: 'index',
+                              intersect: false,
+                            },
+                            plugins: {
+                              legend: { display: false },
+                              tooltip: {
+                                backgroundColor: 'rgba(20, 22, 30, 0.85)',
+                                titleColor: '#FFFFFF',
+                                bodyColor: '#8E95A5',
+                                borderColor: 'rgba(255,255,255,0.12)',
+                                borderWidth: 1,
+                                cornerRadius: 10,
+                                padding: { top: 12, bottom: 12, left: 16, right: 16 },
+                                titleFont: { weight: '700' as const, size: 13 },
+                                bodyFont: { size: 12 },
+                                displayColors: true,
+                                boxPadding: 4,
+                                usePointStyle: true,
+                                callbacks: {
+                                  label: (ctx) => {
+                                    const val = ctx.parsed?.y ?? 0
+                                    if (aiChartMode === 'tokens') {
+                                      const mode =
+                                        tokenDisplayMode === 'input'
+                                          ? ' input'
+                                          : tokenDisplayMode === 'output'
+                                            ? ' output'
+                                            : ''
+                                      return ` ${formatTokens(val)}${mode} tokens`
+                                    }
+                                    if (aiChartMode === 'cost')
+                                      return ` ${formatCurrency(val)}`
+                                    if (aiChartMode === 'messages')
+                                      return ` ${val} messages`
+                                    return ` ${val} sessions`
+                                  },
                                 },
                               },
                             },
-                          },
-                          scales: {
-                            x: {
-                              grid: { display: false },
-                              border: { display: false },
-                              ticks: {
-                                color: '#71717a',
-                                maxTicksLimit: effectiveAiPeriod === 'week' ? 7 : 10,
-                                font: { size: 10, weight: '500' as const },
-                                maxRotation: 0,
-                              },
-                            },
-                            y: {
-                              type: logScale
-                                ? ('logarithmic' as const)
-                                : ('linear' as const),
-                              grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
-                              border: { display: false },
-                              ticks: {
-                                color: '#71717a',
-                                font: { size: 10 },
-                                padding: 8,
-                                callback: (v) => {
-                                  if (v === null) return ''
-                                  if (aiChartMode === 'tokens')
-                                    return formatTokens(v as number)
-                                  if (aiChartMode === 'cost')
-                                    return `$${(v as number).toFixed(2)}`
-                                  return String(v)
+                            scales: {
+                              x: {
+                                grid: { display: false },
+                                border: { display: false },
+                                ticks: {
+                                  color: '#71717a',
+                                  maxTicksLimit: effectiveAiPeriod === 'week' ? 7 : 10,
+                                  font: { size: 10, weight: '500' as const },
+                                  maxRotation: 0,
                                 },
                               },
-                              ...(logScale
-                                ? {}
-                                : { beginAtZero: true }),
+                              y: {
+                                type: logScale
+                                  ? ('logarithmic' as const)
+                                  : ('linear' as const),
+                                grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
+                                border: { display: false },
+                                ticks: {
+                                  color: '#71717a',
+                                  font: { size: 10 },
+                                  padding: 8,
+                                  callback: (v) => {
+                                    if (v === null) return ''
+                                    if (aiChartMode === 'tokens')
+                                      return formatTokens(v as number)
+                                    if (aiChartMode === 'cost')
+                                      return `$${(v as number).toFixed(2)}`
+                                    return String(v)
+                                  },
+                                },
+                                ...(logScale
+                                  ? {}
+                                  : { beginAtZero: true }),
+                              },
                             },
-                          },
-                        }}
-                      />
+                          }}
+                        />
+                      ) : (
+                        <Bar
+                          data={{
+                            labels: agentChart.chartData.labels,
+                            datasets: [{
+                              ...agentChart.chartData.datasets[0],
+                              backgroundColor: agentChart.color + '80',
+                              borderColor: agentChart.color,
+                              borderWidth: 1.5,
+                              borderRadius: 4,
+                              borderSkipped: false,
+                              fill: undefined,
+                            }],
+                          }}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                              legend: { display: false },
+                              tooltip: {
+                                backgroundColor: 'rgba(20, 22, 30, 0.85)',
+                                titleColor: '#FFFFFF',
+                                bodyColor: '#8E95A5',
+                                borderColor: 'rgba(255,255,255,0.12)',
+                                borderWidth: 1,
+                                cornerRadius: 10,
+                                padding: { top: 12, bottom: 12, left: 16, right: 16 },
+                                callbacks: {
+                                  label: (ctx) => {
+                                    const val = ctx.parsed?.y ?? 0
+                                    if (aiChartMode === 'tokens') {
+                                      const mode = tokenDisplayMode === 'input' ? ' input' : tokenDisplayMode === 'output' ? ' output' : ''
+                                      return ` ${formatTokens(val)}${mode} tokens`
+                                    }
+                                    if (aiChartMode === 'cost') return ` ${formatCurrency(val)}`
+                                    if (aiChartMode === 'messages') return ` ${val} messages`
+                                    return ` ${val} sessions`
+                                  },
+                                },
+                              },
+                            },
+                            scales: {
+                              x: {
+                                grid: { display: false },
+                                border: { display: false },
+                                ticks: { color: '#71717a', maxTicksLimit: effectiveAiPeriod === 'week' ? 7 : 10, font: { size: 10, weight: '500' as const }, maxRotation: 0 },
+                              },
+                              y: {
+                                type: logScale ? ('logarithmic' as const) : ('linear' as const),
+                                grid: { color: 'rgba(39,39,42,0.5)', drawTicks: false },
+                                border: { display: false },
+                                ticks: { color: '#71717a', font: { size: 10 }, padding: 8, callback: (v) => { if (v === null) return ''; if (aiChartMode === 'tokens') return formatTokens(v as number); if (aiChartMode === 'cost') return `$${(v as number).toFixed(2)}`; return String(v) } },
+                                ...(logScale ? {} : { beginAtZero: true }),
+                              },
+                            },
+                            barPercentage: 0.82,
+                            categoryPercentage: 0.85,
+                          }}
+                        />
+                      )}
                     </div>
                   </GlassCard>
                 ))}
@@ -2970,6 +3185,92 @@ export default function AIToolsTab({
                   )}
                 </div>
               </GlassCard>
+
+              {/* Cost Projection & Free Model Indicator */}
+              {(() => {
+                const activeAgents = aiAgents.filter(a => a.status !== 'inactive' && a.cost > 0)
+                if (activeAgents.length === 0) return null
+                const totalCostAll = activeAgents.reduce((s, a) => s + a.cost, 0)
+                const byTool = overview?.aiUsage?.byTool || {}
+                const dailyCosts: Record<string, number> = {}
+                for (const tool of Object.values(byTool) as any[]) {
+                  const daily = tool?.daily || {}
+                  for (const [dayStr, dayData] of Object.entries(daily) as [string, any][]) {
+                    const t = new Date(dayStr).getTime()
+                    if (!isSaneDay(t)) continue
+                    dailyCosts[dayStr] = (dailyCosts[dayStr] || 0) + (dayData.cost || 0)
+                  }
+                }
+                const costDays = Object.values(dailyCosts).filter(v => v > 0)
+                const avgDailyCost = costDays.length > 0 ? costDays.reduce((s, v) => s + v, 0) / costDays.length : 0
+                const projectedMonthly = avgDailyCost * 30
+                const projectedYearly = avgDailyCost * 365
+
+                const allModelCosts: Record<string, { cost: number; tokens: number; tool: string }> = {}
+                for (const [toolId, toolData] of Object.entries(byTool)) {
+                  const modelDaily = (toolData as any)?.modelDaily || {}
+                  for (const [modelName, dayRecords] of Object.entries(modelDaily)) {
+                    if (!allModelCosts[modelName]) allModelCosts[modelName] = { cost: 0, tokens: 0, tool: toolId }
+                    for (const dayData of Object.values(dayRecords as Record<string, any>)) {
+                      allModelCosts[modelName].cost += dayData.cost || 0
+                      allModelCosts[modelName].tokens += dayData.tokens || 0
+                    }
+                  }
+                }
+                const freeModels = Object.entries(allModelCosts)
+                  .filter(([, v]) => v.cost === 0 && v.tokens > 0)
+                  .map(([name, v]) => ({ name, tokens: v.tokens, tool: AGENT_CONFIG[v.tool]?.name || v.tool }))
+
+                return (
+                  <GlassCard>
+                    <div className="flex items-center gap-2.5 mb-4">
+                      <div className="w-8 h-8 rounded-lg bg-rose-500/15 flex items-center justify-center">
+                        <Coins className="w-4 h-4 text-rose-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-[13px] font-semibold text-zinc-100">
+                          Cost Insights
+                        </h3>
+                        <p className="text-[11px] text-zinc-600">
+                          Projections based on {costDays.length} active day{costDays.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-zinc-800/50">
+                        <div className="text-base font-bold text-rose-400 tabular-nums">{formatCurrency(avgDailyCost)}</div>
+                        <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Avg/Day</div>
+                      </div>
+                      <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-zinc-800/50">
+                        <div className="text-base font-bold text-amber-400 tabular-nums">{formatCurrency(projectedMonthly)}</div>
+                        <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Projected Month</div>
+                      </div>
+                      <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-zinc-800/50">
+                        <div className="text-base font-bold text-orange-400 tabular-nums">{formatCurrency(projectedYearly)}</div>
+                        <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Projected Year</div>
+                      </div>
+                      <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-zinc-800/50">
+                        <div className="text-base font-bold text-emerald-400 tabular-nums">{freeModels.length}</div>
+                        <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Free Models</div>
+                      </div>
+                    </div>
+                    {freeModels.length > 0 && (
+                      <div className="p-3 bg-emerald-500/5 rounded-xl ring-1 ring-emerald-500/15">
+                        <div className="text-[10px] text-emerald-400 uppercase tracking-wider font-semibold mb-2">Free Models (no cost recorded)</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {freeModels.map(m => (
+                            <span key={m.name} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 text-[10px] text-emerald-300 ring-1 ring-emerald-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              <span className="truncate max-w-[140px]" title={m.name}>{m.name}</span>
+                              <span className="text-emerald-500/60">({formatTokens(m.tokens)})</span>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </GlassCard>
+                )
+              })()}
 
               {/* Model Usage Timeline */}
               {(() => {
@@ -3077,7 +3378,10 @@ export default function AIToolsTab({
                 }
                 const allModels = Array.from(allModelsMap.values())
 
-                const datasets = allModels.slice(0, 10).map((entry, idx) => {
+                const datasets = allModels
+                  .filter(m => selectedTimelineModels.length === 0 || selectedTimelineModels.includes(m.model))
+                  .slice(0, 10)
+                  .map((entry, idx) => {
                   const byTool = overview?.aiUsage?.byTool || {}
                   const modelColor = modelColors[idx % modelColors.length]
                   return {
@@ -3125,6 +3429,45 @@ export default function AIToolsTab({
                             tools
                           </p>
                         </div>
+                      </div>
+                      <div className="flex items-center gap-1 bg-zinc-900/60 rounded-lg p-0.5 ring-1 ring-zinc-800/50">
+                        <button
+                          onClick={() => setSelectedTimelineModels([])}
+                          className={cn(
+                            'px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors duration-150',
+                            selectedTimelineModels.length === 0
+                              ? 'bg-violet-500/20 text-violet-400'
+                              : 'text-zinc-500 hover:text-zinc-300'
+                          )}
+                        >
+                          All
+                        </button>
+                        {allModels.slice(0, 6).map((m, i) => {
+                          const isActive = selectedTimelineModels.length === 0 || selectedTimelineModels.includes(m.model)
+                          return (
+                            <button
+                              key={m.model}
+                              onClick={() => {
+                                setSelectedTimelineModels(prev => {
+                                  if (prev.includes(m.model)) return prev.filter(x => x !== m.model)
+                                  return [...prev, m.model]
+                                })
+                              }}
+                              className={cn(
+                                'px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors duration-150 max-w-[100px] truncate',
+                                isActive
+                                  ? 'bg-zinc-700/60 text-zinc-200'
+                                  : 'text-zinc-600 hover:text-zinc-400'
+                              )}
+                              title={m.model}
+                            >
+                              <span className="flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: modelColors[i % modelColors.length] }} />
+                                {m.model.length > 12 ? m.model.slice(0, 10) + '...' : m.model}
+                              </span>
+                            </button>
+                          )
+                        })}
                       </div>
                     </div>
                     {(() => {

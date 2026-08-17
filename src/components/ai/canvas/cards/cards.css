@@ -4,52 +4,56 @@
    Animation: transform + opacity only. Reduced motion fallback.
    ═══════════════════════════════════════════════════════════════════════════════ */
 
-/* ─── Card Container ─── */
+/* ─── Card Container — Glossy Glass ─── */
 .dk-card {
   display: flex; flex-direction: column;
-  background: linear-gradient(135deg, rgba(24,24,27,0.85) 0%, rgba(9,9,11,0.7) 100%);
-  backdrop-filter: blur(20px) saturate(1.2);
-  border: 1px solid rgba(63, 63, 70, 0.5); border-radius: 16px;
+  background: linear-gradient(165deg, rgba(24,24,27,0.70) 0%, rgba(9,9,11,0.50) 100%);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
   overflow: hidden;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow:
+    0 4px 24px rgba(0,0,0,0.35),
+    0 0 0 1px rgba(255,255,255,0.04),
+    inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .dk-card::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.12) 30%, rgba(255,255,255,0.12) 70%, transparent 100%);
   pointer-events: none;
 }
-.dk-card:hover { border-color: rgba(113, 113, 122, 0.6); box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.05); }
+.dk-card:hover { border-color: rgba(255, 255, 255, 0.14); box-shadow: 0 8px 40px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.10); }
 
 /* ─── Card Header ─── */
 .dk-card-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 16px; border-bottom: 1px solid rgba(63, 63, 70, 0.4);
-  background: rgba(24, 24, 27, 0.5); gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.20); gap: 10px;
   position: relative;
 }
 .dk-card-header::before {
   content: '';
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 2px;
-  background: var(--card-accent, linear-gradient(90deg, var(--dk-accent), transparent));
-  opacity: 0.6;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
 }
 .dk-card-header-left, .dk-card-header-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.dk-card-title { font-size: 13px; font-weight: 600; color: #f4f4f5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
-.dk-card-subtitle { font-size: 11px; color: #71717a; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
-.dk-card-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; padding: 3px 10px; background: rgba(34, 211, 238, 0.1); color: var(--dk-accent); border-radius: 999px; flex-shrink: 0; border: 1px solid rgba(34, 211, 238, 0.15); }
+.dk-card-title { font-family: var(--dk-display); font-size: 13px; font-weight: 600; color: #fafafa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+.dk-card-subtitle { font-family: var(--dk-mono); font-size: 11px; color: #52525b; white-space: nowrap; }
+.dk-card-badge { font-family: var(--dk-display); font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 10px; background: rgba(255, 255, 255, 0.06); color: #a1a1aa; border-radius: 999px; flex-shrink: 0; border: 1px solid rgba(255, 255, 255, 0.08); }
 
 /* ─── Card Body ─── */
-.dk-card-body { flex: 1; padding: 16px; font-size: 13px; line-height: 1.65; color: #d4d4d8; overflow: auto; }
+.dk-card-body { flex: 1; padding: 16px; font-size: 13px; line-height: 1.65; color: #a1a1aa; overflow: auto; }
 .dk-card-body::-webkit-scrollbar { width: 4px; }
 .dk-card-body::-webkit-scrollbar-track { background: transparent; }
-.dk-card-body::-webkit-scrollbar-thumb { background: rgba(113, 113, 122, 0.3); border-radius: 2px; }
-.dk-card-body::-webkit-scrollbar-thumb:hover { background: rgba(113, 113, 122, 0.5); }
+.dk-card-body::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 2px; }
+.dk-card-body::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.14); }
 
 /* ─── Card Section ─── */
 .dk-card-section { display: flex; flex-direction: column; gap: var(--dk-space-2); padding: 0 16px; margin-bottom: var(--dk-space-3); }
@@ -61,17 +65,18 @@
 /* ─── Buttons ─── */
 .dk-btn-primary {
   display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px;
-  background: linear-gradient(135deg, rgba(34, 211, 238, 0.15), rgba(34, 211, 238, 0.08));
-  border: 1px solid rgba(34, 211, 238, 0.3); border-radius: 10px;
-  color: var(--dk-accent); font-size: 12px; font-weight: 600; cursor: pointer; min-height: 36px;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px;
+  color: #fafafa; font-size: 12px; font-weight: 500; cursor: pointer; min-height: 36px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .dk-btn-primary:hover:not(:disabled) { 
-  background: linear-gradient(135deg, rgba(34, 211, 238, 0.25), rgba(34, 211, 238, 0.15));
-  border-color: rgba(34, 211, 238, 0.5);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(34, 211, 238, 0.15);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 .dk-btn-primary:active:not(:disabled) { transform: translateY(0); }
 .dk-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -115,14 +120,14 @@
 .dk-goal-list { display: flex; flex-direction: column; gap: 6px; }
 .dk-goal-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
-  background: rgba(39, 39, 42, 0.4); border-radius: 10px;
-  border: 1px solid rgba(63, 63, 70, 0.3); border-left: 3px solid var(--goal-color, rgba(113, 113, 122, 0.3));
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(24, 24, 27, 0.40); border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.05); border-left: 3px solid var(--goal-color, rgba(255, 255, 255, 0.10));
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   min-height: 44px;
   backdrop-filter: blur(8px);
 }
-.dk-goal-item:hover { border-color: rgba(63, 63, 70, 0.5); background: rgba(39, 39, 42, 0.6); transform: translateX(2px); }
-.dk-goal-item.focus-active { border-color: var(--dk-accent); background: rgba(34,211,238,0.06); box-shadow: 0 0 0 1px rgba(34,211,238,0.2); }
+.dk-goal-item:hover { border-color: rgba(255, 255, 255, 0.10); background: rgba(24, 24, 27, 0.55); transform: translateX(2px); }
+.dk-goal-item.focus-active { border-color: var(--dk-accent); background: rgba(168,85,247,0.06); box-shadow: 0 0 0 1px rgba(168,85,247,0.2), inset 0 1px 0 rgba(255,255,255,0.04); }
 .dk-goal-item.focus-active .dk-goal-item-title { color: var(--dk-accent); }
 .dk-goal-item.completed { opacity: 0.6; }
 .dk-goal-item.completed .dk-goal-item-title { text-decoration: line-through; color: #52525b; }
@@ -308,13 +313,13 @@
 .card-approval-desc { font-size: 12px; color: #71717a; }
 .card-approval-actions { display: flex; gap: 8px; }
 .card-approval-btn { flex: 1; padding: 8px; border-radius: 8px; border: 1px solid rgba(63,63,70,0.3); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: 'Geist', 'Inter', sans-serif; }
-.card-approval-btn.approve { background: rgba(34,211,238,0.08); color: #22d3ee; border-color: rgba(34,211,238,0.2); }
-.card-approval-btn.approve:hover { background: rgba(34,211,238,0.15); }
-.card-approval-btn.reject { background: rgba(248,113,113,0.08); color: #f87171; border-color: rgba(248,113,113,0.2); }
-.card-approval-btn.reject:hover { background: rgba(248,113,113,0.15); }
+.card-approval-btn.approve { background: rgba(168,85,247,0.08); color: var(--dk-accent); border-color: rgba(168,85,247,0.2); }
+.card-approval-btn.approve:hover { background: rgba(168,85,247,0.15); }
+.card-approval-btn.reject { background: rgba(239,68,68,0.08); color: #ef4444; border-color: rgba(239,68,68,0.2); }
+.card-approval-btn.reject:hover { background: rgba(239,68,68,0.15); }
 .card-approval-approved, .card-approval-rejected { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; font-size: 13px; border-radius: 8px; }
 .card-approval-icon { flex-shrink: 0; }
-.card-approval-approved { background: rgba(34,211,238,0.08); color: #22d3ee; }
-.card-approval-rejected { background: rgba(248,113,113,0.08); color: #f87171; }
+.card-approval-approved { background: rgba(34,197,94,0.08); color: #22c55e; }
+.card-approval-rejected { background: rgba(239,68,68,0.08); color: #ef4444; }
 .card-annotation { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #eab308; line-height: 1.4; padding: 2px; }
 .card-annotation-parent { font-size: 10px; color: #71717a; font-family: 'JetBrains Mono', monospace; margin-left: auto; flex-shrink: 0; }

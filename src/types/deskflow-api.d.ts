@@ -211,6 +211,21 @@ interface DeskflowAPI {
   setModelDebug: (payload: { enabled: boolean }) => Promise<{ success: boolean; error?: string }>;
   readActionsErrorLog: () => Promise<{ entries: string[]; exists: boolean }>;
   routePrompt: (request: { prompt: string; projectPath?: string }) => Promise<{ action: string; sessionId?: string; sessionName?: string; terminalId?: string; confidence?: number; suggestedName?: string; suggestedSummary?: string; reason?: string }>;
+  aiDebugLog: (ev: { source?: string; event: string; feature?: string; provider?: string; model?: string; contextId?: string; role?: string; payload?: unknown; tokensIn?: number; tokensOut?: number }) => Promise<{ ok: boolean }>;
+  aiDebugQuery: (opts: { sources?: string[]; events?: string[]; search?: string; fromMs?: number; toMs?: number; limit?: number; offset?: number }) => Promise<{ events: Array<{ id: number; ts: string; epochMs: number; source: string; event: string; feature?: string; provider?: string; model?: string; contextId?: string; role?: string; tokensIn: number; tokensOut: number; payload?: string }>; total: number; error?: string }>;
+  aiDebugStats: () => Promise<{ total: number; bySource: Record<string, number>; byEvent: Record<string, number>; oldestMs: number | null; newestMs: number | null; capturePoints: Array<{ source: string; where: string; captures: string }>; error?: string }>;
+  aiDebugExport: (opts: { sources?: string[]; events?: string[]; search?: string; fromMs?: number; toMs?: number; limit?: number }) => Promise<{ markdown: string; count: number; total: number; error?: string }>;
+  aiDebugClear: (opts: { sources?: string[]; events?: string[]; olderThanMs?: number }) => Promise<{ deleted: number; error?: string }>;
+
+  // AI Context Captures (external AI conversations from browser extension)
+  aiContextList: (opts?: { provider?: string; search?: string; limit?: number; offset?: number }) => Promise<{ captures: Array<{ id: number; provider: string; messages: Array<{ role: string; content: string }>; url?: string; title?: string; source?: string; timestamp?: string; dedup_key?: string; captured_at: number }>; total: number }>;
+  aiContextStats: () => Promise<{ total: number; byProvider: Record<string, number>; newestMs: number | null; capturesByDay: Array<{ day: string; count: number }> }>;
+  aiContextDelete: (id: number) => Promise<{ ok: boolean; error?: string }>;
+  aiContextClear: (provider?: string) => Promise<{ ok: boolean; error?: string }>;
+  onAiContextCaptured: (cb: (data: { count: number }) => void) => void;
+  aiContextGetBrainLinks: (captureId: number) => Promise<{ episodes: Array<any>; entities: Array<any>; facts: Array<any>; signals: Array<any> }>;
+  aiContextTopics: () => Promise<{ topics: Array<any> }>;
+
   updateSessionSummary: (request: { sessionId: string; force?: boolean }) => Promise<{ success: boolean; skipped?: boolean; summary?: string; topic?: string; autoNamed?: boolean; reason?: string; error?: string }>;
   getRoutingCosts: () => Promise<{ today: any; week: any; month: any; total: any; byType: any[] }>;
   resetRoutingCosts: () => Promise<{ success: boolean }>;
@@ -243,6 +258,9 @@ interface DeskflowAPI {
   kbRemove: (docId: string) => Promise<{ success: boolean; error?: string }>;
   // Feature Studio: AI Director pipeline
   featureStudioCompile: (script: string) => Promise<{ success: boolean; content?: string; providerId?: string; error?: string }>;
+
+  // Content Engine: ideas/themes/scripts/gates/seo/analytics/lessons/frameworks
+  contentEngine?: ContentEngineApi;
   readPlanningMd: () => Promise<{ content: string; error?: string }>;
   writePlanningMd: (content: string) => Promise<{ success: boolean; error?: string }>;
   writeFeatureSpecFile: (content: string) => Promise<{ success: boolean; error?: string }>;
@@ -476,6 +494,52 @@ interface DeskflowAPI {
     confirmPending: (terminalId: string) => Promise<{ success: boolean; command?: string }>;
     cancelPending: (terminalId: string) => Promise<{ success: boolean }>;
   };
+
+  // ========== Manual Time Assignments ==========
+  manualAssignList: (date: string) => Promise<ManualAssignment[]>;
+  manualAssignDayContext: (date: string) => Promise<{ tracked: Array<{ started_at: string; ended_at: string; app?: string | null }>; manual: ManualAssignment[] }>;
+  manualAssignCreate: (data: { startedAt: string; endedAt: string; mode?: 'random' | 'custom'; app?: string | null; category?: string | null }) => Promise<{ ok: boolean; id?: number; durationSeconds?: number; error?: string }>;
+  manualAssignDelete: (id: number) => Promise<{ ok: boolean; error?: string }>;
+
+  // ========== User Context Profile ==========
+  contextGetProfile: () => Promise<any>;
+  contextUpdateProfile: (patch: any) => Promise<void>;
+  contextAddSignal: (signalType: string, content: string, source: string, confidence?: number) => Promise<void>;
+  contextGetSignals: (signalType?: string, source?: string, limit?: number) => Promise<any[]>;
+  contextRebuild: () => Promise<void>;
+  contextGetGrowth: () => Promise<any>;
+  contextGetMemoryHighlights: () => Promise<Array<{ content: string; source: string; importance: number }>>;
+  contextGetDebug: () => Promise<any>;
+  contextRunNow: (kind: string) => Promise<any>;
+
+  // ========== Context Brain ==========
+  brainSearch: (query: string, strategies?: string[]) => Promise<any>;
+  brainGetEntity: (name: string) => Promise<any>;
+  brainGetEntityHistory: (name: string) => Promise<any>;
+  brainLogEpisode: (source: string, content: string, sourceRef?: string) => Promise<any>;
+  brainStats: () => Promise<any>;
+  brainExport: () => Promise<any>;
+  brainGetEpisodes: (opts?: any) => Promise<{ items: any[]; total: number }>;
+  brainGetEntities: (opts?: any) => Promise<{ items: any[]; total: number }>;
+  brainGetFacts: (opts?: any) => Promise<{ items: any[]; total: number }>;
+  brainGetEntityRelated: (entityId: string) => Promise<any[]>;
+  brainGetJobs: () => Promise<{ jobs: any[]; stats: any }>;
+  brainRetryJob: (jobId: string) => Promise<{ ok: boolean }>;
+  brainCreateEpisode: (data: { source: string; content: string; sourceRef?: string; metadata?: any }) => Promise<{ ok: boolean; episodeId?: string }>;
+  brainMcpStatus: () => Promise<{ running: boolean; port: number }>;
+  brainReindexEmbeddings: () => Promise<{ ok: boolean; processed: number; skipped: number }>;
+}
+
+export interface ManualAssignment {
+  id: number;
+  date: string;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
+  mode: 'random' | 'custom';
+  app?: string | null;
+  category?: string | null;
+  created_at?: string;
 }
 
 export interface GitSafetySettings {
@@ -501,6 +565,246 @@ export interface GitSafetyPending {
   patterns: string[];
   suggestion: string;
   timestamp: number;
+}
+
+// ── Content Engine types ──────────────────────────────────
+export interface RetentionEvidence {
+  criteria: string[];
+  mechanism: string;
+  evidence: string;
+  score: number;
+}
+
+export interface ScriptFrame {
+  index: number;
+  text: string;
+  duration_seconds: number;
+  frame_type: 'hook' | 'value' | 'transition' | 'call_to_action' | 'visual_only';
+  visual: string;
+  retention: RetentionEvidence;
+  timestamp: string;
+  rejected?: boolean;
+  rejection_reasons?: string[];
+}
+
+export interface GateCheck {
+  pass: boolean;
+  reason: string;
+}
+
+export interface GatesResult {
+  scroll_stop: GateCheck;
+  hard_cut: GateCheck;
+  asset_ready: GateCheck;
+  overall: 'pass' | 'fail';
+  suggestions: string[];
+  checked_at?: string;
+}
+
+export interface ContentIdea {
+  id?: number;
+  title: string;
+  hook?: string;
+  format_type?: string;
+  status?: 'raw' | 'refined' | 'approved' | 'used';
+  priority?: number;
+  series?: string | null;
+  niche?: string | null;
+  frames?: string[];
+  synthesized_from?: number[];
+  gates?: GatesResult | null;
+}
+
+export interface ContentEpisode {
+  id?: number;
+  title: string;
+  idea_id?: number | null;
+  theme_id?: number | null;
+  status?: 'draft' | 'scripted' | 'gated' | 'filming' | 'published';
+  niche?: string | null;
+  script?: ScriptFrame[];
+  seo?: any;
+  gates?: GatesResult | null;
+  gate_override?: boolean;
+  scheme_id?: string;
+  published_at?: string | null;
+  process?: Record<string, any>;
+}
+
+export interface ContentVideo {
+  id?: number;
+  episode_id?: number | null;
+  platform?: string;
+  url?: string | null;
+  title: string;
+  views?: number;
+  likes?: number;
+  saves?: number;
+  shares?: number;
+  comments?: number;
+  completion_pct?: number | null;
+  retention_curve?: Array<{ t: number; pct: number }>;
+  audience?: { ages?: Array<{ range: string; pct: number }>; countries?: Array<{ code: string; name: string; pct: number }> } | null;
+  dropoffs?: Array<{ t: number; pct: number }>;
+  published_at?: string | null;
+}
+
+export interface ContentLesson {
+  id?: number;
+  video_id?: number | null;
+  episode_id?: number | null;
+  lesson: string;
+  evidence?: Array<{ metric: string; value: string; note?: string }>;
+  confidence?: number;
+  applies_to?: string | null;
+  status?: 'active' | 'applied' | 'dismissed' | 'confirmed';
+}
+
+export interface ContentFramework {
+  id?: number;
+  name: string;
+  description?: string;
+  rules?: Array<{ id: string; rule: string }>;
+  version?: number;
+  is_builtin?: boolean;
+  is_active?: boolean;
+  history?: Array<{ version: number; rules: any[]; saved_at: string }>;
+}
+
+export interface ScoringSchemeInfo {
+  id: 'signal_builder' | 'audience_builder' | 'media_operator';
+  name: string;
+  tier: 'A' | 'B' | 'C';
+  description: string;
+  weights: Record<string, number>;
+  duration?: string;
+}
+
+export interface FrameScoreBreakdown {
+  index: number;
+  text: string;
+  score: number;
+  weighted: number;
+  rejected: boolean;
+  nonNegotiableFails: string[];
+  criteria: string[];
+}
+
+export interface ReflectionAnalysis {
+  characteristics: Array<{ name: string; value: string }>;
+  intuitions: string[];
+  contradictions: Array<{ gut: string; data: string; resolution: string }>;
+  format_fit: { format: string; verdict: 'SUITS' | 'DOES NOT SUIT'; reasoning: string };
+  extracted_pattern: string;
+  suggested_lesson: { lesson: string; applies_to: string; confidence: number };
+}
+
+export interface VideoReflection {
+  id?: number;
+  episode_id?: number | null;
+  video_id?: number | null;
+  reflection_text: string;
+  analysis?: ReflectionAnalysis | null;
+  created_at?: string;
+}
+
+export interface ProcessEvent {
+  id: number;
+  episode_id: number | null;
+  event_type: string;
+  label: string | null;
+  detail: any;
+  ai_model?: string | null;
+  created_at: string;
+}
+
+export interface ProcessGalleryItem {
+  episode_id: number;
+  title: string;
+  status: string;
+  steps: number;
+  ai_calls: number;
+  pivots: number;
+  duration_min: number;
+  score: number | null;
+  views: number;
+  lessons: number;
+  lesson_text: string | null;
+  updated_at: string;
+  scheme_id: string;
+}
+
+export interface CalibrationReport {
+  accuracy: number;
+  per_criterion: Array<{ criterion: string; predicted_avg: number; actual_metric: string; actual_value: number; criterion_accuracy: number; notes: string }>;
+  most_accurate: string;
+  least_accurate: string;
+  recommendations: string[];
+}
+
+export interface AnalyticsCandidate {
+  platform: string;
+  views: number | null;
+  likes: number | null;
+  saves: number | null;
+  shares: number | null;
+  comments: number | null;
+  followers_gained: number | null;
+  completion_pct: number | null;
+  avg_watch_seconds: number | null;
+  published_at: string | null;
+  retention_curve: Array<{ t: number; pct: number }>;
+  audience: { ages: Array<{ range: string; pct: number }>; countries: Array<{ code: string; name: string; pct: number }> } | null;
+  dropoffs: Array<{ t: number; pct: number }>;
+}
+
+export interface ContentEngineApi {
+  ideasList: () => Promise<ContentIdea[]>;
+  ideaSave: (idea: ContentIdea) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  ideaDelete: (id: number) => Promise<{ ok: boolean }>;
+  episodesList: (opts?: { ideaId?: number }) => Promise<ContentEpisode[]>;
+  episodeGet: (id: number) => Promise<ContentEpisode | null>;
+  episodeSave: (ep: ContentEpisode) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  episodeDelete: (id: number) => Promise<{ ok: boolean }>;
+  scriptGenerate: (payload: { episodeId?: number; ideaId?: number }) => Promise<{ ok: boolean; frames?: ScriptFrame[]; gates?: GatesResult; error?: string }>;
+  scriptRegenerateLine: (payload: { episodeId: number; frameIndex: number; instruction?: string }) => Promise<{ ok: boolean; frame?: ScriptFrame; error?: string }>;
+  validateScriptEvidence: (payload: { episodeId: number }) => Promise<{ ok: boolean; results?: any[]; script?: ScriptFrame[]; error?: string }>;
+  validateGates: (payload: { ideaId?: number; episodeId?: number }) => Promise<{ ok: boolean; gates?: GatesResult; error?: string }>;
+  gateOverride: (payload: { episodeId: number; override: boolean }) => Promise<{ ok: boolean }>;
+  injectSeo: (payload: { episodeId: number; niche?: string }) => Promise<{ ok: boolean; phrases?: any[]; error?: string }>;
+  synthesizeIdeas: (payload?: { note?: string; count?: number }) => Promise<{ ok: boolean; ideas?: ContentIdea[]; error?: string }>;
+  brainstormClassify: (payload: { thought: string }) => Promise<{ ok: boolean; category?: 'content_idea' | 'framework_update' | 'system_improvement' | 'analytics' | 'general_thought'; reason?: string; suggested_title?: string; format_type?: string; niche_hint?: string; error?: string }>;
+  brainstormSummary: (payload?: { note?: string }) => Promise<{ ok: boolean; summary?: any[]; error?: string }>;
+  themesCreate: (theme: any) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  themesGenerate: (payload?: { note?: string }) => Promise<{ ok: boolean; id?: number; theme?: any; error?: string }>;
+  themesGetAll: () => Promise<any[]>;
+  themesApply: (payload: { themeId: number; episodeId: number }) => Promise<{ ok: boolean }>;
+  themesDelete: (id: number) => Promise<{ ok: boolean }>;
+  analyticsGet: (payload?: { episodeId?: number }) => Promise<{ ok: boolean; videos?: ContentVideo[]; lessons?: ContentLesson[]; aggregate?: any; error?: string }>;
+  analyticsUpsertVideo: (video: ContentVideo) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  analyticsDeleteVideo: (id: number) => Promise<{ ok: boolean }>;
+  analyticsInsight: (payload?: { episodeId?: number }) => Promise<{ ok: boolean; insights?: any[]; verdict?: string; error?: string }>;
+  lessonsList: () => Promise<ContentLesson[]>;
+  lessonSave: (lesson: ContentLesson) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  lessonDelete: (id: number) => Promise<{ ok: boolean }>;
+  lessonExtract: (payload: { videoId: number }) => Promise<{ ok: boolean; lessons?: ContentLesson[]; error?: string }>;
+  lessonConfirm: (payload: { lessonId: number; confirm: boolean }) => Promise<{ ok: boolean; promoted?: boolean; status?: string; framework?: any; error?: string }>;
+  frameworksList: () => Promise<ContentFramework[]>;
+  frameworkSave: (fw: ContentFramework) => Promise<{ ok: boolean; id?: number; version?: number; error?: string }>;
+  frameworkRollback: (payload: { id: number; version: number }) => Promise<{ ok: boolean; error?: string }>;
+  reflectionSave: (payload: { episodeId?: number; videoId?: number; reflectionText: string }) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  reflectionGet: (payload?: { episodeId?: number; videoId?: number }) => Promise<VideoReflection[]>;
+  reflectionAnalyze: (payload: { reflectionId?: number; episodeId?: number }) => Promise<{ ok: boolean; analysis?: ReflectionAnalysis; id?: number; error?: string }>;
+  characteristicsGet: (payload: { episodeId: number }) => Promise<{ ok: boolean; characteristics?: Record<string, string>; error?: string }>;
+  characteristicsSave: (payload: { episodeId: number; characteristics: Record<string, string> }) => Promise<{ ok: boolean; error?: string }>;
+  analyticsParseRaw: (payload: { raw: string }) => Promise<{ ok: boolean; candidate?: AnalyticsCandidate; error?: string }>;
+  scoringSchemes: () => Promise<{ ok: boolean; schemes?: ScoringSchemeInfo[]; rubric_version?: string; threshold?: number; error?: string }>;
+  scoringCurrent: (payload: { episodeId: number }) => Promise<{ ok: boolean; scheme?: ScoringSchemeInfo; breakdown?: FrameScoreBreakdown[]; average?: number; threshold?: number; version?: string; error?: string }>;
+  scoringCalibrate: (payload: { episodeId: number }) => Promise<{ ok: boolean; calibration?: CalibrationReport; error?: string }>;
+  processTimeline: (payload?: { episodeId?: number }) => Promise<ProcessEvent[]>;
+  processLog: (payload: { episodeId: number; eventType: string; label?: string; detail?: any }) => Promise<{ ok: boolean; error?: string }>;
+  processSummary: (payload: { episodeId: number }) => Promise<{ ok: boolean; summary?: { title: string; narrative: string }; events?: ProcessEvent[]; error?: string }>;
+  processGallery: () => Promise<ProcessGalleryItem[]>;
 }
 
 declare global {

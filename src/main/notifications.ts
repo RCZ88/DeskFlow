@@ -20,6 +20,23 @@ export function checkDeadlines(db: any) {
 
   for (const row of rows) {
     const notified = JSON.parse(row.notified_at || '{}')
+
+    // Check remind_at — fire a one-shot notification at the exact time
+    if (row.remind_at && !notified['remind_at']) {
+      const remindTime = new Date(row.remind_at).getTime()
+      if (now >= remindTime) {
+        showNotification(
+          'Reminder',
+          `${row.title}${row.course ? ` (${row.course})` : ''}`
+        )
+        notified['remind_at'] = true
+        db.prepare('UPDATE deadlines SET notified_at = ? WHERE id = ?')
+          .run(JSON.stringify(notified), row.id)
+        continue
+      }
+    }
+
+    // Check due_date tiers (existing behavior)
     const due = new Date(row.due_date).getTime()
     const timeLeft = due - now
 

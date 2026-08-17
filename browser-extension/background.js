@@ -647,7 +647,58 @@ async function checkTabFocus(tabId, domain) {
 chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === 'FOCUS_CHECK' && sender.tab) checkTabFocus(sender.tab.id, msg.domain);
   if (msg?.type === 'FOCUS_BREAK') focusPost('/focus-break', { domain: msg.domain });
+
+  // --- AI Context Capture ---
+  if (msg?.type === 'AI_CONTEXT_CAPTURED' && msg.captures?.length) {
+    relayAiContext(msg.captures);
+  }
 });
+
+// ========================================
+// --- AI Context Relay to Desktop App ---
+// ========================================
+
+let aiContextBuffer = [];
+let aiContextFlushTimer = null;
+let recentAiKeys = new Map();
+const AI_CONTEXT_FLUSH_MS = 3000;
+const AI_CONTEXT_MAX_BATCH = 20;
+
+async function relayAiContext(captures) {
+  // Deduplicate by captureKey
+  const deduped = captures.filter(cap => {
+    const key = cap.captureKey;
+    if (!key) return true;
+    if (recentAiKeys.has(key)) return false;
+    recentAiKeys.set(key, Date.now());
+    return true;
+  });
+  // Expire old keys (5 min)
+  const now = Date.now();
+  for (const [k, t] of recentAiKeys) {
+    if (now - t > 300000) recentAiKeys.delete(k);
+  }
+  if (!deduped.length) return;
+  aiContextBuffer.push(...deduped);
+  if (aiContextFlushTimer) return;
+  aiContextFlushTimer = setTimeout(flushAiContext, AI_CONTEXT_FLUSH_MS);
+}
+
+async function flushAiContext() {
+  aiContextFlushTimer = null;
+  if (!aiContextBuffer.length) return;
+  const batch = aiContextBuffer.splice(0, AI_CONTEXT_MAX_BATCH);
+  try {
+    await fetch(`${DESKFLOW_SERVER}/ai-context`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ captures: batch }),
+    });
+  } catch (e) {
+    // Server not running — put batch back for retry
+    aiContextBuffer.unshift(...batch);
+  }
+}
 
 // ========================================
 // --- Cleanup on service worker shutdown ---
@@ -656,4 +707,6 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
 chrome.runtime.onSuspend.addListener(async () => {
   console.log('[DeskFlow] 💤 Service worker suspending — flushing session');
   await logPreviousSession();
+  // Flush any pending AI context
+  if (aiContextBuffer.length) await flushAiContext();
 });

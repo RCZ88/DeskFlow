@@ -1,43 +1,44 @@
 /* ═══════════════════════════════════════════════════════════════
-   UNIFIED DESIGN TOKENS — Canvas + Deck
-   Import this at the top of both canvas.css and deck.css
+   CANVAS DESIGN SYSTEM — Glossy Dark Glass
+   Inspired by: Linear.app, Raycast, Vercel Dashboard
+   Fonts: Space Grotesk (display), Inter (body), JetBrains Mono (code)
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  /* Backgrounds */
-  --dk-bg-deep: #09090b;
-  --dk-bg-base: #111118;
-  --dk-bg-surface: rgba(20, 20, 25, 0.92);
-  --dk-bg-raised: rgba(30, 30, 35, 0.95);
-  --dk-bg-input: rgba(24, 24, 27, 0.9);
+  /* ── Backgrounds — true black with glass depth ── */
+  --dk-bg-deep: #000000;
+  --dk-bg-base: #09090b;
+  --dk-bg-surface: rgba(9, 9, 11, 0.80);
+  --dk-bg-raised: rgba(24, 24, 27, 0.65);
+  --dk-bg-input: rgba(24, 24, 27, 0.85);
 
-  /* Text */
-  --dk-text-primary: #f4f4f5;
-  --dk-text-secondary: #d4d4d8;
-  --dk-text-muted: #a1a1aa;
-  --dk-text-faint: #71717a;
-  --dk-text-placeholder: #52525b;
+  /* ── Text — crisp white hierarchy ── */
+  --dk-text-primary: #fafafa;
+  --dk-text-secondary: #a1a1aa;
+  --dk-text-muted: #71717a;
+  --dk-text-faint: #3f3f46;
+  --dk-text-placeholder: #27272a;
 
-  /* Borders */
-  --dk-border-subtle: rgba(63, 63, 70, 0.25);
-  --dk-border-default: rgba(63, 63, 70, 0.5);
-  --dk-border-strong: rgba(63, 63, 70, 0.7);
-  --dk-border-focus: rgba(161, 161, 170, 0.4);
+  /* ── Borders — glass edges (white at low opacity) ── */
+  --dk-border-subtle: rgba(255, 255, 255, 0.06);
+  --dk-border-default: rgba(255, 255, 255, 0.09);
+  --dk-border-strong: rgba(255, 255, 255, 0.14);
+  --dk-border-focus: rgba(255, 255, 255, 0.20);
 
-  /* Accents — single cyan, use sparingly */
-  --dk-accent: #22d3ee;
-  --dk-accent-dim: rgba(34, 211, 238, 0.15);
-  --dk-success: #4ade80;
-  --dk-warning: #fbbf24;
-  --dk-danger: #f87171;
+  /* ── Accent — neutral white, NOT colored ── */
+  --dk-accent: #fafafa;
+  --dk-accent-dim: rgba(255, 255, 255, 0.06);
+  --dk-success: #22c55e;
+  --dk-warning: #eab308;
+  --dk-danger: #ef4444;
 
-  /* Shadows */
-  --dk-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --dk-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.4);
-  --dk-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --dk-shadow-glow: 0 0 30px rgba(34, 211, 238, 0.06);
+  /* ── Shadows — layered depth ── */
+  --dk-shadow-sm: 0 1px 2px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+  --dk-shadow-md: 0 4px 12px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06);
+  --dk-shadow-lg: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+  --dk-shadow-glow: 0 0 60px rgba(255,255,255,0.03);
 
-  /* Spacing */
+  /* ── Spacing ── */
   --dk-space-1: 4px;
   --dk-space-2: 8px;
   --dk-space-3: 12px;
@@ -45,21 +46,90 @@
   --dk-space-5: 20px;
   --dk-space-6: 24px;
 
-  /* Radius */
+  /* ── Radius ── */
   --dk-radius-sm: 6px;
   --dk-radius-md: 10px;
   --dk-radius-lg: 12px;
 
-  /* Grid */
+  /* ── Grid ── */
   --dk-cell: 40px;
 
-  /* Animation */
+  /* ── Animation ── */
   --dk-ease: cubic-bezier(0.16, 1, 0.3, 1);
   --dk-fast: 150ms;
   --dk-normal: 250ms;
   --dk-slow: 400ms;
 
-  /* Fonts */
-  --dk-sans: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* ── Fonts — per font-selection skill: technical-precision pairing ── */
+  --dk-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --dk-display: 'Space Grotesk', 'Inter', -apple-system, sans-serif;
   --dk-mono: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+}
+
+/* ═══ Glass Utility Classes ═══ */
+
+/* Standard glass — like macOS panel */
+.dk-glass {
+  background: rgba(24, 24, 27, 0.55);
+  backdrop-filter: blur(20px) saturate(1.8);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Heavy glass — deeper blur, more opaque */
+.dk-glass-heavy {
+  background: rgba(24, 24, 27, 0.72);
+  backdrop-filter: blur(40px) saturate(1.8);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* Card glass — the standard canvas card */
+.dk-glass-card {
+  background: linear-gradient(
+    165deg,
+    rgba(24, 24, 27, 0.70) 0%,
+    rgba(9, 9, 11, 0.50) 100%
+  );
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  box-shadow:
+    0 4px 24px rgba(0,0,0,0.35),
+    0 0 0 1px rgba(255,255,255,0.04),
+    inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* Inset glass — recessed areas */
+.dk-glass-inset {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+/* ═══ Typography ═══ */
+
+/* Display headings — Space Grotesk */
+.dk-heading {
+  font-family: var(--dk-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--dk-text-primary);
+}
+
+/* Body text — Inter */
+.dk-body {
+  font-family: var(--dk-sans);
+  font-weight: 400;
+  color: var(--dk-text-secondary);
+}
+
+/* Code / data — JetBrains Mono */
+.dk-mono {
+  font-family: var(--dk-mono);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }

@@ -428,6 +428,12 @@ export function useAiChat(): UseAiChat {
           }
         }
         const { text: prose, parsed } = parseAssistantContent(displayText)
+        try {
+          const api = (window as any).deskflowAPI
+          if (api?.aiDebugLog) {
+            api.aiDebugLog({ source: "ai-assistant", event: "parsed", provider: target?.provider?.id, model: target?.model, contextId: threadDateRef.current, role: "assistant", payload: { parsed, displayText } })
+          }
+        } catch { /* vault push is best-effort */ }
         setMessages((prev) => {
           const next = prev.map((m) =>
             m.id === assistantId
@@ -498,6 +504,39 @@ export function useAiChat(): UseAiChat {
       const finalThreadDate = threadDateRef.current
       await extractMemories(finalThreadDate, [...messages, userMsg, { id: assistantId, role: "assistant", content: full }])
       await refreshThreads()
+
+      // Auto-context: extract signals from user message
+      try {
+        const api = (window as any).deskflowAPI
+        if (api?.contextAddSignal) {
+          // Extract interests from user message
+          const lowerText = text.toLowerCase()
+          const interestKeywords = ['learn', 'study', 'read', 'watch', 'research', 'explore', 'build', 'create', 'design', 'code', 'program', 'develop', 'plan', 'organize', 'track', 'manage']
+          for (const kw of interestKeywords) {
+            if (lowerText.includes(kw)) {
+              await api.contextAddSignal('interest', `User expressed interest in: ${kw}`, 'chat', 0.3)
+            }
+          }
+          // Extract communication style signals
+          if (text.length > 200) {
+            await api.contextAddSignal('communication', 'Writes detailed messages', 'chat', 0.2)
+          } else if (text.length < 50) {
+            await api.contextAddSignal('communication', 'Prefers concise messages', 'chat', 0.2)
+          }
+          // Extract task-related signals
+          if (lowerText.includes('todo') || lowerText.includes('task') || lowerText.includes('need to') || lowerText.includes('should')) {
+            await api.contextAddSignal('habit', 'Uses task-oriented language', 'chat', 0.3)
+          }
+          if (lowerText.includes('feel') || lowerText.includes('think') || lowerText.includes('opinion') || lowerText.includes('prefer')) {
+            await api.contextAddSignal('trait', 'Expresses opinions and preferences', 'chat', 0.3)
+          }
+          // Rebuild profile periodically (every 10 signals)
+          const signals = await api.contextGetSignals(undefined, undefined, 1)
+          if (signals && signals.length > 0 && signals[0].occurrenceCount % 10 === 0) {
+            await api.contextRebuild()
+          }
+        }
+      } catch { /* context signal extraction is best-effort */ }
     },
     [input, messages, persist, setAssistantMessage, stop, memories, extractMemories, refreshThreads],
   )

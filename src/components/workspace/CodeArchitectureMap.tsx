@@ -1,796 +1,2290 @@
-// ============================================================================
-// Code Architecture Map — Per-Feature Hierarchy Visualization
-// Shows Pages → Features → Components → Files with interactive graph.
-// Uses static ARCHITECTURE_DATA (no runtime scanning needed).
-// ============================================================================
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import {
-  Network, Folder, FileText, ChevronRight, ChevronDown, Search,
-  Filter, ZoomIn, ZoomOut, Maximize2, X, LayoutGrid, FileCode,
-  Eye, Copy, CheckCircle2, ExternalLink, Route, Puzzle, Box, Cpu
-} from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Search, Filter, ChevronRight, ChevronDown, Layers, GitBranch, FileCode, Box, Cpu, Database } from 'lucide-react';
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
+import { OrbitControls, Line, Html, Stars } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import * as THREE from 'three';
 
-// ─── Types ────────────────────────────────────────────────────────
-
-interface ArchNode {
-  id: string;
-  label: string;
-  type: 'app' | 'page' | 'feature' | 'component' | 'file';
-  route?: string;
-  description?: string;
-  accent?: string;
-  children?: ArchNode[];
-  file?: string;
+// Type definitions
+export interface ArchNode {
+    id: string;
+    label: string;
+    type: 'app' | 'page' | 'feature' | 'component' | 'file';
+    route?: string;
+    description?: string;
+    icon?: string;
+    accent?: string;
+    children: ArchNode[];
+    fileCount?: number;
+    crossRefs?: string[];
 }
 
-// ─── Node type config ─────────────────────────────────────────────
-
-const NODE_CONFIG: Record<ArchNode['type'], { color: string; label: string; icon: any; size: number }> = {
-  app:       { color: '#fbbf24', label: 'App',       icon: Cpu,     size: 40 },
-  page:      { color: '#3b82f6', label: 'Page',      icon: Route,   size: 32 },
-  feature:   { color: '#22c55e', label: 'Feature',   icon: Puzzle,  size: 24 },
-  component: { color: '#a855f7', label: 'Component', icon: Box,     size: 18 },
-  file:      { color: '#64748b', label: 'File',      icon: FileText, size: 14 },
-};
-
-// ─── Static Architecture Data ─────────────────────────────────────
-
+// Static architecture data based on actual codebase
 const ARCHITECTURE_DATA: ArchNode = {
-  id: 'app',
-  label: 'DeskFlow',
-  type: 'app',
-  accent: '#fbbf24',
-  children: [
-    {
-      id: 'dashboard', label: 'Dashboard', type: 'page', route: '/', accent: '#3b82f6',
-      children: [
-        { id: 'dash-timer', label: 'Status Band & Timer', type: 'feature', description: 'Current app display, live stopwatch, timer behavior', children: [
-          { id: 'c-statusband', label: 'StatusBand', type: 'component', file: 'src/pages/dashboard/StatusBand.tsx' },
-          { id: 'c-tierbreakdown', label: 'TierBreakdownStrip', type: 'component', file: 'src/pages/dashboard/TierBreakdownStrip.tsx' },
-        ]},
-        { id: 'dash-momentum', label: 'Momentum Hero', type: 'feature', description: 'Productivity score card with animated ring', children: [
-          { id: 'c-momentum', label: 'MomentumHero', type: 'component', file: 'src/components/dashboard/MomentumHero.tsx' },
-        ]},
-        { id: 'dash-goals', label: 'Goals', type: 'feature', description: 'Daily goals + AI suggestions', children: [
-          { id: 'c-goalscard', label: 'GoalsCard', type: 'component', file: 'src/components/dashboard/GoalsCard.tsx' },
-          { id: 'c-usefocusgoals', label: 'useFocusGoals', type: 'component', file: 'src/hooks/useFocusGoals.ts' },
-        ]},
-        { id: 'dash-focus', label: 'Quick Focus', type: 'feature', description: 'Deep focus mode launcher', children: [
-          { id: 'c-quickfocus', label: 'QuickFocusCard', type: 'component', file: 'src/components/focus/QuickFocusCard.tsx' },
-        ]},
-        { id: 'dash-deadlines', label: 'Deadlines', type: 'feature', description: 'Deadline tracker with countdown', children: [
-          { id: 'c-deadlines', label: 'DeadlinesCard', type: 'component', file: 'src/components/dashboard/DeadlinesCard.tsx' },
-        ]},
-        { id: 'dash-heatmap', label: 'Heatmap & Orbit', type: 'feature', description: 'Weekly activity heatmap + 3D solar system', children: [
-          { id: 'c-daydetail', label: 'DayDetailPopup', type: 'component', file: 'src/components/DayDetailPopup.tsx' },
-          { id: 'c-orbit', label: 'OrbitSystem', type: 'component', file: 'src/components/OrbitSystem.tsx' },
-        ]},
-        { id: 'dash-sessions', label: 'Recent Sessions', type: 'feature', description: 'Activity feed with live stopwatches', children: [
-          { id: 'c-recentact', label: 'RecentActivityFeed (inline)', type: 'component', file: 'src/pages/DashboardPage.tsx' },
-        ]},
-        { id: 'dash-data', label: 'Data Hooks', type: 'feature', description: 'All dashboard data aggregation', children: [
-          { id: 'c-usedashdata', label: 'useDashboardData', type: 'component', file: 'src/components/dashboard/useDashboardData.ts' },
-          { id: 'c-usehomesummary', label: 'useHomeSummary', type: 'component', file: 'src/hooks/useHomeSummary.ts' },
-          { id: 'c-usedeepfocus', label: 'useDeepFocus', type: 'component', file: 'src/hooks/useDeepFocus.ts' },
-        ]},
-      ],
-    },
-    {
-      id: 'terminal', label: 'Terminal Workspace', type: 'page', route: '/terminal', accent: '#22c55e',
-      children: [
-        { id: 'term-shell', label: 'Workspace Shell', type: 'feature', description: 'Sidebar groups + content frame + resize', children: [
-          { id: 'c-workspaceshell', label: 'WorkspaceShell', type: 'component', file: 'src/components/workspace/WorkspaceShell.tsx' },
-          { id: 'c-grouprail', label: 'WorkspaceGroupRail', type: 'component', file: 'src/components/workspace/WorkspaceGroupRail.tsx' },
-          { id: 'c-subtabbar', label: 'SubTabBar', type: 'component', file: 'src/components/workspace/SubTabBar.tsx' },
-        ]},
-        { id: 'term-sessions', label: 'Session Management', type: 'feature', description: 'Create, edit, import, resume agent sessions', children: [
-          { id: 'c-newsessdlg', label: 'NewSessionDialog', type: 'component', file: 'src/components/NewSessionDialog.tsx' },
-          { id: 'c-sessedit', label: 'SessionEditDialog', type: 'component', file: 'src/components/SessionEditDialog.tsx' },
-          { id: 'c-importsess', label: 'ImportSessionsDialog', type: 'component', file: 'src/components/ImportSessionsDialog.tsx' },
-          { id: 'c-instructpanel', label: 'InstructionPanel', type: 'component', file: 'src/components/InstructionPanel.tsx' },
-        ]},
-        { id: 'term-panes', label: 'Terminal Panes', type: 'feature', description: 'Split pane layout, minimap, drag reorder', children: [
-          { id: 'c-termwindow', label: 'TerminalWindow', type: 'component', file: 'src/components/TerminalWindow.tsx' },
-          { id: 'c-termmminimap', label: 'TerminalMiniMap', type: 'component', file: 'src/components/TerminalMiniMap.tsx' },
-          { id: 'c-mapeditor', label: 'MapEditor', type: 'component', file: 'src/components/MapEditor.tsx' },
-        ]},
-        { id: 'term-setup', label: 'Setup Group', type: 'feature', description: 'Presets, configs, fortress, backups', children: [
-          { id: 'c-presets', label: 'PresetsTab', type: 'component', file: 'src/components/workspace/PresetsTab.tsx' },
-          { id: 'c-configs', label: 'ConfigsTab', type: 'component', file: 'src/components/workspace/ConfigsTab.tsx' },
-          { id: 'c-fortress', label: 'FortressProtocolSetup', type: 'component', file: 'src/components/workspace/FortressProtocolSetup.tsx' },
-        ]},
-        { id: 'term-insights', label: 'Insights Group', type: 'feature', description: 'Analytics, code stats, prompts, issues', children: [
-          { id: 'c-analyticsdash', label: 'AnalyticsDashboard', type: 'component', file: 'src/components/AnalyticsDashboard.tsx' },
-          { id: 'c-promptstab', label: 'PromptHistoryTab', type: 'component', file: 'src/components/PromptHistoryTab.tsx' },
-          { id: 'c-issues', label: 'IssuesWorkspace', type: 'component', file: 'src/components/IssuesWorkspace.tsx' },
-        ]},
-        { id: 'term-context', label: 'Context Group', type: 'feature', description: 'Context sidebar, maintenance, architecture map', children: [
-          { id: 'c-contextsidebar', label: 'ContextSidebar', type: 'component', file: 'src/components/ContextSidebar.tsx' },
-          { id: 'c-contextmaint', label: 'ContextMaintenanceTab', type: 'component', file: 'src/components/ContextMaintenanceTab.tsx' },
-          { id: 'c-archmap', label: 'CodeArchitectureMap', type: 'component', file: 'src/components/workspace/CodeArchitectureMap.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'finance', label: 'Finance', type: 'page', route: '/finance', accent: '#f43f5e',
-      children: [
-        { id: 'fin-overview', label: 'Overview', type: 'feature', description: 'Net worth, income vs expense, spending by category', children: [
-          { id: 'c-overviewtab', label: 'OverviewTab', type: 'component', file: 'src/components/finance/OverviewTab.tsx' },
-          { id: 'c-networth', label: 'NetWorthLineChart', type: 'component', file: 'src/components/finance/NetWorthLineChart.tsx' },
-          { id: 'c-spendcat', label: 'SpendingCategoryChart', type: 'component', file: 'src/components/finance/SpendingCategoryChart.tsx' },
-          { id: 'c-recenttxns', label: 'RecentTxnsCard', type: 'component', file: 'src/components/finance/RecentTxnsCard.tsx' },
-        ]},
-        { id: 'fin-wallets', label: 'Wallets', type: 'feature', description: 'Account management, wallet detail, balance recalculation', children: [
-          { id: 'c-walletstab', label: 'WalletsTab', type: 'component', file: 'src/components/finance/WalletsTab.tsx' },
-          { id: 'c-walletdetail', label: 'WalletDetailView', type: 'component', file: 'src/components/finance/WalletDetailView.tsx' },
-          { id: 'c-wallethealth', label: 'WalletHealthScorecards', type: 'component', file: 'src/components/finance/WalletHealthScorecards.tsx' },
-        ]},
-        { id: 'fin-transactions', label: 'Transactions', type: 'feature', description: 'Transaction list + 8 wallet-type modals', children: [
-          { id: 'c-transactionstab', label: 'TransactionsTab', type: 'component', file: 'src/components/finance/TransactionsTab.tsx' },
-          { id: 'c-txdetail', label: 'TransactionDetailModal', type: 'component', file: 'src/components/finance/TransactionDetailModal.tsx' },
-        ]},
-        { id: 'fin-people', label: 'Follow-Through People', type: 'feature', description: 'Track transactions on behalf of others', children: [
-          { id: 'c-persondetail', label: 'PersonDetailModal', type: 'component', file: 'src/components/finance/PersonDetailModal.tsx' },
-          { id: 'c-repayment', label: 'RepaymentModal', type: 'component', file: 'src/components/finance/RepaymentModal.tsx' },
-        ]},
-        { id: 'fin-subscriptions', label: 'Subscriptions', type: 'feature', description: 'Subscription tracking, renewal, burden radar', children: [
-          { id: 'c-substab', label: 'SubscriptionsTab', type: 'component', file: 'src/components/finance/SubscriptionsTab.tsx' },
-          { id: 'c-submodal', label: 'SubscriptionModal', type: 'component', file: 'src/components/finance/SubscriptionModal.tsx' },
-          { id: 'c-subburden', label: 'SubscriptionBurdenRadar', type: 'component', file: 'src/components/finance/SubscriptionBurdenRadar.tsx' },
-        ]},
-        { id: 'fin-budget', label: 'Budget & Expenses', type: 'feature', description: 'Bills, budget dashboard, expense tracking', children: [
-          { id: 'c-budgetdash', label: 'BudgetExpensesDashboard', type: 'component', file: 'src/components/finance/budget-expenses/BudgetExpensesDashboard.tsx' },
-        ]},
-        { id: 'fin-recap', label: 'Monthly Recap', type: 'feature', description: 'AI-generated monthly financial summary', children: [
-          { id: 'c-recap', label: 'RecapPanel', type: 'component', file: 'src/components/finance/RecapPanel.tsx' },
-        ]},
-        { id: 'fin-charts', label: 'Charts', type: 'feature', description: 'Spending analytics, wallet monthly chart', children: [
-          { id: 'c-fincharts', label: 'FinanceChartsTab', type: 'component', file: 'src/components/finance/FinanceChartsTab.tsx' },
-          { id: 'c-walletmonthly', label: 'WalletMonthlyChart', type: 'component', file: 'src/components/finance/WalletMonthlyChart.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'ai', label: 'AI Assistant', type: 'page', route: '/ai', accent: '#a855f7',
-      children: [
-        { id: 'ai-chat', label: 'Chat System', type: 'feature', description: 'Conversational AI with slash commands, voice, markdown', children: [
-          { id: 'c-chatpanel', label: 'ChatPanel', type: 'component', file: 'src/components/ai/chat/ChatPanel.tsx' },
-          { id: 'c-chatinput', label: 'ChatInput', type: 'component', file: 'src/components/ai/chat/ChatInput.tsx' },
-          { id: 'c-messagebubble', label: 'MessageBubble', type: 'component', file: 'src/components/ai/chat/MessageBubble.tsx' },
-          { id: 'c-useaichat', label: 'useAiChat', type: 'component', file: 'src/hooks/useAiChat.ts' },
-          { id: 'c-slashcmd', label: 'SlashCommandManager', type: 'component', file: 'src/components/ai/chat/SlashCommandManager.tsx' },
-        ]},
-        { id: 'ai-canvas', label: 'Canvas Mode', type: 'feature', description: 'Freeform spatial card layout with drag/drop', children: [
-          { id: 'c-canvascontainer', label: 'CanvasContainer', type: 'component', file: 'src/components/ai/canvas/CanvasContainer.tsx' },
-          { id: 'c-canvasgrid', label: 'CanvasGrid', type: 'component', file: 'src/components/ai/canvas/CanvasGrid.tsx' },
-          { id: 'c-canvascard', label: 'CanvasCard', type: 'component', file: 'src/components/ai/canvas/CanvasCard.tsx' },
-          { id: 'c-groupcard', label: 'GroupCard', type: 'component', file: 'src/components/ai/canvas/GroupCard.tsx' },
-        ]},
-        { id: 'ai-cards', label: 'Card Types', type: 'feature', description: 'Focus, Plan, Finance, Digest, Reflect, Dynamic cards', children: [
-          { id: 'c-focuscard', label: 'FocusCard', type: 'component', file: 'src/components/ai/canvas/cards/FocusCard.tsx' },
-          { id: 'c-plancard', label: 'PlanCard', type: 'component', file: 'src/components/ai/canvas/cards/PlanCard.tsx' },
-          { id: 'c-financecard', label: 'FinanceCard', type: 'component', file: 'src/components/ai/canvas/cards/FinanceCard.tsx' },
-          { id: 'c-digestcard', label: 'DigestCard', type: 'component', file: 'src/components/ai/canvas/cards/DigestCard.tsx' },
-          { id: 'c-reflectcard', label: 'ReflectCard', type: 'component', file: 'src/components/ai/canvas/cards/ReflectCard.tsx' },
-          { id: 'c-dynamiccard', label: 'DynamicCard', type: 'component', file: 'src/components/ai/canvas/cards/DynamicCard.tsx' },
-        ]},
-        { id: 'ai-deck', label: 'Deck Mode', type: 'feature', description: 'Card-based layout with slot system', children: [
-          { id: 'c-aipagedeck', label: 'AiPageDeck', type: 'component', file: 'src/components/ai/deck/AiPageDeck.tsx' },
-          { id: 'c-focusboard', label: 'FocusBoard', type: 'component', file: 'src/components/ai/focus/FocusBoard.tsx' },
-          { id: 'c-planboard', label: 'PlanBoard', type: 'component', file: 'src/components/ai/plan/PlanBoard.tsx' },
-          { id: 'c-reflectfeed', label: 'ReflectFeed', type: 'component', file: 'src/components/ai/reflect/ReflectFeed.tsx' },
-        ]},
-        { id: 'ai-automations', label: 'Automations', type: 'feature', description: 'Rule-based actions with visual builder', children: [
-          { id: 'c-automationlist', label: 'AutomationList', type: 'component', file: 'src/components/ai/automations/AutomationList.tsx' },
-          { id: 'c-visualbuilder', label: 'VisualBuilderModal', type: 'component', file: 'src/components/ai/automations/VisualBuilder/VisualBuilderModal.tsx' },
-        ]},
-        { id: 'ai-compositions', label: 'Compositions', type: 'feature', description: 'DSL-based automation compositions', children: [
-          { id: 'c-compositionpanel', label: 'CompositionPanel', type: 'component', file: 'src/components/ai/compositions/CompositionPanel.tsx' },
-        ]},
-        { id: 'ai-connectors', label: 'Connectors', type: 'feature', description: 'External data source integrations', children: [
-          { id: 'c-connectorspanel', label: 'ConnectorsPanel', type: 'component', file: 'src/components/ai/connectors/ConnectorsPanel.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'ide', label: 'IDE Projects', type: 'page', route: '/ide', accent: '#06b6d4',
-      children: [
-        { id: 'ide-projects', label: 'Project Grid', type: 'feature', description: 'Project cards, detection, language info', children: [
-          { id: 'c-projgrid', label: 'ProjectGrid (inline)', type: 'component', file: 'src/pages/IDEProjectsPage.tsx' },
-        ]},
-        { id: 'ide-aitools', label: 'AI Tools', type: 'feature', description: 'AI agent usage analytics, model/tool timelines', children: [
-          { id: 'c-aitoolstab', label: 'AIToolsTab', type: 'component', file: 'src/components/ai/AIToolsTab.tsx' },
-        ]},
-        { id: 'ide-git', label: 'Git History', type: 'feature', description: 'Commits, contributors, DORA metrics', children: [
-          { id: 'c-gitsection', label: 'GitSection (inline)', type: 'component', file: 'src/pages/IDEProjectsPage.tsx' },
-        ]},
-        { id: 'ide-workspace', label: 'Workspace Overlay', type: 'feature', description: 'Opens TerminalPage inside IDE page', children: [
-          { id: 'c-termpage', label: 'TerminalPage (embedded)', type: 'component', file: 'src/pages/TerminalPage.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'external', label: 'External Activities', type: 'page', route: '/external', accent: '#ec4899',
-      children: [
-        { id: 'ext-mosaic', label: 'Activity Mosaic', type: 'feature', description: 'Treemap visualization of app/website usage', children: [
-          { id: 'c-extpage', label: 'ExternalPage', type: 'component', file: 'src/pages/ExternalPage.tsx' },
-        ]},
-        { id: 'ext-sleep', label: 'Sleep Patterns', type: 'feature', description: 'Sleep tracking, popups, chart', children: [
-          { id: 'c-sleepbar', label: 'SleepBarMini', type: 'component', file: 'src/components/dashboard/SleepBarMini.tsx' },
-        ]},
-        { id: 'ext-gaps', label: 'Gap Fill', type: 'feature', description: 'Smart fill for untracked time gaps', children: [
-          { id: 'c-gapfillmodal', label: 'GapFillModal', type: 'component', file: 'src/components/external/GapFillModal.tsx' },
-          { id: 'c-gapslist', label: 'GapsListModal', type: 'component', file: 'src/components/external/GapsListModal.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'settings', label: 'Settings', type: 'page', route: '/settings', accent: '#64748b',
-      children: [
-        { id: 'set-category', label: 'Category (Tier Assignment)', type: 'feature', description: 'Drag-drop app/website tier classification', children: [
-          { id: 'c-settingspage', label: 'SettingsPage', type: 'component', file: 'src/pages/SettingsPage.tsx' },
-        ]},
-        { id: 'set-ai', label: 'AI Assistant Config', type: 'feature', description: 'Provider routing, API keys, diagnostics', children: [
-          { id: 'c-providerdiag', label: 'ProviderDiagnostics', type: 'component', file: 'src/components/ProviderDiagnostics.tsx' },
-        ]},
-        { id: 'set-tracking', label: 'Tracking Config', type: 'feature', description: 'Browser profiles, sleep detection, game detection', children: [
-          { id: 'c-browserprof', label: 'BrowserProfileSettings', type: 'component', file: 'src/components/BrowserProfileSettings.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'life', label: 'Life Phases', type: 'page', route: '/life', accent: '#f59e0b',
-      children: [
-        { id: 'life-river', label: 'River of Years', type: 'feature', description: 'Visual life timeline with phases, memories, covenant', children: [
-          { id: 'c-liferiver', label: 'LifePage', type: 'component', file: 'src/features/warmth/LifePage.tsx' },
-          { id: 'c-coresample', label: 'CoreSample', type: 'component', file: 'src/components/life-river/CoreSample.tsx' },
-          { id: 'c-phasecard', label: 'PhaseCard', type: 'component', file: 'src/components/life-river/PhaseCard.tsx' },
-          { id: 'c-rivermap', label: 'RiverMap', type: 'component', file: 'src/components/life-river/RiverMap.tsx' },
-          { id: 'c-ringcanvas', label: 'RingCanvas', type: 'component', file: 'src/components/life-river/RingCanvas.tsx' },
-        ]},
-        { id: 'life-gold', label: 'Gold (Goals)', type: 'feature', description: 'Long-term goals, day ring, vault', children: [
-          { id: 'c-goldpage', label: 'GoldPage', type: 'component', file: 'src/features/warmth/gold/GoldPage.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'learn', label: 'Lyceum Learn', type: 'page', route: '/learn', accent: '#8b5cf6',
-      children: [
-        { id: 'learn-library', label: 'Lesson Library', type: 'feature', description: 'Book cards, curriculum, search', children: [
-          { id: 'c-learnpage', label: 'LearnPage', type: 'component', file: 'src/components/learn/LearnPage.tsx' },
-          { id: 'c-bookcard', label: 'BookCard', type: 'component', file: 'src/components/learn/BookCard.tsx' },
-          { id: 'c-lessonlibrary', label: 'LessonLibrary', type: 'component', file: 'src/components/learn/LessonLibrary.tsx' },
-        ]},
-        { id: 'learn-blocks', label: 'Lesson Blocks', type: 'feature', description: 'Mermaid, charts, illustrations, code, knowledge graph', children: [
-          { id: 'c-blockrenderer', label: 'BlockRenderer', type: 'component', file: 'src/components/learn/blocks/BlockRenderer.tsx' },
-          { id: 'c-mermaid', label: 'MermaidBlock', type: 'component', file: 'src/components/learn/blocks/MermaidBlock.tsx' },
-          { id: 'c-chartblock', label: 'ChartBlock', type: 'component', file: 'src/components/learn/blocks/ChartBlock.tsx' },
-          { id: 'c-illust', label: 'IllustrationBlock', type: 'component', file: 'src/components/learn/blocks/IllustrationBlock.tsx' },
-          { id: 'c-knowledgegraph', label: 'KnowledgeGraphBlock', type: 'component', file: 'src/components/learn/blocks/KnowledgeGraphBlock.tsx' },
-        ]},
-        { id: 'learn-curriculum', label: 'Curriculum', type: 'feature', description: 'Branch hierarchy, prerequisite DAG', children: [
-          { id: 'c-curriculum', label: 'CurriculumShowcase', type: 'component', file: 'src/components/learn/CurriculumShowcase.tsx' },
-          { id: 'c-hierarchy', label: 'HierarchyGuide', type: 'component', file: 'src/components/learn/HierarchyGuide.tsx' },
-          { id: 'c-curriculumgraph', label: 'CurriculumGraph', type: 'component', file: 'src/components/learn/CurriculumGraph.tsx' },
-        ]},
-      ],
-    },
-    {
-      id: 'shared', label: 'Shared Infrastructure', type: 'page', accent: '#78716c',
-      children: [
-        { id: 'sh-ui', label: 'UI Primitives', type: 'feature', description: 'badge, button, dialog, switch, skeleton, tooltip, particles', children: [
-          { id: 'c-button', label: 'Button', type: 'component', file: 'src/components/ui/button.tsx' },
-          { id: 'c-dialog', label: 'Dialog', type: 'component', file: 'src/components/ui/dialog.tsx' },
-          { id: 'c-switch', label: 'Switch', type: 'component', file: 'src/components/ui/switch.tsx' },
-          { id: 'c-skeleton', label: 'Skeleton', type: 'component', file: 'src/components/ui/skeleton.tsx' },
-          { id: 'c-particles', label: 'Particles', type: 'component', file: 'src/components/ui/particles.tsx' },
-        ]},
-        { id: 'sh-layout', label: 'Layout', type: 'feature', description: 'PageShell, GlassCard, SectionHeader, ErrorBoundary', children: [
-          { id: 'c-pageshell', label: 'PageShell', type: 'component', file: 'src/components/PageShell.tsx' },
-          { id: 'c-glasscard', label: 'GlassCard', type: 'component', file: 'src/components/GlassCard.tsx' },
-          { id: 'c-sectionheader', label: 'SectionHeader', type: 'component', file: 'src/components/SectionHeader.tsx' },
-          { id: 'c-errorboundary', label: 'ErrorBoundary', type: 'component', file: 'src/components/ErrorBoundary.tsx' },
-        ]},
-        { id: 'sh-services', label: 'Services', type: 'feature', description: 'Canvas persistence, intent parsing, notifications', children: [
-          { id: 'c-canvaspersist', label: 'canvasPersistence', type: 'component', file: 'src/services/canvasPersistence.ts' },
-          { id: 'c-intentparser', label: 'intentParser', type: 'component', file: 'src/services/intentParser.ts' },
-          { id: 'c-notif', label: 'NotificationService', type: 'component', file: 'src/services/NotificationService.ts' },
-        ]},
-      ],
-    },
-  ],
+    id: 'app',
+    label: 'DeskFlow App',
+    type: 'app',
+    description: 'Productivity and life management application',
+    accent: '#06b6d4',
+    children: [
+        {
+            id: 'dashboard',
+            label: 'Dashboard',
+            type: 'page',
+            route: '/',
+            description: 'Main dashboard with overview of all features',
+            accent: '#06b6d4',
+            fileCount: 17,
+            children: [
+                {
+                    id: 'dashboard-status',
+                    label: 'Status Band',
+                    type: 'feature',
+                    description: 'Shows current status and quick actions',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'status-band',
+                            label: 'StatusBand',
+                            type: 'component',
+                            description: 'Status band component with notifications',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'status-band-tsx', label: 'StatusBand.tsx', type: 'file', description: 'Main status band implementation', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-momentum',
+                    label: 'Momentum Hero',
+                    type: 'feature',
+                    description: 'Hero section showing momentum metrics',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'momentum-hero',
+                            label: 'MomentumHero',
+                            type: 'component',
+                            description: 'Momentum hero component with animations',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'momentum-hero-tsx', label: 'MomentumHero.tsx', type: 'file', description: 'Momentum hero implementation', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-tier',
+                    label: 'Tier Breakdown',
+                    type: 'feature',
+                    description: 'Shows tier breakdown and statistics',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'tier-breakdown',
+                            label: 'TierBreakdownStrip',
+                            type: 'component',
+                            description: 'Tier breakdown strip visualization',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'tier-breakdown-tsx', label: 'TierBreakdownStrip.tsx', type: 'file', description: 'Tier breakdown strip', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-goals',
+                    label: 'Goals',
+                    type: 'feature',
+                    description: 'Goals tracking and focus management',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'goals-card',
+                            label: 'GoalsCard',
+                            type: 'component',
+                            description: 'Goals card component with progress tracking',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'goals-card-tsx', label: 'GoalsCard.tsx', type: 'file', description: 'Goals card implementation', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'use-focus-goals',
+                            label: 'useFocusGoals',
+                            type: 'component',
+                            description: 'Custom hook for focus goals management',
+                            accent: '#f59e0b',
+                            children: [
+                                { id: 'use-focus-goals-tsx', label: 'useFocusGoals.ts', type: 'file', description: 'Focus goals hook', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-quick-focus',
+                    label: 'Quick Focus',
+                    type: 'feature',
+                    description: 'Quick focus session launcher',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'quick-focus-card',
+                            label: 'QuickFocusCard',
+                            type: 'component',
+                            description: 'Quick focus card component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'quick-focus-card-tsx', label: 'QuickFocusCard.tsx', type: 'file', description: 'Quick focus card', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-deadlines',
+                    label: 'Deadlines',
+                    type: 'feature',
+                    description: 'Deadline tracking and reminders',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'deadlines-card',
+                            label: 'DeadlinesCard',
+                            type: 'component',
+                            description: 'Deadlines card with upcoming deadlines',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'deadlines-card-tsx', label: 'DeadlinesCard.tsx', type: 'file', description: 'Deadlines card', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-schedule',
+                    label: 'Schedule',
+                    type: 'feature',
+                    description: 'Schedule and calendar view',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'schedule-card',
+                            label: 'ScheduleCard',
+                            type: 'component',
+                            description: 'Schedule card component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'schedule-card-tsx', label: 'ScheduleCard.tsx', type: 'file', description: 'Schedule card', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-heatmap',
+                    label: 'Heatmap',
+                    type: 'feature',
+                    description: 'Activity heatmap visualization',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'day-detail-popup',
+                            label: 'DayDetailPopup',
+                            type: 'component',
+                            description: 'Day detail popup for heatmap',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'day-detail-popup-tsx', label: 'DayDetailPopup.tsx', type: 'file', description: 'Day detail popup', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-solar',
+                    label: 'Solar System',
+                    type: 'feature',
+                    description: 'Solar system visualization',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'orbit-system',
+                            label: 'OrbitSystem',
+                            type: 'component',
+                            description: 'Orbit system visualization',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'orbit-system-tsx', label: 'OrbitSystem.tsx', type: 'file', description: 'Orbit system', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'dashboard-recent',
+                    label: 'Recent Sessions',
+                    type: 'feature',
+                    description: 'Recent sessions list',
+                    accent: '#06b6d4',
+                    children: [
+                        {
+                            id: 'recent-sessions',
+                            label: 'RecentSessions',
+                            type: 'component',
+                            description: 'Recent sessions inline component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'dashboard-page-tsx', label: 'DashboardPage.tsx (inline)', type: 'file', description: 'Inline in DashboardPage', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'terminal',
+            label: 'Terminal Workspace',
+            type: 'page',
+            route: '/terminal',
+            description: 'Terminal workspace with session management',
+            accent: '#8b5cf6',
+            fileCount: 30,
+            children: [
+                {
+                    id: 'terminal-sessions',
+                    label: 'Session Management',
+                    type: 'feature',
+                    description: 'Manage terminal sessions',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'new-session-dialog',
+                            label: 'NewSessionDialog',
+                            type: 'component',
+                            description: 'Dialog for creating new sessions',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'new-session-dialog-tsx', label: 'NewSessionDialog.tsx', type: 'file', description: 'New session dialog', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'session-edit-dialog',
+                            label: 'SessionEditDialog',
+                            type: 'component',
+                            description: 'Dialog for editing sessions',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'session-edit-dialog-tsx', label: 'SessionEditDialog.tsx', type: 'file', description: 'Session edit dialog', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'import-sessions-dialog',
+                            label: 'ImportSessionsDialog',
+                            type: 'component',
+                            description: 'Dialog for importing sessions',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'import-sessions-dialog-tsx', label: 'ImportSessionsDialog.tsx', type: 'file', description: 'Import sessions dialog', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-panes',
+                    label: 'Terminal Panes',
+                    type: 'feature',
+                    description: 'Terminal window and panes',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'terminal-window',
+                            label: 'TerminalWindow',
+                            type: 'component',
+                            description: 'Terminal window component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'terminal-window-tsx', label: 'TerminalWindow.tsx', type: 'file', description: 'Terminal window', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'terminal-minimap',
+                            label: 'TerminalMiniMap',
+                            type: 'component',
+                            description: 'Terminal minimap',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'terminal-minimap-tsx', label: 'TerminalMiniMap.tsx', type: 'file', description: 'Terminal minimap', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'map-editor',
+                            label: 'MapEditor',
+                            type: 'component',
+                            description: 'Map editor component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'map-editor-tsx', label: 'MapEditor.tsx', type: 'file', description: 'Map editor', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-shell',
+                    label: 'Workspace Shell',
+                    type: 'feature',
+                    description: 'Workspace shell and navigation',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'workspace-shell',
+                            label: 'WorkspaceShell',
+                            type: 'component',
+                            description: 'Workspace shell component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'workspace-shell-tsx', label: 'WorkspaceShell.tsx', type: 'file', description: 'Workspace shell', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'workspace-group-rail',
+                            label: 'WorkspaceGroupRail',
+                            type: 'component',
+                            description: 'Workspace group rail',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'workspace-group-rail-tsx', label: 'WorkspaceGroupRail.tsx', type: 'file', description: 'Workspace group rail', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'sub-tab-bar',
+                            label: 'SubTabBar',
+                            type: 'component',
+                            description: 'Sub tab bar',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'sub-tab-bar-tsx', label: 'SubTabBar.tsx', type: 'file', description: 'Sub tab bar', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-presets',
+                    label: 'Presets',
+                    type: 'feature',
+                    description: 'Terminal presets management',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'presets-tab',
+                            label: 'PresetsTab',
+                            type: 'component',
+                            description: 'Presets tab component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'presets-tab-tsx', label: 'PresetsTab.tsx', type: 'file', description: 'Presets tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-configs',
+                    label: 'Configs',
+                    type: 'feature',
+                    description: 'Terminal configurations',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'configs-tab',
+                            label: 'ConfigsTab',
+                            type: 'component',
+                            description: 'Configs tab component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'configs-tab-tsx', label: 'ConfigsTab.tsx', type: 'file', description: 'Configs tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-fortress',
+                    label: 'Fortress',
+                    type: 'feature',
+                    description: 'Fortress protocol setup',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'fortress-setup',
+                            label: 'FortressProtocolSetup',
+                            type: 'component',
+                            description: 'Fortress protocol setup',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'fortress-setup-tsx', label: 'FortressProtocolSetup.tsx', type: 'file', description: 'Fortress setup', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-analytics',
+                    label: 'Analytics',
+                    type: 'feature',
+                    description: 'Terminal analytics dashboard',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'analytics-dashboard',
+                            label: 'AnalyticsDashboard',
+                            type: 'component',
+                            description: 'Analytics dashboard',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'analytics-dashboard-tsx', label: 'AnalyticsDashboard.tsx', type: 'file', description: 'Analytics dashboard', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-code-stats',
+                    label: 'Code Stats',
+                    type: 'feature',
+                    description: 'Code statistics and metrics',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'code-stats-tab',
+                            label: 'CodeStatsTab',
+                            type: 'component',
+                            description: 'Code stats tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'code-stats-tab-tsx', label: 'CodeStatsTab.tsx', type: 'file', description: 'Code stats tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-issues',
+                    label: 'Issues',
+                    type: 'feature',
+                    description: 'Issues and problems tracking',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'issues-workspace',
+                            label: 'IssuesWorkspace',
+                            type: 'component',
+                            description: 'Issues workspace',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'issues-workspace-tsx', label: 'IssuesWorkspace.tsx', type: 'file', description: 'Issues workspace', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'problems-tab',
+                            label: 'ProblemsTab',
+                            type: 'component',
+                            description: 'Problems tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'problems-tab-tsx', label: 'ProblemsTab.tsx', type: 'file', description: 'Problems tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-skills',
+                    label: 'Skills',
+                    type: 'feature',
+                    description: 'Skills management',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'skills-tab',
+                            label: 'SkillsTab',
+                            type: 'component',
+                            description: 'Skills tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'skills-tab-tsx', label: 'SkillsTab.tsx', type: 'file', description: 'Skills tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-design',
+                    label: 'Design',
+                    type: 'feature',
+                    description: 'Design workspace',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'design-workspace',
+                            label: 'DesignWorkspacePage',
+                            type: 'component',
+                            description: 'Design workspace page',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'design-workspace-tsx', label: 'DesignWorkspacePage.tsx', type: 'file', description: 'Design workspace', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-architecture',
+                    label: 'Architecture Map',
+                    type: 'feature',
+                    description: 'Code architecture visualization',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'code-architecture-map',
+                            label: 'CodeArchitectureMap',
+                            type: 'component',
+                            description: 'Architecture map component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'code-architecture-map-tsx', label: 'CodeArchitectureMap.tsx', type: 'file', description: 'Architecture map', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'terminal-context',
+                    label: 'Context Sidebar',
+                    type: 'feature',
+                    description: 'Context sidebar with information',
+                    accent: '#8b5cf6',
+                    children: [
+                        {
+                            id: 'context-sidebar',
+                            label: 'ContextSidebar',
+                            type: 'component',
+                            description: 'Context sidebar component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'context-sidebar-tsx', label: 'ContextSidebar.tsx', type: 'file', description: 'Context sidebar', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'finance',
+            label: 'Finance',
+            type: 'page',
+            route: '/finance',
+            description: 'Financial management and tracking',
+            accent: '#ec4899',
+            fileCount: 55,
+            children: [
+                {
+                    id: 'finance-lock',
+                    label: 'Lock Screen',
+                    type: 'feature',
+                    description: 'Finance lock screen and authentication',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'finance-lock-screen',
+                            label: 'FinanceLockScreen',
+                            type: 'component',
+                            description: 'Finance lock screen',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'finance-lock-screen-tsx', label: 'FinanceLockScreen.tsx', type: 'file', description: 'Lock screen', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'password-confirm-dialog',
+                            label: 'PasswordConfirmDialog',
+                            type: 'component',
+                            description: 'Password confirmation dialog',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'password-confirm-dialog-tsx', label: 'PasswordConfirmDialog.tsx', type: 'file', description: 'Password confirm', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-overview',
+                    label: 'Overview',
+                    type: 'feature',
+                    description: 'Financial overview and summary',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'overview-tab',
+                            label: 'OverviewTab',
+                            type: 'component',
+                            description: 'Overview tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'overview-tab-tsx', label: 'OverviewTab.tsx', type: 'file', description: 'Overview tab', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'net-worth-chart',
+                            label: 'NetWorthLineChart',
+                            type: 'component',
+                            description: 'Net worth line chart',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'net-worth-chart-tsx', label: 'NetWorthLineChart.tsx', type: 'file', description: 'Net worth chart', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'spending-chart',
+                            label: 'SpendingCategoryChart',
+                            type: 'component',
+                            description: 'Spending category chart',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'spending-chart-tsx', label: 'SpendingCategoryChart.tsx', type: 'file', description: 'Spending chart', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'recent-txns-card',
+                            label: 'RecentTxnsCard',
+                            type: 'component',
+                            description: 'Recent transactions card',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'recent-txns-card-tsx', label: 'RecentTxnsCard.tsx', type: 'file', description: 'Recent transactions', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-wallets',
+                    label: 'Wallets',
+                    type: 'feature',
+                    description: 'Wallet management',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'wallets-tab',
+                            label: 'WalletsTab',
+                            type: 'component',
+                            description: 'Wallets tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'wallets-tab-tsx', label: 'WalletsTab.tsx', type: 'file', description: 'Wallets tab', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'wallet-detail-view',
+                            label: 'WalletDetailView',
+                            type: 'component',
+                            description: 'Wallet detail view',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'wallet-detail-view-tsx', label: 'WalletDetailView.tsx', type: 'file', description: 'Wallet detail', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-transactions',
+                    label: 'Transactions',
+                    type: 'feature',
+                    description: 'Transaction management with 8 modals',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'transactions-tab',
+                            label: 'TransactionsTab',
+                            type: 'component',
+                            description: 'Transactions tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'transactions-tab-tsx', label: 'TransactionsTab.tsx', type: 'file', description: 'Transactions tab', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'bank-modal',
+                            label: 'BankModal',
+                            type: 'component',
+                            description: 'Bank transaction modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'bank-modal-tsx', label: 'BankModal.tsx', type: 'file', description: 'Bank modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'debit-modal',
+                            label: 'DebitModal',
+                            type: 'component',
+                            description: 'Debit transaction modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'debit-modal-tsx', label: 'DebitModal.tsx', type: 'file', description: 'Debit modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'credit-modal',
+                            label: 'CreditModal',
+                            type: 'component',
+                            description: 'Credit transaction modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'credit-modal-tsx', label: 'CreditModal.tsx', type: 'file', description: 'Credit modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'crypto-modal',
+                            label: 'CryptoModal',
+                            type: 'component',
+                            description: 'Crypto transaction modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'crypto-modal-tsx', label: 'CryptoModal.tsx', type: 'file', description: 'Crypto modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'physical-modal',
+                            label: 'PhysicalModal',
+                            type: 'component',
+                            description: 'Physical cash modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'physical-modal-tsx', label: 'PhysicalModal.tsx', type: 'file', description: 'Physical modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'cash-modal',
+                            label: 'CashModal',
+                            type: 'component',
+                            description: 'Cash transaction modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'cash-modal-tsx', label: 'CashModal.tsx', type: 'file', description: 'Cash modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'ewallet-modal',
+                            label: 'EwalletModal',
+                            type: 'component',
+                            description: 'E-wallet modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'ewallet-modal-tsx', label: 'EwalletModal.tsx', type: 'file', description: 'E-wallet modal', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'prepaid-modal',
+                            label: 'PrepaidModal',
+                            type: 'component',
+                            description: 'Prepaid card modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'prepaid-modal-tsx', label: 'PrepaidModal.tsx', type: 'file', description: 'Prepaid modal', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-people',
+                    label: 'People',
+                    type: 'feature',
+                    description: 'People and contacts management',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'people-tab',
+                            label: 'PeopleTab',
+                            type: 'component',
+                            description: 'People tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'people-tab-tsx', label: 'PeopleTab.tsx', type: 'file', description: 'People tab', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'person-card',
+                            label: 'PersonCard',
+                            type: 'component',
+                            description: 'Person card component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'person-card-tsx', label: 'PersonCard.tsx', type: 'file', description: 'Person card', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'person-detail-modal',
+                            label: 'PersonDetailModal',
+                            type: 'component',
+                            description: 'Person detail modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'person-detail-modal-tsx', label: 'PersonDetailModal.tsx', type: 'file', description: 'Person detail', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-categories',
+                    label: 'Categories',
+                    type: 'feature',
+                    description: 'Transaction categories',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'categories-tab',
+                            label: 'CategoriesTab',
+                            type: 'component',
+                            description: 'Categories tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'categories-tab-tsx', label: 'CategoriesTab.tsx', type: 'file', description: 'Categories tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-budget',
+                    label: 'Budget',
+                    type: 'feature',
+                    description: 'Budget management and tracking',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'budget-expenses-dashboard',
+                            label: 'BudgetExpensesDashboard',
+                            type: 'component',
+                            description: 'Budget expenses dashboard',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'budget-expenses-dashboard-tsx', label: 'BudgetExpensesDashboard.tsx', type: 'file', description: 'Budget dashboard', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'budget-tab',
+                            label: 'BudgetTab',
+                            type: 'component',
+                            description: 'Budget tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'budget-tab-tsx', label: 'BudgetTab.tsx', type: 'file', description: 'Budget tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-subscriptions',
+                    label: 'Subscriptions',
+                    type: 'feature',
+                    description: 'Subscription tracking',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'subscriptions-tab',
+                            label: 'SubscriptionsTab',
+                            type: 'component',
+                            description: 'Subscriptions tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'subscriptions-tab-tsx', label: 'SubscriptionsTab.tsx', type: 'file', description: 'Subscriptions tab', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'subscription-modal',
+                            label: 'SubscriptionModal',
+                            type: 'component',
+                            description: 'Subscription modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'subscription-modal-tsx', label: 'SubscriptionModal.tsx', type: 'file', description: 'Subscription modal', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-charts',
+                    label: 'Charts',
+                    type: 'feature',
+                    description: 'Financial charts and visualizations',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'finance-charts-tab',
+                            label: 'FinanceChartsTab',
+                            type: 'component',
+                            description: 'Finance charts tab',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'finance-charts-tab-tsx', label: 'FinanceChartsTab.tsx', type: 'file', description: 'Charts tab', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'finance-recap',
+                    label: 'Recap',
+                    type: 'feature',
+                    description: 'Financial recap and summary',
+                    accent: '#ec4899',
+                    children: [
+                        {
+                            id: 'recap-panel',
+                            label: 'RecapPanel',
+                            type: 'component',
+                            description: 'Recap panel',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'recap-panel-tsx', label: 'RecapPanel.tsx', type: 'file', description: 'Recap panel', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'ai',
+            label: 'AI Page',
+            type: 'page',
+            route: '/ai',
+            description: 'AI-powered features and canvas',
+            accent: '#3b82f6',
+            fileCount: 85,
+            children: [
+                {
+                    id: 'ai-chat',
+                    label: 'Chat System',
+                    type: 'feature',
+                    description: 'AI chat interface',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'chat-panel',
+                            label: 'ChatPanel',
+                            type: 'component',
+                            description: 'Chat panel component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'chat-panel-tsx', label: 'ChatPanel.tsx', type: 'file', description: 'Chat panel', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'chat-input',
+                            label: 'ChatInput',
+                            type: 'component',
+                            description: 'Chat input component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'chat-input-tsx', label: 'ChatInput.tsx', type: 'file', description: 'Chat input', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'chat-history',
+                            label: 'ChatHistory',
+                            type: 'component',
+                            description: 'Chat history component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'chat-history-tsx', label: 'ChatHistory.tsx', type: 'file', description: 'Chat history', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'message-bubble',
+                            label: 'MessageBubble',
+                            type: 'component',
+                            description: 'Message bubble component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'message-bubble-tsx', label: 'MessageBubble.tsx', type: 'file', description: 'Message bubble', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'use-ai-chat',
+                            label: 'useAiChat',
+                            type: 'component',
+                            description: 'AI chat hook',
+                            accent: '#f59e0b',
+                            children: [
+                                { id: 'use-ai-chat-tsx', label: 'useAiChat.ts', type: 'file', description: 'AI chat hook', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'ai-canvas',
+                    label: 'Canvas Mode',
+                    type: 'feature',
+                    description: 'AI canvas with cards and grid',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'canvas-container',
+                            label: 'CanvasContainer',
+                            type: 'component',
+                            description: 'Canvas container component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'canvas-container-tsx', label: 'CanvasContainer.tsx', type: 'file', description: 'Canvas container', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'canvas-grid',
+                            label: 'CanvasGrid',
+                            type: 'component',
+                            description: 'Canvas grid layout',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'canvas-grid-tsx', label: 'CanvasGrid.tsx', type: 'file', description: 'Canvas grid', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'canvas-card',
+                            label: 'CanvasCard',
+                            type: 'component',
+                            description: 'Canvas card component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'canvas-card-tsx', label: 'CanvasCard.tsx', type: 'file', description: 'Canvas card', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'ai-deck',
+                    label: 'Deck Mode',
+                    type: 'feature',
+                    description: 'AI deck mode with boards',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'ai-page-deck',
+                            label: 'AiPageDeck',
+                            type: 'component',
+                            description: 'AI page deck',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'ai-page-deck-tsx', label: 'AiPageDeck.tsx', type: 'file', description: 'AI deck', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'focus-board',
+                            label: 'FocusBoard',
+                            type: 'component',
+                            description: 'Focus board component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'focus-board-tsx', label: 'FocusBoard.tsx', type: 'file', description: 'Focus board', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'plan-board',
+                            label: 'PlanBoard',
+                            type: 'component',
+                            description: 'Plan board component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'plan-board-tsx', label: 'PlanBoard.tsx', type: 'file', description: 'Plan board', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'reflect-feed',
+                            label: 'ReflectFeed',
+                            type: 'component',
+                            description: 'Reflection feed',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'reflect-feed-tsx', label: 'ReflectFeed.tsx', type: 'file', description: 'Reflect feed', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'ai-compositions',
+                    label: 'Compositions',
+                    type: 'feature',
+                    description: 'AI compositions and workflows',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'composition-panel',
+                            label: 'CompositionPanel',
+                            type: 'component',
+                            description: 'Composition panel',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'composition-panel-tsx', label: 'CompositionPanel.tsx', type: 'file', description: 'Composition panel', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'composition-editor-modal',
+                            label: 'CompositionEditorModal',
+                            type: 'component',
+                            description: 'Composition editor modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'composition-editor-modal-tsx', label: 'CompositionEditorModal.tsx', type: 'file', description: 'Composition editor', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'ai-connectors',
+                    label: 'Connectors',
+                    type: 'feature',
+                    description: 'AI connectors and integrations',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'connectors-panel',
+                            label: 'ConnectorsPanel',
+                            type: 'component',
+                            description: 'Connectors panel',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'connectors-panel-tsx', label: 'ConnectorsPanel.tsx', type: 'file', description: 'Connectors panel', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'connector-setup-modal',
+                            label: 'ConnectorSetupModal',
+                            type: 'component',
+                            description: 'Connector setup modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'connector-setup-modal-tsx', label: 'ConnectorSetupModal.tsx', type: 'file', description: 'Connector setup', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'ai-automations',
+                    label: 'Automations',
+                    type: 'feature',
+                    description: 'AI automations and workflows',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'automation-list',
+                            label: 'AutomationList',
+                            type: 'component',
+                            description: 'Automation list',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'automation-list-tsx', label: 'AutomationList.tsx', type: 'file', description: 'Automation list', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'automation-card',
+                            label: 'AutomationCard',
+                            type: 'component',
+                            description: 'Automation card',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'automation-card-tsx', label: 'AutomationCard.tsx', type: 'file', description: 'Automation card', accent: '#6b7280', children: [] }
+                            ]
+                        },
+                        {
+                            id: 'visual-builder-modal',
+                            label: 'VisualBuilderModal',
+                            type: 'component',
+                            description: 'Visual builder modal',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'visual-builder-modal-tsx', label: 'VisualBuilderModal.tsx', type: 'file', description: 'Visual builder', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    id: 'ai-goals',
+                    label: 'Goals',
+                    type: 'feature',
+                    description: 'AI-powered goals and reminders',
+                    accent: '#3b82f6',
+                    children: [
+                        {
+                            id: 'goals-reminders-drawer',
+                            label: 'GoalsRemindersDrawer',
+                            type: 'component',
+                            description: 'Goals reminders drawer',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'goals-reminders-drawer-tsx', label: 'GoalsRemindersDrawer.tsx', type: 'file', description: 'Goals reminders', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'ide',
+            label: 'IDE Projects',
+            type: 'page',
+            route: '/ide',
+            description: 'IDE project management',
+            accent: '#14b8a6',
+            fileCount: 10,
+            children: [
+                {
+                    id: 'ide-projects',
+                    label: 'Project List',
+                    type: 'feature',
+                    description: 'List of IDE projects',
+                    accent: '#14b8a6',
+                    children: [
+                        {
+                            id: 'ide-projects-page',
+                            label: 'IDEProjectsPage',
+                            type: 'component',
+                            description: 'IDE projects page',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'ide-projects-page-tsx', label: 'IDEProjectsPage.tsx', type: 'file', description: 'IDE projects page', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'settings',
+            label: 'Settings',
+            type: 'page',
+            route: '/settings',
+            description: 'Application settings',
+            accent: '#f97316',
+            fileCount: 8,
+            children: [
+                {
+                    id: 'settings-page',
+                    label: 'Settings Page',
+                    type: 'feature',
+                    description: 'Settings configuration',
+                    accent: '#f97316',
+                    children: [
+                        {
+                            id: 'settings-page-component',
+                            label: 'SettingsPage',
+                            type: 'component',
+                            description: 'Settings page component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'settings-page-tsx', label: 'SettingsPage.tsx', type: 'file', description: 'Settings page', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'external',
+            label: 'External',
+            type: 'page',
+            route: '/external',
+            description: 'External integrations',
+            accent: '#84cc16',
+            fileCount: 12,
+            children: [
+                {
+                    id: 'external-page',
+                    label: 'External Page',
+                    type: 'feature',
+                    description: 'External integrations page',
+                    accent: '#84cc16',
+                    children: [
+                        {
+                            id: 'external-page-component',
+                            label: 'ExternalPage',
+                            type: 'component',
+                            description: 'External page component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'external-page-tsx', label: 'ExternalPage.tsx', type: 'file', description: 'External page', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'life',
+            label: 'Life',
+            type: 'page',
+            route: '/life',
+            description: 'Life management features',
+            accent: '#a855f7',
+            fileCount: 15,
+            children: [
+                {
+                    id: 'life-page',
+                    label: 'Life Page',
+                    type: 'feature',
+                    description: 'Life management page',
+                    accent: '#a855f7',
+                    children: [
+                        {
+                            id: 'life-page-component',
+                            label: 'LifePage',
+                            type: 'component',
+                            description: 'Life page component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'life-page-tsx', label: 'LifePage.tsx', type: 'file', description: 'Life page', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'activity',
+            label: 'Activity',
+            type: 'page',
+            route: '/activity',
+            description: 'Activity tracking and history',
+            accent: '#eab308',
+            fileCount: 8,
+            children: [
+                {
+                    id: 'activity-page',
+                    label: 'Activity Page',
+                    type: 'feature',
+                    description: 'Activity tracking page',
+                    accent: '#eab308',
+                    children: [
+                        {
+                            id: 'activity-page-component',
+                            label: 'ActivityPage',
+                            type: 'component',
+                            description: 'Activity page component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'activity-page-tsx', label: 'ActivityPage.tsx', type: 'file', description: 'Activity page', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            id: 'learn',
+            label: 'Learn',
+            type: 'page',
+            route: '/learn',
+            description: 'Learning and education',
+            accent: '#0ea5e9',
+            fileCount: 20,
+            children: [
+                {
+                    id: 'learn-page',
+                    label: 'Learn Page',
+                    type: 'feature',
+                    description: 'Learning page',
+                    accent: '#0ea5e9',
+                    children: [
+                        {
+                            id: 'learn-page-component',
+                            label: 'LearnPage',
+                            type: 'component',
+                            description: 'Learn page component',
+                            accent: '#10b981',
+                            children: [
+                                { id: 'learn-page-tsx', label: 'LearnPage.tsx', type: 'file', description: 'Learn page', accent: '#6b7280', children: [] }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────
-
-function flattenNodes(node: ArchNode, acc: ArchNode[] = []): ArchNode[] {
-  acc.push(node);
-  if (node.children) {
-    for (const child of node.children) flattenNodes(child, acc);
-  }
-  return acc;
-}
-
-function findNode(id: string, node: ArchNode = ARCHITECTURE_DATA): ArchNode | null {
-  if (node.id === id) return node;
-  if (node.children) {
-    for (const child of node.children) {
-      const found = findNode(id, child);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-function countDescendants(node: ArchNode, type: ArchNode['type']): number {
-  let count = 0;
-  if (node.type === type) count++;
-  if (node.children) {
-    for (const child of node.children) count += countDescendants(child, type);
-  }
-  return count;
-}
-
-// ─── Main Component ───────────────────────────────────────────────
-
-export function CodeArchitectureMap({ projectPath }: { projectPath: string }) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [expandedPages, setExpandedPages] = useState<Set<string>>(new Set(['dashboard', 'terminal', 'finance', 'ai']));
-  const [expandedFeatures, setExpandedFeatures] = useState<Set<string>>(new Set());
-  const [viewingFile, setViewingFile] = useState<{ path: string; name: string; content: string } | null>(null);
-  const [typeFilter, setTypeFilter] = useState<Set<ArchNode['type']>>(new Set());
-  const [showFilter, setShowFilter] = useState(false);
-  const graphRef = useRef<HTMLDivElement>(null);
-  const cyRef = useRef<any>(null);
-
-  // Count stats
-  const stats = useMemo(() => ({
-    pages: countDescendants(ARCHITECTURE_DATA, 'page'),
-    features: countDescendants(ARCHITECTURE_DATA, 'feature'),
-    components: countDescendants(ARCHITECTURE_DATA, 'component'),
-  }), []);
-
-  // Search filtering
-  const searchMatches = useMemo(() => {
-    if (!searchQuery) return null;
-    const q = searchQuery.toLowerCase();
-    const all = flattenNodes(ARCHITECTURE_DATA);
-    return new Set(all.filter(n => n.label.toLowerCase().includes(q) || n.description?.toLowerCase().includes(q)).map(n => n.id));
-  }, [searchQuery]);
-
-  // Toggle page expansion
-  const togglePage = (id: string) => {
-    setExpandedPages(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // Toggle feature expansion
-  const toggleFeature = (id: string) => {
-    setExpandedFeatures(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  // View file content
-  const handleViewFile = useCallback(async (file: string) => {
-    if (!window.deskflowAPI?.readProjectFile) return;
-    try {
-      const result = await (window.deskflowAPI as any).readProjectFile(file, projectPath);
-      if (result?.success && typeof result.data === 'string') {
-        const name = file.split('/').pop() || file;
-        setViewingFile({ path: file, name, content: result.data });
-      }
-    } catch {}
-  }, [projectPath]);
-
-  // Build graph data for cytoscape
-  const graphElements = useMemo(() => {
-    const nodes: any[] = [];
-    const edges: any[] = [];
-    const pages = ARCHITECTURE_DATA.children || [];
-
-    for (const page of pages) {
-      // Page node
-      nodes.push({
-        data: { id: page.id, label: page.label, type: 'page', color: NODE_CONFIG.page.color },
-        classes: 'page',
-      });
-
-      if (page.children) {
-        for (const feature of page.children) {
-          // Feature node
-          nodes.push({
-            data: { id: feature.id, label: feature.label, type: 'feature', color: page.accent || NODE_CONFIG.feature.color },
-            classes: 'feature',
-          });
-          edges.push({ data: { source: page.id, target: feature.id, type: 'hierarchy' } });
-
-          if (feature.children) {
-            for (const comp of feature.children) {
-              // Component node
-              nodes.push({
-                data: { id: comp.id, label: comp.label, type: 'component', color: NODE_CONFIG.component.color },
-                classes: 'component',
-              });
-              edges.push({ data: { source: feature.id, target: comp.id, type: 'hierarchy' } });
-            }
-          }
-        }
-      }
-    }
-
-    return { nodes, edges };
-  }, []);
-
-  // Initialize cytoscape
-  useEffect(() => {
-    if (!graphRef.current || graphElements.nodes.length === 0) return;
-
-    let cy: any = null;
-
-    import('cytoscape').then((cytoscapeModule) => {
-      const cytoscape = cytoscapeModule.default;
-      import('cytoscape-dagre').then((dagreModule) => {
-        cytoscape.use(dagreModule.default);
-
-        if (cyRef.current) cyRef.current.destroy();
-
-        cy = cytoscape({
-          container: graphRef.current,
-          elements: graphElements,
-          style: [
-            {
-              selector: 'node',
-              style: {
-                'label': 'data(label)',
-                'background-color': 'data(color)',
-                'color': '#e4e4e7',
-                'font-size': '9px',
-                'text-valign': 'bottom',
-                'text-margin-y': 3,
-                'width': 16,
-                'height': 16,
-                'border-width': 1,
-                'border-color': 'data(color)',
-                'border-opacity': 0.4,
-              } as any,
-            },
-            {
-              selector: 'node.page',
-              style: { width: 30, height: 30, 'font-size': '11px', 'font-weight': 'bold' as any, 'text-margin-y': 6 },
-            },
-            {
-              selector: 'node.feature',
-              style: { width: 20, height: 20, 'font-size': '10px' },
-            },
-            {
-              selector: 'node:selected',
-              style: { 'background-color': '#fbbf24', 'border-color': '#fbbf24', 'border-width': 2, 'color': '#fbbf24' } as any,
-            },
-            {
-              selector: 'edge',
-              style: { 'width': 0.8, 'line-color': '#27272a', 'opacity': 0.3, 'curve-style': 'bezier' } as any,
-            },
-          ],
-          layout: { name: 'dagre', rankDir: 'TB', padding: 30, spacingFactor: 1.3, nodeDimensionsIncludeLabels: true } as any,
-          minZoom: 0.15,
-          maxZoom: 3,
-          wheelSensitivity: 0.2,
+// Utility functions
+const flattenNodes = (node: ArchNode): ArchNode[] => {
+    const result = [node];
+    if (node.children) {
+        node.children.forEach(child => {
+            result.push(...flattenNodes(child));
         });
+    }
+    return result;
+};
 
-        cy.on('tap', 'node', (evt: any) => setSelectedNode(evt.target.id()));
-        cyRef.current = cy;
-      });
-    }).catch(() => {});
+const getTypeColor = (type: ArchNode['type']) => {
+    const colors = {
+        app: '#06b6d4',
+        page: '#8b5cf6',
+        feature: '#3b82f6',
+        component: '#10b981',
+        file: '#6b7280'
+    };
+    return colors[type] || '#6b7280';
+};
 
-    return () => { if (cyRef.current) { cyRef.current.destroy(); cyRef.current = null; } };
-  }, [graphElements]);
+const getTypeIcon = (type: ArchNode['type']) => {
+    const icons = {
+        app: Layers,
+        page: GitBranch,
+        feature: Box,
+        component: Cpu,
+        file: FileCode
+    };
+    return icons[type] || FileCode;
+};
 
-  const handleZoomIn = () => cyRef.current?.zoom(cyRef.current.zoom() * 1.3);
-  const handleZoomOut = () => cyRef.current?.zoom(cyRef.current.zoom() / 1.3);
-  const handleFit = () => cyRef.current?.fit(undefined, 30);
-
-  const selectedNodeData = selectedNode ? findNode(selectedNode) : null;
-
-  return (
-    <div className="h-full flex flex-col bg-zinc-950 text-zinc-100">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800/60 shrink-0">
-        <Network className="w-4 h-4 text-cyan-400" />
-        <h2 className="text-sm font-semibold text-zinc-200">Architecture Map</h2>
-        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-          <span>{stats.pages} pages</span>
-          <span>·</span>
-          <span>{stats.features} features</span>
-          <span>·</span>
-          <span>{stats.components} components</span>
-        </div>
-        <div className="ml-auto flex items-center gap-1.5">
-          <button onClick={() => setShowFilter(!showFilter)} className={`p-1.5 rounded transition-colors ${showFilter ? 'bg-cyan-500/15 text-cyan-400' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'}`} title="Filter">
-            <Filter className="w-3.5 h-3.5" />
-          </button>
-          <button onClick={handleZoomIn} className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-colors" title="Zoom in"><ZoomIn className="w-3.5 h-3.5" /></button>
-          <button onClick={handleZoomOut} className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-colors" title="Zoom out"><ZoomOut className="w-3.5 h-3.5" /></button>
-          <button onClick={handleFit} className="p-1.5 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-colors" title="Fit"><Maximize2 className="w-3.5 h-3.5" /></button>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="px-4 py-2 border-b border-zinc-800/40 shrink-0">
-        <div className="relative">
-          <Search className="w-3 h-3 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
-          <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search pages, features, components..." className="w-full pl-7 pr-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800/60 text-xs text-zinc-300 placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/40" />
-        </div>
-      </div>
-
-      {/* Type filter */}
-      {showFilter && (
-        <div className="flex items-center gap-1.5 px-4 py-2 border-b border-zinc-800/40 shrink-0 flex-wrap">
-          {(['page', 'feature', 'component'] as const).map(t => (
-            <button key={t} onClick={() => setTypeFilter(prev => { const n = new Set(prev); if (n.has(t)) n.delete(t); else n.add(t); return n; })}
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all ${typeFilter.has(t) ? 'ring-1' : 'opacity-40 hover:opacity-70'}`}
-              style={{ backgroundColor: typeFilter.has(t) ? `${NODE_CONFIG[t].color}20` : 'transparent', color: NODE_CONFIG[t].color } as any}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: NODE_CONFIG[t].color }} />
-              {NODE_CONFIG[t].label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Main: tree + graph */}
-      <div className="flex-1 flex min-h-0">
-        {/* Left: Feature tree */}
-        <div className="w-[280px] shrink-0 border-r border-zinc-800/40 overflow-y-auto">
-          {ARCHITECTURE_DATA.children?.map(page => (
-            <FeatureTreePage
-              key={page.id}
-              node={page}
-              expandedPages={expandedPages}
-              expandedFeatures={expandedFeatures}
-              togglePage={togglePage}
-              toggleFeature={toggleFeature}
-              selectedNode={selectedNode}
-              onSelect={setSelectedNode}
-              searchMatches={searchMatches}
-              typeFilter={typeFilter}
-            />
-          ))}
-        </div>
-
-        {/* Right: graph or file viewer */}
-        <div className="flex-1 relative min-w-0">
-          {viewingFile ? (
-            <FileViewerPanel path={viewingFile.path} name={viewingFile.name} content={viewingFile.content} onClose={() => setViewingFile(null)} />
-          ) : (
-            <>
-              <div ref={graphRef} className="absolute inset-0" />
-              {selectedNodeData && (
-                <FeatureDetailPanel node={selectedNodeData} onClose={() => setSelectedNode(null)} onViewFile={handleViewFile} />
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+// Tree Node Component
+interface TreeNodeProps {
+    node: ArchNode;
+    level: number;
+    expanded: Set<string>;
+    onToggle: (id: string) => void;
+    onSelect: (node: ArchNode) => void;
+    selected: string | null;
+    searchTerm: string;
 }
 
-// ─── Feature Tree: Page node ──────────────────────────────────────
+const TreeNode: React.FC<TreeNodeProps> = ({
+    node,
+    level,
+    expanded,
+    onToggle,
+    onSelect,
+    selected,
+    searchTerm
+}) => {
+    const isExpanded = expanded.has(node.id);
+    const hasChildren = node.children && node.children.length > 0;
+    const isSelected = selected === node.id;
+    const Icon = getTypeIcon(node.type);
 
-function FeatureTreePage({ node, expandedPages, expandedFeatures, togglePage, toggleFeature, selectedNode, onSelect, searchMatches, typeFilter }: {
-  node: ArchNode;
-  expandedPages: Set<string>;
-  expandedFeatures: Set<string>;
-  togglePage: (id: string) => void;
-  toggleFeature: (id: string) => void;
-  selectedNode: string | null;
-  onSelect: (id: string) => void;
-  searchMatches: Set<string> | null;
-  typeFilter: Set<ArchNode['type']>;
-}) {
-  const isExpanded = expandedPages.has(node.id);
-  const isSelected = selectedNode === node.id;
-  const featureCount = node.children?.length || 0;
+    const matchesSearch = !searchTerm ||
+        node.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        node.description?.toLowerCase().includes(searchTerm.toLowerCase());
 
-  // Filter check
-  if (typeFilter.size > 0 && !typeFilter.has('page')) return null;
-  if (searchMatches && !searchMatches.has(node.id) && !node.children?.some(f => searchMatches.has(f.id) || f.children?.some(c => searchMatches.has(c.id)))) return null;
+    if (!matchesSearch && !isExpanded) return null;
 
-  return (
-    <div>
-      <div
-        className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-cyan-500/10' : 'hover:bg-zinc-800/40'}`}
-        onClick={() => { togglePage(node.id); onSelect(node.id); }}
-      >
-        {isExpanded ? <ChevronDown className="w-3 h-3 text-zinc-500 shrink-0" /> : <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0" />}
-        <Route className="w-3.5 h-3.5 shrink-0" style={{ color: node.accent || NODE_CONFIG.page.color }} />
-        <span className="text-xs font-semibold text-zinc-200 truncate">{node.label}</span>
-        {node.route && <span className="text-[9px] text-zinc-600 font-mono">{node.route}</span>}
-        <span className="text-[9px] text-zinc-600 ml-auto">{featureCount}</span>
-      </div>
+    return (
+        <div>
+            <div
+                className={`
+          flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer
+          transition-all duration-200
+          ${isSelected ? 'bg-zinc-800 ring-1 ring-cyan-400/50' : 'hover:bg-zinc-800/50'}
+        `}
+                style={{ paddingLeft: `${level * 16 + 12}px` }}
+                onClick={() => {
+                    if (hasChildren) onToggle(node.id);
+                    onSelect(node);
+                }}
+            >
+                {hasChildren && (
+                    <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">
+                        {isExpanded ? (
+                            <ChevronDown className="w-3 h-3 text-zinc-400" />
+                        ) : (
+                            <ChevronRight className="w-3 h-3 text-zinc-400" />
+                        )}
+                    </div>
+                )}
+                {!hasChildren && <div className="w-4" />}
 
-      {isExpanded && node.children?.map(feature => (
-        <FeatureTreeFeature
-          key={feature.id}
-          node={feature}
-          pageAccent={node.accent}
-          expandedFeatures={expandedFeatures}
-          toggleFeature={toggleFeature}
-          selectedNode={selectedNode}
-          onSelect={onSelect}
-          searchMatches={searchMatches}
-          typeFilter={typeFilter}
-        />
-      ))}
-    </div>
-  );
-}
+                <Icon
+                    className="w-4 h-4 flex-shrink-0"
+                    style={{ color: node.accent || getTypeColor(node.type) }}
+                />
 
-// ─── Feature Tree: Feature node ───────────────────────────────────
+                <span className="text-sm text-zinc-200 truncate flex-1">
+                    {node.label}
+                </span>
 
-function FeatureTreeFeature({ node, pageAccent, expandedFeatures, toggleFeature, selectedNode, onSelect, searchMatches, typeFilter }: {
-  node: ArchNode;
-  pageAccent?: string;
-  expandedFeatures: Set<string>;
-  toggleFeature: (id: string) => void;
-  selectedNode: string | null;
-  onSelect: (id: string) => void;
-  searchMatches: Set<string> | null;
-  typeFilter: Set<ArchNode['type']>;
-}) {
-  const isExpanded = expandedFeatures.has(node.id);
-  const isSelected = selectedNode === node.id;
-  const compCount = node.children?.length || 0;
-
-  if (typeFilter.size > 0 && !typeFilter.has('feature') && !typeFilter.has('component')) return null;
-  if (searchMatches && !searchMatches.has(node.id) && !node.children?.some(c => searchMatches.has(c.id))) return null;
-
-  return (
-    <div>
-      <div
-        className={`flex items-center gap-2 pl-7 pr-3 py-1.5 cursor-pointer transition-colors ${isSelected ? 'bg-cyan-500/10' : 'hover:bg-zinc-800/30'}`}
-        onClick={() => { toggleFeature(node.id); onSelect(node.id); }}
-      >
-        {isExpanded ? <ChevronDown className="w-3 h-3 text-zinc-600 shrink-0" /> : <ChevronRight className="w-3 h-3 text-zinc-600 shrink-0" />}
-        <Puzzle className="w-3 h-3 shrink-0" style={{ color: pageAccent || NODE_CONFIG.feature.color }} />
-        <span className="text-[11px] text-zinc-300 truncate">{node.label}</span>
-        <span className="text-[9px] text-zinc-600 ml-auto">{compCount}</span>
-      </div>
-
-      {isExpanded && node.children?.map(comp => (
-        <div
-          key={comp.id}
-          className={`flex items-center gap-2 pl-14 pr-3 py-1 cursor-pointer transition-colors ${selectedNode === comp.id ? 'bg-cyan-500/10' : 'hover:bg-zinc-800/20'}`}
-          onClick={() => onSelect(comp.id)}
-        >
-          <Box className="w-3 h-3 shrink-0" style={{ color: NODE_CONFIG.component.color }} />
-          <span className="text-[10px] text-zinc-400 truncate">{comp.label}</span>
-          {comp.file && <ExternalLink className="w-2.5 h-2.5 text-zinc-600 ml-auto shrink-0" />}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Feature Detail Panel ─────────────────────────────────────────
-
-function FeatureDetailPanel({ node, onClose, onViewFile }: {
-  node: ArchNode;
-  onClose: () => void;
-  onViewFile: (file: string) => void;
-}) {
-  const config = NODE_CONFIG[node.type];
-  const Icon = config.icon;
-  const children = node.children || [];
-
-  return (
-    <div className="absolute bottom-3 right-3 w-72 bg-zinc-900/95 border border-zinc-800/60 rounded-xl shadow-2xl backdrop-blur-xl overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/40">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: config.color }} />
-          <span className="text-xs font-medium text-zinc-200 truncate">{node.label}</span>
-        </div>
-        <button onClick={onClose} className="p-1 rounded hover:bg-zinc-800/40 text-zinc-500 hover:text-zinc-300 transition-colors">
-          <X className="w-3 h-3" />
-        </button>
-      </div>
-      <div className="px-3 py-2 space-y-2 text-[11px]">
-        <div className="flex items-center gap-2">
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ backgroundColor: `${config.color}20`, color: config.color }}>
-            {config.label}
-          </span>
-          {node.route && <span className="text-[10px] text-zinc-500 font-mono">{node.route}</span>}
-        </div>
-        {node.description && <div className="text-zinc-400 text-[11px]">{node.description}</div>}
-        {node.file && (
-          <button onClick={() => onViewFile(node.file!)} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 transition-colors">
-            <Eye className="w-3 h-3" /> View file
-          </button>
-        )}
-        {children.length > 0 && (
-          <div>
-            <div className="text-zinc-500 mb-1">{children.length} child{children.length !== 1 ? 'ren' : ''}</div>
-            <div className="space-y-0.5 max-h-32 overflow-y-auto">
-              {children.map(c => {
-                const cc = NODE_CONFIG[c.type];
-                const CIcon = cc.icon;
-                return (
-                  <div key={c.id} className="flex items-center gap-1.5 text-[10px]">
-                    <CIcon className="w-2.5 h-2.5 shrink-0" style={{ color: cc.color }} />
-                    <span className="text-zinc-400 truncate">{c.label}</span>
-                  </div>
-                );
-              })}
+                {node.fileCount && (
+                    <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                        {node.fileCount}
+                    </span>
+                )}
             </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
-// ─── File Viewer Panel (kept from original) ───────────────────────
-
-function FileViewerPanel({ path, name, content, onClose }: { path: string; name: string; content: string; onClose: () => void }) {
-  const lines = content.split('\n');
-  const [copied, setCopied] = useState(false);
-  const handleCopy = async () => { try { await navigator.clipboard.writeText(content); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {} };
-  const ext = name.split('.').pop() || '';
-  const lang = ext === 'tsx' || ext === 'jsx' ? 'tsx' : ext === 'ts' ? 'ts' : ext === 'css' ? 'css' : ext === 'json' ? 'json' : ext === 'md' ? 'md' : 'text';
-
-  return (
-    <div className="h-full flex flex-col bg-zinc-950">
-      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-zinc-800/60 shrink-0 bg-zinc-900/60">
-        <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium text-zinc-200 truncate">{name}</div>
-          <div className="text-[10px] text-zinc-500 truncate">{path}</div>
+            {hasChildren && isExpanded && (
+                <div className="mt-1">
+                    {node.children.map(child => (
+                        <TreeNode
+                            key={child.id}
+                            node={child}
+                            level={level + 1}
+                            expanded={expanded}
+                            onToggle={onToggle}
+                            onSelect={onSelect}
+                            selected={selected}
+                            searchTerm={searchTerm}
+                        />
+                    ))}
+                </div>
+            )}
         </div>
-        <span className="text-[10px] text-zinc-600 shrink-0">{lines.length} lines</span>
-        <button onClick={handleCopy} className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40 transition-colors">
-          {copied ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-        <button onClick={onClose} className="p-1 rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition-colors"><X className="w-3.5 h-3.5" /></button>
-      </div>
-      <div className="flex-1 overflow-auto font-mono text-[11px] leading-[1.6]">
-        <table className="w-full border-collapse"><tbody>
-          {lines.map((line, i) => (
-            <tr key={i} className="hover:bg-zinc-800/30">
-              <td className="w-12 shrink-0 text-right pr-4 pl-4 py-0 text-zinc-600 select-none text-[10px] align-top">{i + 1}</td>
-              <td className="px-4 py-0 whitespace-pre text-zinc-300"><CodeLine text={line} lang={lang} /></td>
-            </tr>
-          ))}
-        </tbody></table>
-      </div>
-    </div>
-  );
+    );
+};
+
+// Detail Panel Component
+interface DetailPanelProps {
+    node: ArchNode | null;
+    onClose: () => void;
 }
 
-// ─── CodeLine (kept from original) ────────────────────────────────
+const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
+    if (!node) return null;
 
-function CodeLine({ text, lang }: { text: string; lang: string }) {
-  if (lang === 'tsx' || lang === 'ts') {
-    return <span>{text.split(/(\b(?:import|export|from|const|let|var|function|return|if|else|for|while|class|extends|implements|interface|type|enum|async|await|new|try|catch|throw|typeof|instanceof|switch|case|default|break|continue|null|undefined|true|false|this|super)\b)/g).map((part, i) => /^(import|export|from|const|let|var|function|return|if|else|for|while|class|extends|implements|interface|type|enum|async|await|new|try|catch|throw|typeof|instanceof|switch|case|default|break|continue|null|undefined|true|false|this|super)$/.test(part) ? <span key={i} className="text-purple-400">{part}</span> : <span key={i}>{part}</span>)}</span>;
-  }
-  if (lang === 'css') {
-    return <span>{text.split(/(\b(?:display|flex|grid|position|margin|padding|width|height|color|background|border|font|text|align|justify|gap|overflow|opacity|transition|transform|animation|z-index)\b)/g).map((part, i) => /^(display|flex|grid|position|margin|padding|width|height|color|background|border|font|text|align|justify|gap|overflow|opacity|transition|transform|animation|z-index)$/.test(part) ? <span key={i} className="text-sky-400">{part}</span> : <span key={i}>{part}</span>)}</span>;
-  }
-  if (lang === 'json') {
-    return <span>{text.split(/("[\w-]+")\s*:/g).map((part, i) => i % 2 === 1 ? <span key={i} className="text-amber-400">{part}</span> : <span key={i}>{part}</span>)}</span>;
-  }
-  if (lang === 'md') {
-    if (text.startsWith('#')) return <span className="text-cyan-400 font-semibold">{text}</span>;
-    if (text.startsWith('-') || text.startsWith('*')) return <span className="text-zinc-400">{text}</span>;
-    if (text.startsWith('```')) return <span className="text-purple-400">{text}</span>;
-  }
-  return <span>{text}</span>;
+    const Icon = getTypeIcon(node.type);
+    const allNodes = flattenNodes(node);
+    const fileCount = allNodes.filter(n => n.type === 'file').length;
+    const componentCount = allNodes.filter(n => n.type === 'component').length;
+    const featureCount = allNodes.filter(n => n.type === 'feature').length;
+
+    return (
+        <div className="absolute top-4 right-4 w-80 bg-zinc-900 border border-zinc-800 rounded-lg shadow-2xl z-50">
+            <div className="p-4 border-b border-zinc-800">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Icon className="w-5 h-5" style={{ color: node.accent || getTypeColor(node.type) }} />
+                        <h3 className="text-lg font-semibold text-zinc-100">{node.label}</h3>
+                    </div>
+                    <button
+                        onClick={onClose}
+                        className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                    >
+                        ×
+                    </button>
+                </div>
+                {node.description && (
+                    <p className="text-sm text-zinc-400 mt-2">{node.description}</p>
+                )}
+            </div>
+
+            <div className="p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-zinc-800/50 rounded px-3 py-2">
+                        <div className="text-xs text-zinc-500">Type</div>
+                        <div className="text-sm font-medium text-zinc-200 capitalize">{node.type}</div>
+                    </div>
+                    {node.route && (
+                        <div className="bg-zinc-800/50 rounded px-3 py-2">
+                            <div className="text-xs text-zinc-500">Route</div>
+                            <div className="text-sm font-medium text-zinc-200">{node.route}</div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-zinc-800/50 rounded px-3 py-2">
+                        <div className="text-xs text-zinc-500">Features</div>
+                        <div className="text-lg font-bold text-blue-400">{featureCount}</div>
+                    </div>
+                    <div className="bg-zinc-800/50 rounded px-3 py-2">
+                        <div className="text-xs text-zinc-500">Components</div>
+                        <div className="text-lg font-bold text-emerald-400">{componentCount}</div>
+                    </div>
+                    <div className="bg-zinc-800/50 rounded px-3 py-2">
+                        <div className="text-xs text-zinc-500">Files</div>
+                        <div className="text-lg font-bold text-zinc-400">{fileCount}</div>
+                    </div>
+                </div>
+
+                {node.children && node.children.length > 0 && (
+                    <div>
+                        <div className="text-xs text-zinc-500 mb-2">Children</div>
+                        <div className="space-y-1 max-h-40 overflow-y-auto">
+                            {node.children.map(child => (
+                                <div
+                                    key={child.id}
+                                    className="text-sm text-zinc-300 bg-zinc-800/50 rounded px-2 py-1"
+                                >
+                                    {child.label}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// ═══════════════════════════════════════════════════════════════════
+// ═══ 3D NEURAL ARCHITECTURE GRAPH — react-three-fiber force network ═══
+// ═══════════════════════════════════════════════════════════════════
+
+interface GraphEdge {
+    from: string;
+    to: string;
 }
+
+interface LayoutNode {
+    id: string;
+    label: string;
+    type: ArchNode['type'];
+    description?: string;
+    accent: string;
+    depth: number;
+    parentId: string | null;
+    size: number;
+}
+
+const TYPE_SIZE: Record<ArchNode['type'], number> = {
+    app: 3.4,
+    page: 2.3,
+    feature: 1.55,
+    component: 0.95,
+    file: 0.45
+};
+
+const NODE_DEPTH: Record<ArchNode['type'], number> = {
+    app: 0,
+    page: 1,
+    feature: 2,
+    component: 3,
+    file: 4
+};
+
+const RING_RADIUS = [0, 7.5, 13, 19.5, 26];
+
+const buildGraph = (filterType: ArchNode['type'] | 'all') => {
+    const nodes: LayoutNode[] = [];
+    const edges: GraphEdge[] = [];
+    const adjacency = new Map<string, Set<string>>();
+
+    const addAdj = (a: string, b: string) => {
+        if (!adjacency.has(a)) adjacency.set(a, new Set());
+        if (!adjacency.has(b)) adjacency.set(b, new Set());
+        adjacency.get(a)!.add(b);
+        adjacency.get(b)!.add(a);
+    };
+
+    const walk = (node: ArchNode, parentId: string | null) => {
+        const keep = filterType === 'all' || node.type === filterType || node.type === 'app' || node.type === 'page';
+        if (keep) {
+            const accent = node.accent || getTypeColor(node.type);
+            nodes.push({
+                id: node.id,
+                label: node.label,
+                type: node.type,
+                description: node.description,
+                accent,
+                depth: NODE_DEPTH[node.type],
+                parentId,
+                size: TYPE_SIZE[node.type]
+            });
+            if (parentId && node.type !== 'file') {
+                edges.push({ from: parentId, to: node.id });
+                addAdj(parentId, node.id);
+            }
+        }
+        (node.children || []).forEach(child => walk(child, keep ? node.id : parentId));
+    };
+    walk(ARCHITECTURE_DATA, null);
+
+    return { nodes, edges, adjacency };
+};
+
+// Deterministic seeded PRNG so the graph settles the same every mount
+const mulberry = (seed: number) => () => {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+const fibonacciSphere = (index: number, count: number, radius: number, out: THREE.Vector3) => {
+    const y = 1 - (index / Math.max(1, count - 1)) * 2;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const theta = 2.399963229728653 * index;
+    out.set(Math.cos(theta) * r * radius, y * radius, Math.sin(theta) * r * radius);
+    return out;
+};
+
+// Layered spherical placement + parent-bias clustering + spring relaxation
+const computeLayout = (nodes: LayoutNode[], edges: GraphEdge[]) => {
+    if (nodes.length === 0) return new Map<string, THREE.Vector3>();
+
+    const rand = mulberry(1337);
+    const byDepth = new Map<number, LayoutNode[]>();
+    const pos = new Map<string, THREE.Vector3>();
+    const home = new Map<string, THREE.Vector3>();
+
+    nodes.forEach(n => {
+        if (!byDepth.has(n.depth)) byDepth.set(n.depth, []);
+        byDepth.get(n.depth)!.push(n);
+        pos.set(n.id, new THREE.Vector3());
+        home.set(n.id, new THREE.Vector3());
+    });
+
+    const tmp = new THREE.Vector3();
+    byDepth.forEach((group, depth) => {
+        const radius = RING_RADIUS[Math.min(depth, RING_RADIUS.length - 1)];
+        group.forEach((n, i) => {
+            fibonacciSphere(i, group.length, radius, tmp);
+            const homePos = home.get(n.id)!;
+            const parentPos = n.parentId ? pos.get(n.parentId) : null;
+            if (parentPos) {
+                homePos.set(
+                    parentPos.x + (tmp.x - parentPos.x) * 0.55,
+                    parentPos.y + (tmp.y - parentPos.y) * 0.55,
+                    parentPos.z + (tmp.z - parentPos.z) * 0.55
+                );
+            } else {
+                homePos.copy(tmp);
+            }
+            homePos.x += (rand() - 0.5) * 1.4;
+            homePos.y += (rand() - 0.5) * 1.4;
+            homePos.z += (rand() - 0.5) * 1.4;
+            pos.get(n.id)!.copy(homePos);
+        });
+    });
+
+    const iterations = nodes.length > 220 ? 90 : 140;
+    const d = new THREE.Vector3();
+    for (let iter = 0; iter < iterations; iter++) {
+        const arr = nodes.map(n => pos.get(n.id)!);
+        for (let i = 0; i < arr.length; i++) {
+            for (let j = i + 1; j < arr.length; j++) {
+                d.subVectors(arr[j], arr[i]);
+                const dist = d.length() || 0.1;
+                const f = Math.min(6.5 / (dist * dist), 3.2);
+                const fx = (d.x / dist) * f, fy = (d.y / dist) * f, fz = (d.z / dist) * f;
+                arr[i].x -= fx; arr[i].y -= fy; arr[i].z -= fz;
+                arr[j].x += fx; arr[j].y += fy; arr[j].z += fz;
+            }
+        }
+        for (const e of edges) {
+            const a = pos.get(e.from), b = pos.get(e.to);
+            if (!a || !b) continue;
+            d.subVectors(b, a);
+            const dist = d.length() || 0.1;
+            const parentDepth = nodes.find(n => n.id === e.from)?.depth ?? 1;
+            const rest = 3.2 + parentDepth * 2.2;
+            const f = (dist - rest) * 0.06;
+            const fx = (d.x / dist) * f, fy = (d.y / dist) * f, fz = (d.z / dist) * f;
+            a.x += fx; a.y += fy; a.z += fz;
+            b.x -= fx; b.y -= fy; b.z -= fz;
+        }
+        for (const n of nodes) {
+            const p = pos.get(n.id)!;
+            d.subVectors(home.get(n.id)!, p).multiplyScalar(0.012);
+            p.add(d);
+            p.multiplyScalar(0.9985);
+        }
+    }
+
+    let maxR = 1;
+    nodes.forEach(n => { maxR = Math.max(maxR, pos.get(n.id)!.length()); });
+    const scale = 24 / maxR;
+    nodes.forEach(n => pos.get(n.id)!.multiplyScalar(scale));
+    return pos;
+};
+
+const GEOM_CACHE = new Map<number, THREE.SphereGeometry>();
+
+const makeDustTexture = () => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const ctx = c.getContext('2d')!;
+    const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.4, 'rgba(200,200,210,0.7)');
+    g.addColorStop(1, 'rgba(150,150,160,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, 64, 64);
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
+};
+
+interface GraphNodeMeshProps {
+    node: LayoutNode;
+    position: THREE.Vector3;
+    geometry: THREE.SphereGeometry;
+    hovered: boolean;
+    selected: boolean;
+    onPointerOver: (e: ThreeEvent<PointerEvent>) => void;
+    onPointerOut: () => void;
+    onClick: (e: ThreeEvent<MouseEvent>) => void;
+}
+
+const GraphNodeMesh: React.FC<GraphNodeMeshProps> = ({ node, position, geometry, hovered, selected, onPointerOver, onPointerOut, onClick }) => {
+    const ref = useRef<THREE.Mesh>(null);
+    const matRef = useRef<THREE.MeshStandardMaterial>(null);
+    const targetScale = useMemo(() => new THREE.Vector3(1, 1, 1), []);
+
+    useFrame((state) => {
+        const mesh = ref.current;
+        if (!mesh) return;
+        const breath = 1 + Math.sin(state.clock.elapsedTime * 2 + node.id.length * 0.7) * 0.05;
+        const s = (hovered ? 1.7 : selected ? 1.85 : 1) * breath;
+        targetScale.set(s, s, s);
+        mesh.scale.lerp(targetScale, 0.14);
+        if (matRef.current) {
+            matRef.current.emissiveIntensity = selected
+                ? 1.7 + Math.sin(state.clock.elapsedTime * 4) * 0.4
+                : hovered ? 1.15
+                    : (node.type === 'app' || node.type === 'page') ? 0.85 : 0.5;
+        }
+    });
+
+    return (
+        <mesh
+            ref={ref}
+            position={position}
+            geometry={geometry}
+            onPointerOver={onPointerOver}
+            onPointerOut={onPointerOut}
+            onClick={onClick}
+        >
+            <meshStandardMaterial ref={matRef} color={node.accent} emissive={node.accent} emissiveIntensity={0.5}
+                roughness={0.35} metalness={0.2} />
+        </mesh>
+    );
+};
+
+const GraphEdgeLine: React.FC<{ from: THREE.Vector3; to: THREE.Vector3; highlighted: boolean }> = ({ from, to, highlighted }) => (
+    <Line
+        points={[from, to]}
+        color={highlighted ? '#22d3ee' : '#3f3f46'}
+        lineWidth={highlighted ? 2 : 1}
+        transparent
+        opacity={highlighted ? 0.95 : 0.3}
+    />
+);
+
+const FileDust: React.FC<{ positions: Float32Array }> = ({ positions }) => {
+    const ref = useRef<THREE.Points>(null);
+    const tex = useMemo(makeDustTexture, []);
+    useFrame((_, dt) => {
+        if (ref.current) ref.current.rotation.y += dt * 0.025;
+    });
+    return (
+        <points ref={ref} frustumCulled={false}>
+            <bufferGeometry>
+                <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+            </bufferGeometry>
+            <pointsMaterial size={0.55} map={tex} color="#8b8b96" transparent opacity={0.6}
+                depthWrite={false} blending={THREE.AdditiveBlending} sizeAttenuation />
+        </points>
+    );
+};
+
+const NodeLabel: React.FC<{ node: LayoutNode; position: THREE.Vector3 }> = ({ node, position }) => (
+    <Html position={[position.x, position.y + node.size + 1.1, position.z]} center
+        zIndexRange={[30, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="whitespace-nowrap text-[11px] font-medium tracking-wide"
+            style={{ color: node.accent, textShadow: '0 0 12px rgba(0,0,0,0.95), 0 1px 3px rgba(0,0,0,0.85)' }}>
+            {node.label}
+        </div>
+    </Html>
+);
+
+const NodeTooltip: React.FC<{ node: LayoutNode; position: THREE.Vector3 }> = ({ node, position }) => (
+    <Html position={[position.x, position.y + node.size + 2.6, position.z]} center
+        zIndexRange={[40, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="bg-zinc-900/95 border border-zinc-700 rounded-lg px-3 py-2 max-w-56 shadow-2xl">
+            <div className="text-xs font-semibold" style={{ color: node.accent }}>{node.label}</div>
+            <div className="text-[10px] text-zinc-400 capitalize mt-0.5">{node.type}</div>
+            {node.description && (
+                <div className="text-[10px] text-zinc-400 mt-1 leading-snug line-clamp-2">{node.description}</div>
+            )}
+        </div>
+    </Html>
+);
+
+interface FocusRigProps {
+    focusPos: THREE.Vector3 | null;
+    resetSignal: number;
+}
+
+const FocusRig: React.FC<FocusRigProps> = ({ focusPos, resetSignal }) => {
+    const camera = useThree(s => s.camera);
+    const controls = useThree(s => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+    const desired = useMemo(() => new THREE.Vector3(0, 6, 34), []);
+    const desiredTarget = useMemo(() => new THREE.Vector3(0, 0, 0), []);
+    const active = useRef(false);
+
+    useEffect(() => {
+        if (resetSignal > 0) {
+            active.current = true;
+            desired.set(0, 6, 34);
+            desiredTarget.set(0, 0, 0);
+        }
+    }, [resetSignal]);
+
+    useEffect(() => {
+        if (focusPos) {
+            active.current = true;
+            desiredTarget.copy(focusPos);
+            const dist = Math.max(9, camera.position.distanceTo(focusPos) * 0.55);
+            desired.copy(focusPos).add(new THREE.Vector3(0, dist * 0.35, dist));
+        }
+    }, [focusPos]);
+
+    useFrame((_, dt) => {
+        if (!active.current) return;
+        const k = 1 - Math.exp(-3.2 * dt);
+        camera.position.lerp(desired, k);
+        if (controls) {
+            controls.target.lerp(desiredTarget, k);
+            controls.update();
+        }
+    });
+
+    return null;
+};
+
+interface ArchGraph3DProps {
+    nodes: LayoutNode[];
+    edges: GraphEdge[];
+    adjacency: Map<string, Set<string>>;
+    selectedId: string | null;
+    focusId: string | null;
+    resetSignal: number;
+    onSelect: (id: string | null) => void;
+}
+
+const ArchGraph3D: React.FC<ArchGraph3DProps> = ({ nodes, edges, adjacency, selectedId, focusId, resetSignal, onSelect }) => {
+    const [hoveredId, setHoveredId] = useState<string | null>(null);
+    const [autoRotate, setAutoRotate] = useState(true);
+    const endTimer = useRef<number | null>(null);
+
+    const positions = useMemo(() => computeLayout(nodes, edges), [nodes, edges]);
+
+    const geometryCache = useMemo(() => {
+        const cache = new Map<number, THREE.SphereGeometry>();
+        nodes.forEach(n => {
+            if (!cache.has(n.size)) cache.set(n.size, new THREE.SphereGeometry(n.size * 0.5, 24, 24));
+        });
+        return cache;
+    }, [nodes]);
+
+    const fileNodes = useMemo(() => nodes.filter(n => n.type === 'file'), [nodes]);
+    const filePositions = useMemo(() => {
+        const arr = new Float32Array(fileNodes.length * 3);
+        fileNodes.forEach((n, i) => {
+            const p = positions.get(n.id)!;
+            arr[i * 3] = p.x; arr[i * 3 + 1] = p.y; arr[i * 3 + 2] = p.z;
+        });
+        return arr;
+    }, [fileNodes, positions]);
+
+    const nodeById = useMemo(() => new Map(nodes.map(n => [n.id, n])), [nodes]);
+    const focusPos = focusId ? positions.get(focusId) ?? null : null;
+    const hoveredNode = hoveredId ? nodeById.get(hoveredId) : null;
+
+    const activeSet = useMemo(() => {
+        const set = new Set<string>();
+        const id = hoveredId || selectedId;
+        if (id) {
+            set.add(id);
+            adjacency.get(id)?.forEach(n => set.add(n));
+        }
+        return set;
+    }, [hoveredId, selectedId, adjacency]);
+
+    const handleStart = () => {
+        setAutoRotate(false);
+        if (endTimer.current) window.clearTimeout(endTimer.current);
+    };
+    const handleEnd = () => {
+        if (endTimer.current) window.clearTimeout(endTimer.current);
+        endTimer.current = window.setTimeout(() => setAutoRotate(true), 4000);
+    };
+
+    const visibleNodes = useMemo(() => nodes.filter(n => n.type !== 'file'), [nodes]);
+    const labelNodes = useMemo(() => nodes.filter(n => n.type === 'app' || n.type === 'page'), [nodes]);
+
+    return (
+        <Canvas
+            dpr={[1, 1.75]}
+            camera={{ position: [0, 6, 34], fov: 45 }}
+            gl={{ antialias: true, alpha: true }}
+            onPointerMissed={() => onSelect(null)}
+        >
+            <ambientLight intensity={0.5} />
+            <pointLight position={[20, 30, 20]} intensity={40} color="#22d3ee" />
+            <pointLight position={[-25, -10, -20]} intensity={25} color="#8b5cf6" />
+            <Stars radius={110} depth={40} count={2600} factor={3.2} saturation={0} fade speed={0.5} />
+
+            {visibleNodes.map(n => (
+                <GraphNodeMesh
+                    key={n.id}
+                    node={n}
+                    position={positions.get(n.id)!}
+                    geometry={geometryCache.get(n.size)!}
+                    hovered={hoveredId === n.id}
+                    selected={selectedId === n.id}
+                    onPointerOver={(e) => { e.stopPropagation(); setHoveredId(n.id); document.body.style.cursor = 'pointer'; }}
+                    onPointerOut={() => { setHoveredId(prev => prev === n.id ? null : prev); document.body.style.cursor = ''; }}
+                    onClick={(e) => { e.stopPropagation(); onSelect(n.id); }}
+                />
+            ))}
+
+            {fileNodes.length > 0 && <FileDust positions={filePositions} />}
+
+            {edges.map((e, i) => {
+                const from = positions.get(e.from);
+                const to = positions.get(e.to);
+                if (!from || !to) return null;
+                return (
+                    <GraphEdgeLine
+                        key={i}
+                        from={from}
+                        to={to}
+                        highlighted={activeSet.has(e.from) || activeSet.has(e.to)}
+                    />
+                );
+            })}
+
+            {labelNodes.map(n => <NodeLabel key={n.id} node={n} position={positions.get(n.id)!} />)}
+            {hoveredNode && <NodeTooltip node={hoveredNode} position={positions.get(hoveredNode.id)!} />}
+
+            <FocusRig focusPos={focusPos} resetSignal={resetSignal} />
+            <OrbitControls
+                makeDefault
+                enableDamping
+                dampingFactor={0.08}
+                autoRotate={autoRotate && !focusId}
+                autoRotateSpeed={0.7}
+                minDistance={6}
+                maxDistance={95}
+                maxPolarAngle={Math.PI * 0.92}
+                onStart={handleStart}
+                onEnd={handleEnd}
+            />
+
+            <EffectComposer multisampling={0}>
+                <Bloom luminanceThreshold={0.25} luminanceSmoothing={0.9} intensity={1.05} mipmapBlur />
+            </EffectComposer>
+        </Canvas>
+    );
+};
+
+// Main Component
+const CodeArchitectureMap: React.FC = () => {
+    const [expanded, setExpanded] = useState<Set<string>>(new Set(['app']));
+    const [selected, setSelected] = useState<string | null>(null);
+    const [selectedNode, setSelectedNode] = useState<ArchNode | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterType, setFilterType] = useState<ArchNode['type'] | 'all'>('all');
+    const [focusId, setFocusId] = useState<string | null>(null);
+    const [resetSignal, setResetSignal] = useState(0);
+    const allNodesFlat = useMemo(() => flattenNodes(ARCHITECTURE_DATA), []);
+
+    const handleToggle = (id: string) => {
+        setExpanded(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    const handleSelect = (node: ArchNode) => {
+        setSelected(node.id);
+        setSelectedNode(node);
+        setFocusId(node.id);
+    };
+
+    const handleCloseDetail = () => {
+        setSelectedNode(null);
+        setSelected(null);
+        setFocusId(null);
+    };
+
+    const handleGraphSelect = (id: string | null) => {
+        if (!id) {
+            handleCloseDetail();
+            return;
+        }
+        const archNode = allNodesFlat.find(n => n.id === id);
+        if (archNode) handleSelect(archNode);
+    };
+
+    const graphData = useMemo(() => buildGraph(filterType), [filterType]);
+
+    const filteredTreeData = useMemo(() => {
+        if (filterType === 'all') return ARCHITECTURE_DATA;
+
+        const filterNode = (node: ArchNode): ArchNode | null => {
+            if (node.type === filterType || node.type === 'page') {
+                return {
+                    ...node,
+                    children: node.children
+                        .map(filterNode)
+                        .filter((n): n is ArchNode => n !== null)
+                };
+            }
+            return null;
+        };
+
+        return filterNode(ARCHITECTURE_DATA) || ARCHITECTURE_DATA;
+    }, [filterType]);
+
+    const totalStats = useMemo(() => {
+        const allNodes = flattenNodes(ARCHITECTURE_DATA);
+        return {
+            pages: allNodes.filter(n => n.type === 'page').length,
+            features: allNodes.filter(n => n.type === 'feature').length,
+            components: allNodes.filter(n => n.type === 'component').length,
+            files: allNodes.filter(n => n.type === 'file').length
+        };
+    }, []);
+
+    return (
+        <div className="flex h-full bg-zinc-950">
+            {/* Left Panel: Tree View */}
+            <div className="w-80 border-r border-zinc-800 flex flex-col bg-zinc-900">
+                {/* Header */}
+                <div className="p-4 border-b border-zinc-800">
+                    <h2 className="text-lg font-semibold text-zinc-100 mb-3">Architecture Map</h2>
+
+                    {/* Search */}
+                    <div className="relative mb-3">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                        <input
+                            type="text"
+                            placeholder="Search features, components..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-10 pr-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/50"
+                        />
+                    </div>
+
+                    {/* Filter */}
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setFilterType('all')}
+                            className={`px-3 py-1 rounded text-xs transition-colors ${filterType === 'all'
+                                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/50'
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+                                }`}
+                        >
+                            All
+                        </button>
+                        <button
+                            onClick={() => setFilterType('page')}
+                            className={`px-3 py-1 rounded text-xs transition-colors ${filterType === 'page'
+                                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/50'
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+                                }`}
+                        >
+                            Pages
+                        </button>
+                        <button
+                            onClick={() => setFilterType('feature')}
+                            className={`px-3 py-1 rounded text-xs transition-colors ${filterType === 'feature'
+                                    ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50'
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+                                }`}
+                        >
+                            Features
+                        </button>
+                        <button
+                            onClick={() => setFilterType('component')}
+                            className={`px-3 py-1 rounded text-xs transition-colors ${filterType === 'component'
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50'
+                                    : 'bg-zinc-800 text-zinc-400 border border-zinc-700 hover:bg-zinc-700'
+                                }`}
+                        >
+                            Components
+                        </button>
+                    </div>
+                </div>
+
+                {/* Stats */}
+                <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-900/50">
+                    <div className="grid grid-cols-4 gap-2">
+                        <div className="text-center">
+                            <div className="text-lg font-bold text-purple-400">{totalStats.pages}</div>
+                            <div className="text-xs text-zinc-500">Pages</div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-lg font-bold text-blue-400">{totalStats.features}</div>
+                            <div className="text-xs text-zinc-500">Features</div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-lg font-bold text-emerald-400">{totalStats.components}</div>
+                            <div className="text-xs text-zinc-500">Components</div>
+                        </div>
+                        <div className="text-center">
+                            <div className="text-lg font-bold text-zinc-400">{totalStats.files}</div>
+                            <div className="text-xs text-zinc-500">Files</div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Tree */}
+                <div className="flex-1 overflow-y-auto p-2">
+                    <TreeNode
+                        node={filteredTreeData}
+                        level={0}
+                        expanded={expanded}
+                        onToggle={handleToggle}
+                        onSelect={handleSelect}
+                        selected={selected}
+                        searchTerm={searchTerm}
+                    />
+                </div>
+            </div>
+
+            {/* Right Panel: 3D Neural Graph View */}
+            <div className="flex-1 relative bg-zinc-950">
+                <ArchGraph3D
+                    nodes={graphData.nodes}
+                    edges={graphData.edges}
+                    adjacency={graphData.adjacency}
+                    selectedId={selected}
+                    focusId={focusId}
+                    resetSignal={resetSignal}
+                    onSelect={handleGraphSelect}
+                />
+
+                {/* Hint */}
+                <div className="absolute top-4 left-4 bg-zinc-900/80 border border-zinc-800 rounded-lg px-3 py-2 text-[11px] text-zinc-400 pointer-events-none backdrop-blur-sm">
+                    Drag to orbit · Scroll to zoom · Click a node for details
+                </div>
+
+                {/* Detail Panel */}
+                <DetailPanel node={selectedNode} onClose={handleCloseDetail} />
+
+                {/* Reset View */}
+                <button
+                    onClick={() => { setFocusId(null); setResetSignal(s => s + 1); }}
+                    className="absolute bottom-4 right-4 px-3 py-1.5 rounded-lg text-xs text-zinc-300 bg-zinc-900/80 border border-zinc-700 hover:border-cyan-400/50 hover:text-cyan-300 transition-colors"
+                >
+                    Reset View
+                </button>
+
+                {/* Legend */}
+                <div className="absolute bottom-4 left-4 bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+                    <div className="text-xs text-zinc-500 mb-2">Legend</div>
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#06b6d4' }} />
+                            <span className="text-xs text-zinc-400">App</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#8b5cf6' }} />
+                            <span className="text-xs text-zinc-400">Page</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#3b82f6' }} />
+                            <span className="text-xs text-zinc-400">Feature</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#10b981' }} />
+                            <span className="text-xs text-zinc-400">Component</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: '#6b7280', opacity: 0.6 }} />
+                            <span className="text-xs text-zinc-400">File (particles)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export { CodeArchitectureMap };

@@ -11,6 +11,7 @@ import {
 } from "lucide-react"
 import { cn } from "./lib/cn"
 import { MOTION, TEXT, SURFACE, RING } from "./tokens"
+import { AISessionMessages } from "./AISessionMessages"
 
 interface AISession {
   id: string
@@ -222,6 +223,7 @@ export function AISessionHistory({ activeToolIds, selectedTool }: AISessionHisto
                     color={meta.color}
                     index={sIdx}
                     reduce={reduce}
+                    tool={activeTool}
                   />
                 ))}
               </AnimatePresence>
@@ -265,12 +267,15 @@ function SessionRow({
   color,
   index,
   reduce,
+  tool,
 }: {
   session: AISession
   color: string
   index: number
   reduce: boolean
+  tool: string
 }) {
+  const [expanded, setExpanded] = useState(false)
   const totalTokens = session.input_tokens + session.output_tokens
 
   return (
@@ -282,11 +287,24 @@ function SessionRow({
         ease: MOTION.ease,
         delay: index * 0.03,
       }}
-      className={cn(
-        "flex items-center gap-3 px-5 py-2.5 transition-colors duration-150 group",
-        "hover:bg-zinc-800/20"
-      )}
     >
+      <div
+        className={cn(
+          "flex items-center gap-3 px-5 py-2.5 transition-colors duration-150 group cursor-pointer",
+          "hover:bg-zinc-800/20",
+          expanded && "bg-zinc-800/10"
+        )}
+        onClick={() => setExpanded(!expanded)}
+      >
+        {/* Expand icon */}
+        <div className="w-4 flex-shrink-0">
+          <ChevronDown
+            className={cn(
+              "w-3 h-3 text-zinc-600 transition-transform duration-150",
+              expanded && "rotate-180"
+            )}
+          />
+        </div>
       {/* Time */}
       <div className="flex items-center gap-1.5 min-w-[64px]">
         <Clock className="w-3 h-3 text-zinc-700 shrink-0" />
@@ -341,6 +359,10 @@ function SessionRow({
             {formatCost(session.cost_usd)}
           </span>
         </div>
+      )}
+      </div>
+      {expanded && (
+        <AISessionMessages sessionId={session.id} tool={tool} color={color} />
       )}
     </motion.div>
   )

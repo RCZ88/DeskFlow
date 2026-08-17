@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 
 import { WarmCard } from '../../features/warmth/WarmCard'
 import { MemoryCard } from '../../features/memories/MemoryCard'
@@ -22,7 +22,8 @@ import {
   type LifePhaseConnection,
 } from '@/lib/riverMath'
 import { cn } from '@/lib/utils'
-import { Pencil, Plus, Sparkles, Quote } from 'lucide-react'
+import { Pencil, Plus, Sparkles, Quote, ChevronDown, ChevronUp } from 'lucide-react'
+import { PhaseContextExpanded } from './PhaseContextExpanded'
 
 import { PhaseFormDialog } from './phase-form-dialog'
 import { ReflectionFlow, type AiReflectResult } from './reflection-flow'
@@ -104,6 +105,16 @@ interface PhaseCardProps {
   onAddGoal?: () => void
   onAddCovenant?: () => void
   onEditPhase?: () => void
+  expanded?: boolean
+  expandedMode?: 'system' | 'manual'
+  onToggleExpand?: () => void
+  onModeChange?: (mode: 'system' | 'manual') => void
+  onAttachMemory?: (ids: string[]) => void
+  onAttachGoal?: (ids: string[]) => void
+  onCovenantSaved?: () => void
+  onDetachMemory?: (id: string) => void
+  onDetachGoal?: (id: string) => void
+  onOpenPage?: (page: string) => void
 }
 
 export function PhaseCard({
@@ -124,6 +135,16 @@ export function PhaseCard({
   onAddGoal,
   onAddCovenant,
   onEditPhase,
+  expanded = false,
+  expandedMode = 'system',
+  onToggleExpand,
+  onModeChange,
+  onAttachMemory,
+  onAttachGoal,
+  onCovenantSaved,
+  onDetachMemory,
+  onDetachGoal,
+  onOpenPage,
 }: PhaseCardProps) {
   const [editing, setEditing] = useState(false)
   const [reflecting, setReflecting] = useState(false)
@@ -612,6 +633,42 @@ export function PhaseCard({
           </button>
         </div>
       </WarmCard>
+
+      {/* Expanded Context Section */}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <PhaseContextExpanded
+            key={`ctx-${phase.id}`}
+            phase={phase}
+            expandedMode={expandedMode}
+            onModeChange={onModeChange || (() => {})}
+            memories={memories}
+            longTermGoals={longTermGoals}
+            covenant={covenant}
+            onAddMemory={onAddMemory}
+            onAddGoal={onAddGoal}
+            onAddCovenant={onAddCovenant}
+            onEditPhase={onEditPhase}
+            onAttachMemory={onAttachMemory}
+            onAttachGoal={onAttachGoal}
+            onCovenantSaved={onCovenantSaved}
+            onDetachMemory={onDetachMemory}
+            onDetachGoal={onDetachGoal}
+            onOpenPage={onOpenPage}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Expand/Collapse Toggle */}
+      {onToggleExpand && (
+        <button
+          onClick={onToggleExpand}
+          className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors border-t border-zinc-800/50"
+        >
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          {expanded ? 'Collapse' : 'Context'}
+        </button>
+      )}
 
       <PhaseFormDialog
         open={editing}

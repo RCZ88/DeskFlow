@@ -48,6 +48,7 @@ import { WeeklyTimeline } from '@/components/external/WeeklyTimeline';
 import { MonthlyTimeline } from '@/components/external/MonthlyTimeline';
 import { GapFillModal } from '@/components/external/GapFillModal';
 import { GapsListModal } from '@/components/external/GapsListModal';
+import { ManualAssignModal } from '@/components/external/ManualAssignModal';
 import { ActivitySelectionOverlay } from '@/components/external/ActivitySelectionOverlay';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
@@ -309,6 +310,10 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [gapTarget, setGapTarget] = useState<{ id: string; start: Date; end: Date; duration_seconds: number } | null>(null);
   const [gapTargets, setGapTargets] = useState<Gap[]>([]);
   const [showGapsList, setShowGapsList] = useState(false);
+  const [showManualAssign, setShowManualAssign] = useState(false);
+  const [manualAssignGap, setManualAssignGap] = useState<{ start: Date; end: Date } | null>(null);
+  const [manualAssignDate, setManualAssignDate] = useState<Date | null>(null);
+  const [manualVersion, setManualVersion] = useState(0);
   const [viewDate, setViewDate] = useState<Date | null>(null);
 
   // Load existing sleep data when date changes in the modal
@@ -321,6 +326,15 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
           setPastSleepSessionId(existing.id);
           setPastOriginalStartedAt(existing.started_at);
           const startD = new Date(existing.started_at);
+          // Resync the search box to the date the sleep BELONGS to: bedtime past
+          // midnight (before 12:00) belongs to the PREVIOUS day's sleep (e.g.,
+          // 3:03 AM on Aug 12 = Aug 11's sleep). Keeps the belonging date visible
+          // and guarantees saving never shifts the actual stored dates.
+          if (startD.getHours() < 12) {
+            const groupD = new Date(startD);
+            groupD.setDate(groupD.getDate() - 1);
+            setPastSleepDate(localDateStr(groupD));
+          }
           const endD = new Date(existing.ended_at);
           setPastDeviceOff({ hours: startD.getHours(), minutes: startD.getMinutes() });
           // fell asleep = device off + pre-sleep latency
@@ -848,7 +862,7 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
     return () => {
       cancelled = true;
     };
-  }, [selectedPeriod, dateOffset]);
+  }, [selectedPeriod, dateOffset, manualVersion]);
 
   // Timeline data via new modules
   const dailyData = useMemo(() => {
@@ -2869,6 +2883,16 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               {/* Sleep period banner — shown when existing data loaded */}
               {pastWakeupDate && pastSleepSessionId && (
                 <div className="bg-zinc-800/50 rounded-xl px-4 py-3 mb-4">
+                  <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-amber-400 mb-3">
+                    {(() => {
+                      // The date this sleep BELONGS to: bedtime past midnight (before 12:00)
+                      // belongs to the PREVIOUS day's sleep (3:03 AM Aug 12 = Aug 11's sleep).
+                      const raw = pastOriginalStartedAt ? new Date(pastOriginalStartedAt) : null;
+                      const d = raw ? new Date(raw) : new Date(pastSleepDate + 'T00:00:00');
+                      if (raw && raw.getHours() < 12) d.setDate(d.getDate() - 1);
+                      return `Sleep of ${d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
+                    })()}
+                  </div>
                   <div className="flex items-center justify-center gap-3 text-sm">
                     <div className="text-center">
                       <div className="text-[10px] text-zinc-500 uppercase tracking-wider">🛏️ Bedtime</div>
@@ -3056,11 +3080,16 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                       setPastSleepError(null);
                       setPastSleepSuccess(false);
 
-                      const selectedSleepDay = new Date(pastSleepDate + 'T00:00:00');
+const selectedSleepDay = new Date(pastSleepDate + 'T00:00:00');
+                      // pastSleepDate = the evening the sleep BELONGS to. Bedtime past
+                      // midnight (before 12:00) belongs to this evening, so the raw
+                      // timestamp lands on the NEXT calendar day (e.g., Aug 11's sleep
+                      // at 3:03 AM = raw Aug 12 03:03). The next-day date applies to the
+                      // sleep/wake-up labels only, never to the belonging date.
                       const buildTimestampForSleepDay = (time: { hours: number; minutes: number }) => {
                         const d = new Date(selectedSleepDay);
                         d.setHours(time.hours, time.minutes, 0, 0);
-                        if (time.hours < 6) d.setDate(d.getDate() + 1);
+                        if (time.hours < 12) d.setDate(d.getDate() + 1);
                         return d;
                       };
 
@@ -3157,6 +3186,23 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
             setGapTargets(gaps);
             setShowGapsList(false);
           }}
+          onAssignTime={(gap) => {
+            setManualAssignDate(gap.start);
+            setManualAssignGap({ start: gap.start, end: gap.end });
+            setShowGapsList(false);
+            setShowManualAssign(true);
+          }}
+        />
+        {/* Manual Time Assignment */}
+        <ManualAssignModal
+          open={showManualAssign}
+          initialDate={manualAssignDate ?? undefined}
+          initialGap={manualAssignGap}
+          onClose={() => {
+            setShowManualAssign(false);
+            setManualAssignGap(null);
+          }}
+          onChanged={() => setManualVersion((v) => v + 1)}
         />
         {/* Gap Fill Modal */}
         <GapFillModal

@@ -1,6 +1,8 @@
-# Skill Router — Universal Skill Dispatcher v1.0.0
+# Skill Router — Universal Skill Dispatcher v1.1.0
 
 > **PURPOSE:** This is the master routing table for ALL skills in `agent/skills/`. It maps every task/scenario to the correct skill(s), enforces load order, and ensures no skill is forgotten. Load this skill FIRST whenever you begin a task.
+>
+> **LIVING DOCUMENT:** this Router is itself a skill that must stay synced with `agent/skills/` — see §7 Self-Maintenance. The user demands it is continuously updated whenever new skills exist. A stale Router is a failure.
 
 ## 1. How to use this skill
 
@@ -10,6 +12,7 @@
 4. Load skills listed under "RECOMMENDED" if the task scope warrants it.
 5. Respect the activation conditions and load ordering rules (§4).
 6. Never skip a MANDATORY skill because you think it doesn't apply — if in doubt, load it.
+7. If you know of a skill on disk that this Router does NOT list (glob `agent/skills/*/SKILL.md`), update the Router (§7) BEFORE loading it — never work around a stale Router.
 
 ## 2. Decision Tree — what category is this task?
 
@@ -91,13 +94,17 @@ User task enters
 | MANDATORY | `frontend-external-infra` | Never design from zero — pull from MCP component libraries first. Check Source Routing table. |
 | MANDATORY | `humancentred-UIUX` | Mandated by AGENTS.md §5b. Every UI must cover all 4 states (empty/loading/error/populated). |
 | MANDATORY | `frontend-design` | DeskFlow design system — colors, spacing, typography, page patterns, component patterns |
+| MANDATORY | `signature-design` | Page-level redesign / hero work: ONE concept-true centerpiece per screen ("more than one hero = no hero"), fit rubric, restraint guardrails |
 | RECOMMENDED | `design-taste` + `taste-skill` | When the user wants to set design direction, variance, or aesthetic |
 | RECOMMENDED | `impeccable` | When doing detailed styling, CSS, typography, color work |
 | RECOMMENDED | `motion-alive` | When the UI needs micro-interactions, transitions, animations — pick a Liveliness Level first |
 | RECOMMENDED | `ui-ux-pro-max` | When choosing industry-specific styles or color palettes |
 | RECOMMENDED | `google-stitch` | When the user mentions "mockup", "Stitch", "vibe design", "DESIGN.md" |
+| RECOMMENDED | `font-selection` | When choosing/verifying fonts — never invent a font; pick from the installed families |
+| RECOMMENDED | `beautiful-charts` | When the work includes charts, graphs, data visualization, or chart styling |
+| RECOMMENDED | `layout-deck-fix` | When touching the AI-deck layout (deck.css / `--dk-*` tokens / deck pages) |
 
-**Load order:** frontend-external-infra → frontend-design → humancentred-UIUX → [impeccable → motion-alive → taste-skill depending on scope]
+**Load order:** frontend-external-infra → frontend-design → signature-design → humancentred-UIUX → [impeccable → motion-alive → taste-skill → beautiful-charts depending on scope]
 
 **If this is a page-level redesign** that also changes how data flows, also load `max-security` to review backend changes.
 
@@ -138,9 +145,10 @@ User task enters
 |----------|-------|-----|
 | MANDATORY | `deep-research` | Structured 5-phase research workflow with DSL inputs and report template |
 | RECOMMENDED | `deep-research-prompt` | If you need to delegate research to an external CLI agent (Qwen) |
+| RECOMMENDED | `research-digest-overhaul` | If the research targets an EXISTING system/surface that needs an overhaul (digest pipeline, capture, UI) |
 | RECOMMENDED | `maintain-context` | If research findings should be persisted to vault or graphify |
 
-**Load order:** deep-research → deep-research-prompt (if delegating)
+**Load order:** deep-research → deep-research-prompt (if delegating) → research-digest-overhaul (if overhauling an existing system)
 
 ---
 
@@ -150,10 +158,10 @@ User task enters
 
 | Priority | Skill | Why |
 |----------|-------|-----|
-| MANDATORY | `probe-mcp-testing` (reference) | Read PROBE_MCP_REVIEW.md to understand Probe MCP capabilities and gaps |
+| MANDATORY | Probe MCP (MCP server, not a skill) | Assertion-first runtime testing: `probe_open` (attach to the running app — NEVER launch manually) → `assert_*`/`wait_for`/`snapshot`/`read_console`. If no debug port, report NOT LAUNCHED. |
 | RECOMMENDED | `recursive-playwright` | If you need an autonomous test-and-fix loop (test → fail → fix → retest) |
 
-**Load order:** probe-mcp-testing → recursive-playwright (if loop needed)
+**Load order:** Probe MCP wiring → recursive-playwright (if loop needed)
 
 **Important:** An IPC probe is NOT proof the UI works. Test the real UI layer. Read `[TERMINAL_DEBUG]` / `[FIT-DBG]` / `[RESUME-DBG]` logs in renderer + main console.
 
@@ -168,8 +176,9 @@ User task enters
 | MANDATORY | `generate-prompt` | High-fidelity prompt generation — copy user words verbatim, create CONTEXT_BUNDLE.md, apply RESULT.md rules |
 | MANDATORY | `humancentred-UIUX` | The resulting UI (if any) must be human-comprehensible |
 | RECOMMENDED | `generate-problem` | If generating a problem report for external AI (bug report format) |
+| RECOMMENDED | `backandfourth-skill` | If the task is BACK-AND-FORTH collaboration with an external AI (INITIAL_PROMPT/CONTEXT_BUNDLE/CONTEXT_GAPS/CONVERSATION_PROTOCOL, rounds in `conversation/`) |
 
-**Load order:** generate-prompt (+ generate-problem if applicable) → humancentred-UIUX
+**Load order:** generate-prompt (+ generate-problem if applicable) → backandfourth-skill (if back-and-forth collaboration) → humancentred-UIUX
 
 ---
 
@@ -179,7 +188,7 @@ User task enters
 
 | Priority | Skill | Why |
 |----------|-------|-----|
-| MANDATORY | `terminal-agent` | Complete PTY data flow reference, 5 failure modes, 5-step debug checklist, fix templates |
+| MANDATORY | AGENTS.md §7b Debugging Protocol + `agent/debugging.md` | Console logging standard (version-stamped entry logs), debug script generation, runtime verification checklist. The former `terminal-agent` skill was removed — these are its successors. |
 
 **Load order:** terminal-agent only (single-skill scenario)
 
@@ -266,8 +275,9 @@ User task enters
 | Priority | Skill | Why |
 |----------|-------|-----|
 | MANDATORY | `agent-reflect` | Signal detection, confidence levels, platform mapping, reflection logs, AGENTS.md updates |
+| RECOMMENDED | `context-handoff` | When handing off in-flight context mid-session (state continuity between session boundaries) |
 
-**Load order:** agent-reflect only (single-skill scenario)
+**Load order:** agent-reflect → context-handoff (if handing off mid-session)
 
 ---
 
@@ -315,3 +325,25 @@ User task enters
 - [ ] Is `maintain-context` queued for after code changes?
 - [ ] Is `max-security` loaded if the task touches auth/crypto/DB/IPC?
 - [ ] If multiple categories overlap, are MANDATORY skills from EACH category loaded?
+
+## 7. Self-Maintenance — the Router must never go stale
+
+User rule (explicit): the skill router skill itself must be CONTINUOUSLY UPDATED when
+there are new skills. A stale Router is the #1 cause of "why do you never use the
+skills properly" rage.
+
+1. **Same-cycle sync:** every time a NEW skill is added to `agent/skills/`, update
+   this file in the SAME cycle — Decision Tree category, scenario table, load order.
+2. **Stale-detection:** if you know a skill exists on disk (glob
+   `agent/skills/*/SKILL.md`) that this Router does not mention, update the Router
+   IMMEDIATELY, then load it. Never work around a stale Router.
+3. **Dead-reference check:** never keep a MANDATORY row pointing at a skill that was
+   deleted — repoint it at the replacement (docs section, protocol, or MCP server).
+4. Bump the version in the title on every sync.
+
+**Sync checklist (run whenever you touch `agent/skills/`):**
+- [ ] `glob agent/skills/*/SKILL.md` and diff against every skill name mentioned in §3
+- [ ] Add missing skills with a one-line "Why" and correct priority (MANDATORY/RECOMMENDED)
+- [ ] Update the category's **Load order** line
+- [ ] Remove or repoint dead references (deleted skills, renamed skills)
+- [ ] Bump version in the title; update AGENTS.md §1c only if the flow itself changed

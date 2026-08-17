@@ -7,11 +7,12 @@ import { motion, AnimatePresence } from 'framer-motion'
 const ICONS: Record<string, React.FC<{ size?: number }>> = { Film, FileText, Eye, Scissors, Layers, Play, Download }
 
 function getStepStatus(stepKey: string, activeStage: string, sessionStatus: string): 'complete' | 'active' | 'pending' | 'blocked' | 'error' {
-  const stageOrder = ['source', 'transcript', 'cut-plan', 'scene-plan', 'visualizer', 'export']
+  const stageOrder = ['source', 'transcript', 'visual-evidence', 'cut-plan', 'scene-plan', 'visualizer', 'export']
+  if (stepKey === activeStage) return 'active'
+  if (activeStage === 'bridge') return 'pending'
   const activeIdx = stageOrder.indexOf(activeStage)
   const stepIdx = stageOrder.indexOf(stepKey)
   if (stepIdx < activeIdx) return 'complete'
-  if (stepIdx === activeIdx) return 'active'
   if (sessionStatus.includes('error')) return 'error'
   return 'pending'
 }
@@ -29,14 +30,17 @@ export function StudioSidebar() {
           const Icon = ICONS[step.icon] || Film
           const status = activeSession ? getStepStatus(step.key, activeStage, activeSession.status) : 'blocked'
           return (
-            <button key={step.key} onClick={() => activeSession && dispatch({ type: 'SET_STAGE', stage: step.key as any })}
-              disabled={!activeSession}
+            <button key={step.key} onClick={() => {
+                if (!activeSession) { dispatch({ type: 'SET_STAGE', stage: 'dashboard' }); return }
+                if (step.key === 'visual-evidence') { dispatch({ type: 'SET_STAGE', stage: 'visual-evidence' }); return }
+                dispatch({ type: 'SET_STAGE', stage: step.key as any })
+              }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11px] font-medium transition-all duration-150 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900 active:scale-[0.98] ${
                 status === 'active' ? 'bg-[#ec4899]/10 text-[#ec4899] border border-[#ec4899]/20' :
                 status === 'complete' ? 'text-emerald-400 hover:bg-emerald-500/5' :
                 status === 'error' ? 'text-red-400 hover:bg-red-500/5' :
                 'text-zinc-500 hover:bg-zinc-800/50'
-              } disabled:opacity-40 disabled:cursor-not-allowed`}>
+              }`}>
               <Icon size={14} />
               {!ui.sidebarCollapsed && <span>{step.label}</span>}
               {!ui.sidebarCollapsed && status === 'complete' && <span className="ml-auto text-[10px]">✓</span>}

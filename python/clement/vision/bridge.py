@@ -1,121 +1,99 @@
-"""bridge.py — Manual Visual Bridge prompt generation and validation."""
+"""Manual Visual Bridge — prompt generation and validation for external VLMs."""
+from __future__ import annotations
 import json
-from typing import Optional, List, Dict
-from .contracts import VisualDigest
+from .contracts import VisualDigest, FrameManifest
 
-VISUAL_BRIDGE_PROMPT = """You are a visual analysis engine.
+
+VISUAL_DIGEST_PROMPT = """You are a visual analysis engine.
 
 Analyze the attached video frames and transcript metadata.
 
 Return only valid JSON.
-Do not include markdown.
+Do not include markdown fences.
 Do not include comments.
 
-Use this schema:
+Use this schema exactly:
 {
-  "gist": "1-2 sentence description of what is visible",
-  "summary": "detailed visual description of the video content",
-  "keywords": ["string"],
-  "topics": ["string"],
-  "entities": ["string"],
-  "setting": "string describing the environment",
-  "actions": ["string describing visible actions"],
-  "objects_visible": ["string labels of objects in frame"],
-  "text_on_screen": ["string labels of visible text"],
+  "gist": "One sentence describing what is happening visually.",
+  "summary": "Two to three sentences about visual content.",
+  "keywords": ["word1", "word2", "..."],
+  "topics": ["topic1", "topic2"],
+  "entities": ["entity1", "entity2"],
+  "setting": "Description of the visual setting.",
+  "actions": ["action1", "action2"],
+  "objects_visible": ["object1", "object2"],
+  "text_on_screen": ["text1", "text2"],
   "visual_complexity": "low | medium | high",
   "motion_level": "low | medium | high",
+  "color_palette": ["#hex1", "#hex2", "#hex3"],
   "frames": [
     {
-      "frame_id": "string matching the frame ID from the contact sheet",
+      "frame_id": "f_00000",
       "timestamp_sec": 0.0,
-      "caption": "string describing what is visible in this frame",
-      "objects": ["string labels"],
-      "text_visible": ["string labels"],
-      "composition": "string describing camera angle and framing",
-      "motion": "string describing movement or lack thereof"
+      "caption": "What is happening in this frame.",
+      "objects": ["face", "laptop"],
+      "text_visible": ["slide heading"],
+      "composition": "center, top-right, etc.",
+      "motion": "static, panning, zoom"
     }
   ]
 }
 
-RULES:
-- Every frame_id must match an ID from the provided contact sheet.
-- Do not invent frames that were not provided.
-- Set visual_complexity based on how many distinct elements are visible.
-- Set motion_level based on apparent movement between frames.
-- Be specific about object positions when possible.
-- List all readable text on screen in text_on_screen.
-"""
+Return ONLY the JSON object. Nothing else."""
+
 
 def build_visual_bridge_prompt(
     video_id: str,
-    transcript_summary: str = '',
-    frame_descriptions: Optional[List[Dict]] = None,
+    transcript: dict | None = None,
+    frame_manifest: FrameManifest | None = None,
 ) -> str:
-    """Build the Manual Visual Bridge prompt for external VLM."""
-    prompt = VISUAL_BRIDGE_PROMPT
-    if transcript_summary:
-        prompt += f'\n\nTRANSCRIPT CONTEXT:\n{transcript_summary}'
-    if frame_descriptions:
-        prompt += '\n\nFRAME METADATA:\n'
-        for fd in frame_descriptions:
-            prompt += f'  Frame {fd.get("frame_id", "?")}: timestamp={fd.get("timestamp_sec", 0)}s, reason={fd.get("reason", "unknown")}\n'
-    return prompt
+    """Build the Manual Visual Bridge prompt for external VLM analysis."""
+    parts = [VISUAL_DIGEST_PROMPT]
+    parts.append(f"\n\n================ INPUT DATA ================")
+    parts.append(f"video_id: {video_id}")
+
+    if transcript:
+        parts.append(f"\ntranscript:")
+        parts.append(json.dumps(transcript, indent=2)[:3000])
+
+    if frame_manifest:
+        parts.append(f"\nframe_manifest:")
+        parts.append(f"  frame_count: {frame_manifest.frame_count}")
+        parts.append(f"  frames:")
+        for f in frame_manifest.frames[:24]:
+            parts.append(f"    {f.frame_id}: {f.timestamp_sec}s ({f.reason})")
+
+    return "\n".join(parts)
 
 
-def validate_visual_digest_response(data: dict) -> dict:
-    """Validate a pasted visual digest response. Returns {valid, errors, digest}."""
-    errors = []
-    if not isinstance(data, dict):
-        return {'valid': False, 'errors': ['Response is not a JSON object'], 'digest': None}
+def validate_visual_digest(data: dict) -> list[dict]:
+    """Validate a visual digest response. Returns list of checks."""
+    checks = []
 
-    required_fields = ['gist', 'summary', 'keywords', 'objects_visible']
-    for field in required_fields:
-        if field not in data or not data[field]:
-            errors.append(f'Missing required field: {field}')
+    checks.append({"rule": "Valid JSON", "passed": True, "message": "Response parsed successfully"})
 
-    if 'visual_complexity' in data and data['visual_complexity'] not in ('low', 'medium', 'high'):
-        errors.append(f'Invalid visual_complexity: {data["visual_complexity"]}')
+    has_gist = isinstance(data.get("gist"), str) and len(data["gist"]) > 0
+    checks.append({"rule": "Has gist", "passed": has_gist, "message": "gist string present" if has_gist else "Missing gist"})
 
-    if 'motion_level' in data and data['motion_level'] not in ('low', 'medium', 'high'):
-        errors.append(f'Invalid motion_level: {data["motion_level"]}')
+    has_keywords = isinstance(data.get("keywords"), list) and len(data["keywords"]) > 0
+    checks.append({"rule": "Has keywords", "passed": has_keywords, "message": f"{len(data.get('keywords', []))} keywords" if has_keywords else "Missing keywords"})
 
-    if 'frames' in data and isinstance(data['frames'], list):
-        for i, frame in enumerate(data['frames']):
-            if 'frame_id' not in frame:
-                errors.append(f'Frame {i}: missing frame_id')
-            if 'caption' not in frame:
-                errors.append(f'Frame {i}: missing caption')
+    valid_complexity = data.get("visual_complexity") in ("low", "medium", "high", None)
+    checks.append({"rule": "Valid visual_complexity", "passed": valid_complexity, "message": f"'{data.get('visual_complexity')}'" if valid_complexity else "Invalid value"})
 
-    if errors:
-        return {'valid': False, 'errors': errors, 'digest': None}
+    valid_motion = data.get("motion_level") in ("low", "medium", "high", None)
+    checks.append({"rule": "Valid motion_level", "passed": valid_motion, "message": f"'{data.get('motion_level')}'" if valid_motion else "Invalid value"})
 
-    digest = VisualDigest(
-        gist=data.get('gist', ''),
-        summary=data.get('summary', ''),
-        keywords=data.get('keywords', []),
-        topics=data.get('topics', []),
-        entities=data.get('entities', []),
-        setting=data.get('setting'),
-        actions=data.get('actions', []),
-        objects_visible=data.get('objects_visible', []),
-        text_on_screen=data.get('text_on_screen', []),
-        visual_complexity=data.get('visual_complexity', 'medium'),
-        motion_level=data.get('motion_level', 'medium'),
-        color_palette=data.get('color_palette', []),
-        confidence=0.7,
-        source='manual-visual-bridge',
-    )
-    return {'valid': True, 'errors': [], 'digest': digest}
+    has_frames = isinstance(data.get("frames"), list)
+    checks.append({"rule": "Has frames array", "passed": has_frames, "message": f"{len(data.get('frames', []))} frames" if has_frames else "Missing frames array"})
+
+    return checks
 
 
-def generate_repair_prompt(errors: List[str], failed_output: str) -> str:
-    """Generate a repair prompt for failed visual digest validation."""
-    return f"""Your previous visual analysis response failed validation.
+def all_passed(checks: list[dict]) -> bool:
+    return all(c.get("passed", False) for c in checks)
 
-VALIDATION ERRORS:
-{chr(10).join(f'- {e}' for e in errors)}
 
-YOUR PREVIOUS OUTPUT:
-{failed_output[:3000]}
-
-Return the complete corrected JSON now. Follow the schema exactly. Do not include markdown or explanations."""
+def passed_count(checks: list[dict]) -> dict:
+    p = sum(1 for c in checks if c.get("passed"))
+    return {"passed": p, "total": len(checks)}

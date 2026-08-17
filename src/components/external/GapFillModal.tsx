@@ -125,6 +125,7 @@ export function GapFillModal({
   sessions,
   onClose,
   onFillGap,
+  zClass = "z-50",
 }: {
   open: boolean;
   gap: Gap | null;
@@ -133,6 +134,7 @@ export function GapFillModal({
   sessions: ExternalSession[];
   onClose: () => void;
   onFillGap: (gap: Gap, segments: GapSegment[]) => Promise<void>;
+  zClass?: string;
 }) {
   const [segments, setSegments] = useState<InternalSegment[]>([]);
   const [pickingFor, setPickingFor] = useState<string | null>(null);
@@ -360,7 +362,7 @@ export function GapFillModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          className={`fixed inset-0 ${zClass} flex items-center justify-center bg-black/70 backdrop-blur-sm p-4`}
           onClick={onClose}
         >
           <motion.div

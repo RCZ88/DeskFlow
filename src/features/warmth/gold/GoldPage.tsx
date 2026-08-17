@@ -17,7 +17,7 @@ import { NumberTicker } from '../../../components/ui/number-ticker';
 import { BorderBeam } from '../../../components/ui/border-beam';
 import { AnimatedCircularProgressBar } from '../../../components/ui/animated-circular-progress-bar';
 import { VoiceInputWrapper } from '../../../components/VoiceInputWrapper';
-import type { Goal, LongTermGoal, GoalCategory } from '../../../components/dashboard/types';
+import type { Goal, LongTermGoal, GoalCategory, Deadline, Reminder } from '../../../components/dashboard/types';
 import { loadCompletions } from '../../covenant/storage';
 import { LifeRiver } from '../../../components/life-river/river';
 
@@ -169,10 +169,6 @@ export function criteriaToGoal(c: CriteriaForm, date: string, existingId?: strin
   };
 }
 
-interface Reminder {
-  id: string; text: string; due_date: string | null;
-  goal_id: string | null; done: boolean; created_at: string;
-}
 interface RadarMark { color: string; label: string; }
 
 /* ═══════════════════ unique UI pieces ═══════════════════ */
@@ -660,74 +656,146 @@ function TheVault({ longTermGoals, todayGoals, onSave, onDelete }: {
 }
 
 /* — BellBoard: reminders as tickets with amber time-rail — */
-function BellBoard({ reminders, onCreate, onToggle, onDelete }: {
+function BellBoard({ reminders, onCreate, onToggle, onDelete, selectedDate }: {
   reminders: Reminder[];
-  onCreate: (text: string) => void;
+  onCreate: (text: string, dueDate?: string) => void;
   onToggle: (id: string, done: boolean) => void;
   onDelete: (id: string) => void;
+  selectedDate?: string;
 }) {
   const [text, setText] = useState('');
-  const add = () => { if (text.trim()) { onCreate(text.trim()); setText(''); } };
+  const [dueDate, setDueDate] = useState(selectedDate || '');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const add = () => { if (text.trim()) { onCreate(text.trim(), dueDate || undefined); setText(''); setDueDate(selectedDate || ''); setShowDatePicker(false); } };
+
+  const formatDisplayDate = (d: string) => {
+    if (!d) return '';
+    const date = new Date(d + 'T00:00:00');
+    const today = new Date(); today.setHours(0,0,0,0);
+    const diff = Math.round((date.getTime() - today.getTime()) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Tomorrow';
+    if (diff === -1) return 'Yesterday';
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   return (
     <WarmCard className="border-amber-500/20 relative overflow-hidden">
       {reminders.some(r => !r.done) && (
         <BorderBeam duration={5} size={150} colorFrom="#fbbf24" colorTo="#f59e0b" borderWidth={1.5} className="opacity-30" />
       )}
-      <div className="text-[12px] font-medium text-zinc-400 mb-2 flex items-center gap-1.5">
+      <div className="text-[12px] font-medium text-zinc-400 mb-3 flex items-center gap-1.5">
         <Bell size={13} className="text-amber-400" />
         Bell Board
+        {reminders.filter(r => !r.done).length > 0 && (
+          <span className="ml-auto text-[10px] text-amber-400/70 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+            {reminders.filter(r => !r.done).length} active
+          </span>
+        )}
       </div>
-      <div className="flex items-center gap-1.5 mb-3">
+
+      {/* Input area */}
+      <div className="space-y-2 mb-3">
         <input
           value={text}
           onChange={e => setText(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && add()}
-          placeholder="Ring a reminder…"
-          className="flex-1 bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-2.5 py-1.5 text-[12px] text-zinc-300 placeholder:text-zinc-600 outline-none focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20 transition-colors"
+          onKeyDown={e => { if (e.key === 'Enter' && !showDatePicker) { e.preventDefault(); setShowDatePicker(true); } if (e.key === 'Enter' && showDatePicker) add(); }}
+          placeholder="What to remind yourself about…"
+          className="w-full bg-zinc-900/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-[13px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-amber-500/40 focus:ring-1 focus:ring-amber-500/20 transition-colors"
         />
-        <button
-          onClick={add}
-          disabled={!text.trim()}
-          className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        >
-          <Plus size={13} />
-        </button>
+        
+        {showDatePicker && (
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 bg-zinc-900/60 border border-zinc-700/50 rounded-lg px-3 py-1.5">
+              <Calendar size={12} className="text-amber-400/70 shrink-0" />
+              <input
+                type="date"
+                value={dueDate}
+                onChange={e => setDueDate(e.target.value)}
+                className="flex-1 bg-transparent text-[12px] text-zinc-300 outline-none [&::-webkit-calendar-picker-indicator]:opacity-50"
+              />
+              {dueDate && (
+                <button onClick={() => setDueDate('')} className="text-zinc-600 hover:text-zinc-400">
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+            <span className="text-[11px] text-zinc-500 shrink-0">
+              {dueDate ? formatDisplayDate(dueDate) : 'No date'}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          {!showDatePicker && text.trim() && (
+            <button
+              onClick={() => setShowDatePicker(true)}
+              className="flex items-center gap-1 text-[11px] text-zinc-500 hover:text-amber-400 transition-colors"
+            >
+              <Calendar size={11} />
+              {dueDate ? formatDisplayDate(dueDate) : 'Add date'}
+            </button>
+          )}
+          <div className="flex-1" />
+          <button
+            onClick={add}
+            disabled={!text.trim()}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/25 hover:bg-amber-500/25 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-[12px] font-medium"
+          >
+            <Plus size={12} />
+            Add
+          </button>
+        </div>
       </div>
+
+      {/* Reminders list */}
       {reminders.length === 0 ? (
-        <p className="text-[11px] text-zinc-600 text-center py-2">All quiet — no reminders</p>
+        <div className="text-center py-4">
+          <Bell size={20} className="mx-auto text-zinc-700 mb-2" />
+          <p className="text-[11px] text-zinc-600">No reminders yet</p>
+          <p className="text-[10px] text-zinc-700 mt-0.5">Add one above to get started</p>
+        </div>
       ) : (
         <div className="space-y-1.5">
-          {reminders.map(r => (
-            <div
-              key={r.id}
-              className="group flex items-center gap-2 pl-2 pr-1.5 py-1.5 rounded-lg bg-zinc-900/30 border-l-2 hover:bg-zinc-800/30 transition-colors"
-              style={{ borderLeftColor: r.done ? '#3f3f46' : '#fbbf24' }}
-            >
-              <button
-                onClick={() => onToggle(r.id, !r.done)}
-                className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                  r.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600 hover:border-amber-400/60'
+          {reminders.map(r => {
+            const isOverdue = r.due_date && daysUntil(r.due_date) < 0 && !r.done;
+            const isToday = r.due_date && daysUntil(r.due_date) === 0 && !r.done;
+            return (
+              <div
+                key={r.id}
+                className={`group flex items-center gap-2 pl-2.5 pr-1.5 py-2 rounded-lg border-l-2 transition-colors ${
+                  r.done ? 'bg-zinc-900/20 border-l-zinc-800' : isOverdue ? 'bg-rose-500/5 border-l-rose-500/50' : isToday ? 'bg-amber-500/5 border-l-amber-500/50' : 'bg-zinc-900/30 border-l-amber-500/30 hover:bg-zinc-800/30'
                 }`}
               >
-                {r.done && <CheckCircle2 size={9} className="text-white" />}
-              </button>
-              <span className={`flex-1 text-[12px] truncate ${r.done ? 'text-zinc-600 line-through' : 'text-zinc-300'}`}>{r.text}</span>
-              {r.due_date && (
-                <span className={`text-[8px] px-1 py-0.5 rounded-full tabular-nums shrink-0 ${
-                  daysUntil(r.due_date) < 0 && !r.done ? 'text-red-400 bg-red-500/10' : 'text-zinc-600 bg-zinc-800/60'
-                }`}>
-                  {r.due_date.slice(5)}
-                </span>
-              )}
-              <button
-                onClick={() => onDelete(r.id)}
-                className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-600 hover:text-red-400 transition-all"
-              >
-                <Trash2 size={11} />
-              </button>
-            </div>
-          ))}
+                <button
+                  onClick={() => onToggle(r.id, !r.done)}
+                  className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                    r.done ? 'bg-emerald-500 border-emerald-500' : 'border-zinc-600 hover:border-amber-400/60'
+                  }`}
+                >
+                  {r.done && <CheckCircle2 size={10} className="text-white" />}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <span className={`text-[12px] block truncate ${r.done ? 'text-zinc-600 line-through' : 'text-zinc-200'}`}>{r.text}</span>
+                  {r.due_date && (
+                    <span className={`text-[10px] flex items-center gap-1 mt-0.5 ${
+                      isOverdue ? 'text-rose-400' : isToday ? 'text-amber-400' : 'text-zinc-500'
+                    }`}>
+                      <Calendar size={9} />
+                      {formatDisplayDate(r.due_date)}
+                      {isOverdue && <span className="text-[9px] text-rose-400/70">(overdue)</span>}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => onDelete(r.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1 text-zinc-600 hover:text-red-400 transition-all"
+                >
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </WarmCard>
@@ -911,6 +979,7 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
   const [weekGoals, setWeekGoals] = useState<Record<string, Goal[]>>({});
   const [longTermGoals, setLongTermGoals] = useState<LongTermGoal[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [deadlines, setDeadlines] = useState<Deadline[]>([]);
   const [reviewSummary, setReviewSummary] = useState('');
   const [reflection, setReflection] = useState<DailyReflection>(emptyReflection);
   const [weekReflections, setWeekReflections] = useState<Record<string, DailyReflection>>({});
@@ -979,6 +1048,9 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
     loadLongTerm();
     (async () => {
       try { const res = await api.getReminders(); setReminders(res.reminders || []); } catch {}
+    })();
+    (async () => {
+      try { const res = await api.getDeadlines({ days: 60 }); setDeadlines(res.deadlines || []); } catch {}
     })();
   }, [api, loadLongTerm]);
 
@@ -1061,15 +1133,15 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
   };
 
   /* ── reminders ── */
-  const createReminder = async (text: string) => {
+  const createReminder = async (text: string, dueDate?: string) => {
     try {
-      const res = await api.createReminder({ text, dueDate: selectedDate });
+      const res = await api.createReminder({ text, dueDate: dueDate || selectedDate });
       if (res.reminder) setReminders(prev => [...prev, { ...res.reminder, due_date: res.reminder.dueDate, created_at: new Date().toISOString() }]);
     } catch {}
   };
   const toggleReminder = async (id: string, done: boolean) => {
     setReminders(prev => prev.map(r => (r.id === id ? { ...r, done } : r)));
-    try { await api.updateReminder(id, { done }); } catch {}
+    try { await api.toggleReminder(id, done); } catch {}
   };
   const deleteReminder = async (id: string) => {
     setReminders(prev => prev.filter(r => r.id !== id));
@@ -1145,17 +1217,18 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
     return () => { cancelled = true; };
   }, [weekDates, api]);
 
-  /* radar marks: reminder due dates (amber) + long-term deadlines (violet) */
+  /* radar marks: deadlines (rose) + reminders (amber) + long-term deadlines (violet) */
   const radarMarks = useMemo(() => {
     const m = new Map<string, RadarMark[]>();
     const push = (date: string, mark: RadarMark) => {
       if (!m.has(date)) m.set(date, []);
       m.get(date)!.push(mark);
     };
+    deadlines.forEach(d => { if (d.due_date && d.status !== 'completed') push(d.due_date, { color: '#f43f5e', label: d.title }); });
     reminders.forEach(r => { if (r.due_date) push(r.due_date, { color: '#fbbf24', label: r.text }); });
     longTermGoals.forEach(l => { if (l.deadline) push(l.deadline, { color: '#a78bfa', label: l.title }); });
     return m;
-  }, [reminders, longTermGoals]);
+  }, [deadlines, reminders, longTermGoals]);
 
   /* ── render ── */
   return (
@@ -1188,7 +1261,7 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
           <DeadlineRadar marks={radarMarks} selectedDate={selectedDate} onPick={setSelectedDate} />
           <TheVault longTermGoals={longTermGoals} todayGoals={goals}
             onSave={handleLTGSave} onDelete={handleLTGDelete} />
-          <BellBoard reminders={reminders} onCreate={createReminder} onToggle={toggleReminder} onDelete={deleteReminder} />
+            <BellBoard reminders={reminders} onCreate={createReminder} onToggle={toggleReminder} onDelete={deleteReminder} selectedDate={selectedDate} />
         </div>
 
         {/* main column */}

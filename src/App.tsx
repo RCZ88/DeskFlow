@@ -22,7 +22,9 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove, sortableKeyboardCoordinates,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import SleepDetectionModal from './components/SleepDetectionModal';
+import SleepDetectionModal, { type AdjacentSleepGap } from './components/SleepDetectionModal';
+import { GapFillModal } from './components/external/GapFillModal';
+import { createId, fillGapWithSegments, type Gap } from './lib/external/gaps';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
 import StatsPage from './pages/StatsPage';
@@ -56,6 +58,7 @@ import DashboardPage from './pages/DashboardPage';
 import NotFoundPage from './pages/NotFoundPage';
 import FeatureSpecViewer from './components/FeatureSpecViewer';
 import AfkPromptModal from './components/AfkPromptModal';
+import MissedTimePanel from './components/MissedTimePanel';
 import { PairPhoneModal } from './components/PairPhoneModal';
 import { VoiceProvider } from './context/VoiceContext';
 import { getDateRange } from './lib/dateRange';
@@ -915,7 +918,12 @@ function App() {
     gapMinutes: number;
     suggestedBedtime: string;
     suggestedWakeTime: string;
+    adjacentGaps?: AdjacentSleepGap[];
   } | null>(null);
+  const [sleepModalStep, setSleepModalStep] = useState<'sleep' | 'gaps'>('sleep');
+  const [sleepGapFill, setSleepGapFill] = useState<Gap[] | null>(null);
+  const [sleepFillActivities, setSleepFillActivities] = useState<any[] | null>(null);
+  const [sleepFillSessions, setSleepFillSessions] = useState<any[] | null>(null);
   const [sleepDetectCustomBedtime, setSleepDetectCustomBedtime] = useState({ hours: 22, minutes: 0 });
   const [sleepDetectCustomWaketime, setSleepDetectCustomWaketime] = useState({ hours: 7, minutes: 0 });
   const [sleepDetectFellAsleepAt, setSleepDetectFellAsleepAt] = useState({ hours: 22, minutes: 15 });
@@ -936,6 +944,7 @@ function App() {
             setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
             setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
             setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
+            setSleepModalStep('sleep');
             setShowSleepDetection(true);
           }
         }
@@ -984,6 +993,7 @@ function App() {
             setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
             setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
             setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
+            setSleepModalStep('sleep');
             setShowSleepDetection(true);
           }
         }
@@ -994,8 +1004,12 @@ function App() {
   const dismissSleepDetection = async () => {
     sleepActiveRef.current = false;
     sleepPeriodRef.current = null;
+    setSleepModalStep('sleep');
     setShowSleepDetection(false);
     setSleepDetectionData(null);
+    setSleepGapFill(null);
+    setSleepFillActivities(null);
+    setSleepFillSessions(null);
     try {
       if (window.deskflowAPI?.dismissSleepDetection) {
         await window.deskflowAPI.dismissSleepDetection();
@@ -1072,6 +1086,12 @@ function App() {
         if (result?.success) {
           window.dispatchEvent(new CustomEvent('sleep-confirmed'));
           window.dispatchEvent(new CustomEvent('external-data-changed'));
+          const gaps = sleepDetectionData.adjacentGaps || [];
+          if (gaps.length > 0) {
+            sleepActiveRef.current = false;
+            setSleepModalStep('gaps');
+            return;
+          }
         }
       }
     } catch (err) {
@@ -1079,6 +1099,25 @@ function App() {
     }
     sleepActiveRef.current = false;
     dismissSleepDetection();
+  };
+
+  // Open the gap-fill modal for the untracked time around a confirmed sleep
+  const handleOpenSleepGapFill = async () => {
+    try {
+      const activities = await window.deskflowAPI?.getExternalActivities?.();
+      const sessions = await window.deskflowAPI?.getExternalSessions?.('all');
+      setSleepFillActivities(activities || []);
+      setSleepFillSessions(sessions || []);
+      const gaps = (sleepDetectionData?.adjacentGaps || []).map((g) => ({
+        id: createId('gap'),
+        start: new Date(g.start),
+        end: new Date(g.end),
+        duration_seconds: g.durationSeconds,
+      }));
+      setSleepGapFill(gaps);
+    } catch (err) {
+      console.error('[App] Failed to load sleep gap fill data:', err);
+    }
   };
 
   useEffect(() => {
@@ -2038,7 +2077,10 @@ function App() {
     }
     // 'all' uses allLogs as-is
 
-    const totalSeconds = filtered.reduce((sum, log) => sum + log.duration, 0);
+    // Apps only: website rows belong to the tracking browser (Comet) which is
+    // already logged as an app row (is_browser_tracking=0), so adding website
+    // time on top double-counts it.
+    const totalSeconds = filtered.filter(l => !l.is_browser_tracking).reduce((sum, log) => sum + log.duration, 0);
     const totalHours = Math.floor(totalSeconds / 3600);
     const totalMins = Math.floor((totalSeconds % 3600) / 60);
     const totalSecs = totalSeconds % 60;
@@ -2104,8 +2146,10 @@ function App() {
   //         activity chart, so the top-bar clock always matches the chart.
   // Focus = productive tier only (apps + websites mapped via WEBSITE_CATEGORY_MAP)
   const focusAndTotalTime = useMemo(() => {
-    // Total time = every tracked log in the period (apps + websites)
-    const totalTime = filteredLogs.reduce((sum, log) => sum + (log.duration || 0), 0);
+    // Apps only: website rows belong to the tracking browser (Comet) which is
+    // already logged as an app row (is_browser_tracking=0), so adding website
+    // time on top double-counts it.
+    const totalTime = filteredLogs.filter(l => !l.is_browser_tracking).reduce((sum, log) => sum + (log.duration || 0), 0);
 
     // Focus time = productive categories only (timeByCategory already merges apps +
     // websites mapped through WEBSITE_CATEGORY_MAP)
@@ -2699,7 +2743,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <button
                 onClick={() => setTimeMode('focus')}
                 className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 w-[72px] justify-center flex-shrink-0 text-xs ${timeMode === 'focus' ? 'bg-emerald-500/20 text-emerald-400' : 'text-zinc-400 hover:text-white'}`}
-                title="Focus Time: Productive apps + websites only"
+                title="Focus Time: Productive apps only (websites belong to the tracking browser)"
               >
                 <Zap className="w-3 h-3" />
                 Focus
@@ -2707,7 +2751,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
               <button
                 onClick={() => setTimeMode('total')}
                 className={`px-3 py-1.5 rounded-full transition flex items-center gap-1.5 w-[72px] justify-center flex-shrink-0 text-xs ${timeMode === 'total' ? 'bg-indigo-500/20 text-indigo-400' : 'text-zinc-400 hover:text-white'}`}
-                title="Total Time: Apps + Websites"
+                title="Total Time: Apps only (websites belong to the tracking browser)"
               >
                 <Clock className="w-3 h-3" />
                 Total
@@ -3058,9 +3102,34 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 onWakeUpAtChange={setSleepDetectWakeUpAt}
                 onConfirm={confirmSleepDetection}
                 onDismiss={dismissSleepDetection}
+                adjacentGaps={sleepDetectionData.adjacentGaps || []}
+                step={sleepModalStep}
+                onOpenGapFill={handleOpenSleepGapFill}
+                onDone={dismissSleepDetection}
               />
             )}
           </AnimatePresence>
+
+          {/* -- Sleep gap fill (untracked time before/after sleep) -- */}
+          <GapFillModal
+            open={!!sleepGapFill && sleepGapFill.length > 0}
+            gap={null}
+            multiGaps={sleepGapFill || []}
+            activities={sleepFillActivities || []}
+            sessions={sleepFillSessions || []}
+            zClass="z-[10000]"
+            onClose={dismissSleepDetection}
+            onFillGap={async (gap, segments) => {
+              try {
+                await fillGapWithSegments(gap, segments, async (activityId, minutes, startedAt, endedAt) => {
+                  await window.deskflowAPI?.addExternalTime?.(activityId, minutes, startedAt, endedAt);
+                });
+                window.dispatchEvent(new CustomEvent('external-data-changed'));
+              } catch (err) {
+                console.error('[App] Sleep gap fill failed:', err);
+              }
+            }}
+          />
 
           {/* Confirm Export Modal */}
           <AnimatePresence>
@@ -3288,7 +3357,15 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 onDismiss={handleAfkDismiss}
                 onNotAfk={() => { pendingIdleRangeRef.current = null; setAfkPromptQueue(prev => prev.slice(1)); }}
                 defaultNotAfk={entry.defaultNotAfk}
-              />
+              >
+                <MissedTimePanel
+                  onFillNow={() => {
+                    pendingIdleRangeRef.current = null;
+                    setAfkPromptQueue(prev => prev.slice(1));
+                    window.dispatchEvent(new Event('open-gap-drawer'));
+                  }}
+                />
+              </AfkPromptModal>
             );
           })()}
 

@@ -1,7 +1,8 @@
 import { useState, useMemo, lazy, Suspense, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Monitor, Globe, Target, Activity, Focus as FocusIcon } from 'lucide-react';
+import { Monitor, Globe, Target, Activity, Focus as FocusIcon, Clock } from 'lucide-react';
 import { LoadingState } from '../components/LoadingState';
+import { ManualAssignModal } from '../components/external/ManualAssignModal';
 import type { Period } from '../lib/dateRange';
 
 const StatsPage = lazy(() => import('./StatsPage'));
@@ -59,6 +60,11 @@ export default function ActivityPage(props: ActivityPageProps) {
     } catch {}
   }, [activeTab]);
 
+  const [showManualAssign, setShowManualAssign] = useState(false);
+  const [manualAssignGap, setManualAssignGap] = useState<{ start: Date; end: Date } | null>(null);
+  const [manualAssignDate, setManualAssignDate] = useState<Date | null>(null);
+  const [manualVersion, setManualVersion] = useState(0);
+
   const activeConfig = TABS.find(t => t.key === activeTab) || TABS[0];
   const activeIconWrapStyle = { background: `${activeConfig.accent}22` };
   const activeIconStyle = { color: activeConfig.accent };
@@ -97,6 +103,21 @@ export default function ActivityPage(props: ActivityPageProps) {
               );
             })}
           </div>
+
+          <div className="flex-1" />
+
+          <button
+            onClick={() => {
+              setManualAssignGap(null);
+              setManualAssignDate(null);
+              setShowManualAssign(true);
+            }}
+            title="Assign manual time into empty spans (random or custom)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-violet-400 hover:text-violet-300 transition"
+          >
+            <Clock className="h-3.5 w-3.5" />
+            Manual time
+          </button>
         </div>
       </div>
 
@@ -189,6 +210,18 @@ export default function ActivityPage(props: ActivityPageProps) {
           </Suspense>
         </div>
       </div>
+
+      {/* Manual Time Assignment */}
+      <ManualAssignModal
+        open={showManualAssign}
+        initialDate={manualAssignDate ?? undefined}
+        initialGap={manualAssignGap}
+        onClose={() => {
+          setShowManualAssign(false);
+          setManualAssignGap(null);
+        }}
+        onChanged={() => setManualVersion((v) => v + 1)}
+      />
     </div>
   );
 }

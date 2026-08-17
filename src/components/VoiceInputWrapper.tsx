@@ -43,6 +43,7 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
   const MAX_RETRIES = 5;
   const engineStopRef = useRef<(() => void) | null>(null);
   const sessionRef = useRef(0);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [processing, setProcessing] = useState(false);
   const [engineLabel, setEngineLabel] = useState<string | null>(null);
@@ -186,6 +187,8 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     setProcessing(false);
     setListening(false);
     setInterim('');
+    setError(null);
+    if (errorTimerRef.current) { clearTimeout(errorTimerRef.current); errorTimerRef.current = null; }
     if (engineStopRef.current) {
       try { engineStopRef.current(); } catch {}
       engineStopRef.current = null;
@@ -279,11 +282,37 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     setError(null);
     setProcessing(false);
     setEngineLabel(null);
+    if (errorTimerRef.current) { clearTimeout(errorTimerRef.current); errorTimerRef.current = null; }
 
     const fail = (msg: string) => {
       setError(msg);
-      setTimeout(() => setError(null), 3000);
-      stopListening();
+      // Stop recognition engines WITHOUT clearing the error state
+      sessionRef.current++;
+      retriesRef.current = 0;
+      networkRetriesRef.current = 0;
+      setReconnecting(false);
+      setProcessing(false);
+      setInterim('');
+      if (engineStopRef.current) {
+        try { engineStopRef.current(); } catch {}
+        engineStopRef.current = null;
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onresult = null;
+        try { recognitionRef.current.stop(); } catch {}
+        recognitionRef.current = null;
+      }
+      if (silenceTimerRef.current) { clearTimeout(silenceTimerRef.current); silenceTimerRef.current = null; }
+      stopAudio();
+      // Clear error AFTER a delay so user can read it; then set listening=false
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = setTimeout(() => {
+        setError(null);
+        setListening(false);
+        errorTimerRef.current = null;
+      }, 3000);
     };
 
     const resetSilence = () => {
@@ -338,7 +367,10 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
     return () => window.removeEventListener('keydown', h);
   }, [listening, stopListening]);
 
-  useEffect(() => () => stopListening(), [stopListening]);
+  useEffect(() => () => {
+    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+    stopListening();
+  }, [stopListening]);
 
   const supported = typeof window !== 'undefined' && (!!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition) || !!window.deskflowAPI);
   if (!supported) return <>{children}</>;
@@ -477,18 +509,18 @@ export function VoiceInputWrapper({ children, silenceMs = 8000 }: VoiceInputWrap
               relative grid place-items-center p-0
               transition-all duration-150
               focus-visible:ring-2 focus-visible:ring-[#e8866b]/60 focus-visible:outline-none
-              ${listening
-                ? 'bg-[#d96846]/15 text-[#e8866b] ring-1 ring-[#d96846]/30'
-                : error
-                  ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/40'
+              ${error
+                ? 'bg-red-500/10 text-red-400 ring-1 ring-red-500/40'
+                : listening
+                  ? 'bg-[#d96846]/15 text-[#e8866b] ring-1 ring-[#d96846]/30'
                   : 'text-zinc-400 bg-zinc-900/60 ring-1 ring-zinc-800/60 hover:text-[#e8866b] hover:ring-[#d96846]/30'
               }
             `}
           >
-            {listening && (
+            {listening && !error && (
               <span className="absolute inset-0 rounded-[inherit] animate-[pulse-ring_1.5s_cubic-bezier(0.4,0,0.6,1)_infinite] pointer-events-none" />
             )}
-            {listening ? <Mic style={{ width: micIconSize, height: micIconSize }} /> : <MicOff style={{ width: micIconSize, height: micIconSize }} />}
+            {error ? <MicOff style={{ width: micIconSize, height: micIconSize }} /> : listening ? <Mic style={{ width: micIconSize, height: micIconSize }} /> : <MicOff style={{ width: micIconSize, height: micIconSize }} />}
           </button>
         </div>
       </div>

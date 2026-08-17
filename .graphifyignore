@@ -1,0 +1,31 @@
+# .graphifyignore — keep graphify scans FAST and reliable on this repo.
+# Without this file, detect() walks the ENTIRE tree: node_modules (61k files),
+# agent/backups (24k files), agent/docs, dist, CZVault → the rebuild takes
+# forever or dies. Each line is an fnmatch pattern matched against any path part.
+
+# Build output (never graph these)
+node_modules
+dist
+dist-electron
+dist_web
+out
+release
+coverage
+build
+.vite
+
+# Agent artifact mountains (huge, not source)
+agent/backups
+agent/docs
+agent/state-archive.md
+CZVault
+graphify-out
+TEMP
+
+# VCS / tooling / junk
+.git
+*.log
+*.pid
+
+# Scratch
+probe-artifacts

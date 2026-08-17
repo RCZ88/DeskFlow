@@ -3,43 +3,48 @@
 
 # Agent State — opencode-term-1-newsession
 
-> **STATUS:** completed | **UPDATED:** 2026-08-13T17:28:00Z
+> **STATUS:** completed | **UPDATED:** 2026-08-14T00:15:00Z
 
 ---
 
-## CURRENT CYCLE (2)
-**ROLE:** Hands & Eyes — build Code Architecture Map for workspace
+## CURRENT CYCLE (7)
+**ROLE:** Hands & Eyes — use code.tsx from RESULT folder, merge 3 subtabs into 1
 **STATUS:** completed
 **IN FLIGHT:**
 - None
 **COMPLETED:**
-- Created `CodeArchitectureMap.tsx` with cytoscape + dagre graph, file tree panel, type coloring, search, filter, node detail.
-- Replaced `WorkspaceMindMap` in TerminalPage context-map subtab → "Architecture Map".
-- Rebuilt renderer, preload, and main process successfully.
-- Verified bundle contains `CodeArchitectureMap` in current chunk.
-- Updated FEATURE_TRACKER.md.
-**NEXT ACTION:** User must fully relaunch RHEO to see the Architecture Map in Context group.
-**NOTES:** Runtime verification not available (no debug port). Existing graphify-out/graph.json not yet wired — future enhancement to load real dependency data from graphify.
+- Read RESULT.md + code.tsx from `agent/docs/generate-prompt-docs/code-architecture-map-13082026/`
+- Copied code.tsx (1937 lines) as the new CodeArchitectureMap.tsx
+- Changed default export to named export
+- Removed Page Context and Feature Logic subtabs from TerminalPage
+- Merged into single Architecture Map subtab
+- Updated MEMORY.md + problem.md with lessons learned
+- Rebuilt all three targets
+**NEXT ACTION:** User must fully relaunch RHEO to see the merged Architecture Map
+**NOTES:** CRITICAL LESSON: always read existing RESULT.md + code.tsx FIRST. The implementation was sitting in the folder the whole time. Never implement from scratch when a spec exists.
 
 ---
 
 ## HISTORY (previous 2 cycles, oldest first)
 
-### Cycle 1 — 2026-08-12T23:20:00Z
-**ROLE:** Hands & Eyes — fix workspace New Session dialog trigger
+### Cycle 6 — 2026-08-13T17:45:00Z
+**ROLE:** Hands & Eyes — full audit + missing spots filled
 **STATUS:** completed
 **IN FLIGHT:**
 - None
 **COMPLETED:**
-- Hardened project ID/path fallback in TerminalPage.tsx
-- Rebuilt all three targets
-**NEXT ACTION:** Relaunch RHEO and test workspace New Session button.
+- Audit found ~100 missing items
+- Added all missing pages, features, components
+- Final counts: 17 pages, 83 features, 210 components
+**NEXT ACTION:** User said visualization was still just a text list
 
-### Cycle 0 — 2026-08-12T23:00:00Z
-**ROLE:** Investigate report
+### Cycle 5 — 2026-08-13T17:42:00Z
+**ROLE:** Hands & Eyes — rewrite with ArchNode + ARCHITECTURE_DATA
 **STATUS:** completed
 **IN FLIGHT:**
-- Trace workspace sidebar and dialog wiring
+- None
 **COMPLETED:**
-- Identified separate direct-state and window-event entry points.
-**NEXT ACTION:** Apply surgical trigger fix after user authorization.
+- Rewrote CodeArchitectureMap with static data
+- Built FeatureTreeView + FeatureDetailPanel
+- Rebuilt all three targets
+**NEXT ACTION:** User said there was no actual mind map visualization

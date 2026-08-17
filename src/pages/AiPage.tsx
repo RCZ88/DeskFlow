@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo } from 'lucide-react';
+import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo, Bug, MessageSquare } from 'lucide-react';
 import { useCanvasState } from '../hooks/useCanvasState';
 import { loadDefaultSetup } from '../services/canvasPersistence';
 import type { CardType } from '../types/canvas';
@@ -15,6 +15,8 @@ import { parseNlAutomation, stripAutomationBlock } from '../components/ai/automa
 import { useSlashCommands } from '../hooks/useSlashCommands';
 import { useAutoSync } from '../hooks/useAutoSync';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import { DebugVaultPanel } from '../components/ai/DebugVaultPanel';
+import { AiContextPanel } from '../components/ai/AiContextPanel';
 import type { CardAction } from '../components/ai/chat/parsed';
 import type { ChatSuggestion } from '../components/ai/chat/ChatEmptyState';
 import { useAiActions } from '../hooks/useAiActions';
@@ -115,6 +117,8 @@ export function AiPage() {
   const [aiProviders, setAiProviders] = useState<Array<{ id: string; label: string; models: string[]; enabled: boolean }>>([]);
   const [aiRouting, setAiRouting] = useState<Record<string, { providerId: string; model: string; smallProviderId?: string; smallModel?: string } | null>>({});
   const [configuringFeature, setConfiguringFeature] = useState<'default' | 'researchDigest' | 'goalAssistant' | null>(null);
+  const [vaultOpen, setVaultOpen] = useState(false);
+  const [contextOpen, setContextOpen] = useState(false);
   const [showConnectorSetup, setShowConnectorSetup] = useState(false);
   const [connectorsState, setConnectorsState] = useState<'loading' | 'error' | 'empty' | 'ready'>('loading');
   const [connectors, setConnectors] = useState<Array<{ id: string; name: string; status: string; detail?: string; itemCount?: number; type?: string }>>([]);
@@ -513,6 +517,40 @@ export function AiPage() {
 
       const parsed = msg.parsed;
       const isStructured = parsed && parsed.type !== 'text';
+
+      // ── CANVAS CONTROL ACTIONS (highlight, save, arrange, clear) ──
+      if (isStructured && parsed && (parsed.type === 'highlight' || parsed.type === 'canvas_action')) {
+        processedMsgIds.current.add(msg.id);
+        if (parsed.type === 'highlight' && parsed.cardType) {
+          // Find and highlight the matching card
+          const targetCard = Object.values(canvas.allCards).find((c: any) =>
+            c.type === parsed.cardType && !c.dismissedAt
+          );
+          if (targetCard) {
+            setFocusedCardId(targetCard.id);
+            // Flash effect — briefly set status to highlight
+            canvas.updateCard(targetCard.id, { status: 'loading' });
+            setTimeout(() => canvas.updateCard(targetCard.id, { status: 'live' }), 1500);
+          }
+        } else if (parsed.type === 'canvas_action') {
+          if (parsed.action === 'save') {
+            canvas.forceSave();
+          } else if (parsed.action === 'arrange') {
+            canvas.arrangeCards(
+              Object.fromEntries(
+                canvas.cards.map((c: any, i: number) => {
+                  const col = i % 4;
+                  const row = Math.floor(i / 4);
+                  return [c.id, { x: 40 + col * 220, y: 40 + row * 220 }];
+                })
+              )
+            );
+          } else if (parsed.action === 'clear') {
+            canvas.clearAll();
+          }
+        }
+        return;
+      }
 
       // ── STRUCTURED → typed card + optional prose card ──
       if (isStructured && parsed) {
@@ -1490,6 +1528,24 @@ export function AiPage() {
                 <Sparkles size={11} />
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Features</span>
               </button>
+              <button
+                onClick={() => setVaultOpen(v => !v)}
+                title="AI Debug Vault"
+                className="dk-topbar-btn"
+                style={{ height: 26, padding: "0 10px", borderColor: vaultOpen ? "rgba(251,191,36,0.4)" : undefined, color: vaultOpen ? "#fbbf24" : undefined }}
+              >
+                <Bug size={11} />
+                <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Vault</span>
+              </button>
+              <button
+                onClick={() => setContextOpen(v => !v)}
+                title="AI Context Captures"
+                className="dk-topbar-btn"
+                style={{ height: 26, padding: "0 10px", borderColor: contextOpen ? "rgba(34,211,238,0.4)" : undefined, color: contextOpen ? "#22d3ee" : undefined }}
+              >
+                <MessageSquare size={11} />
+                <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Context</span>
+              </button>
             </div>
           </div>
 
@@ -1801,6 +1857,9 @@ export function AiPage() {
           </div>
           )}
           </Suspense>
+
+          <DebugVaultPanel open={vaultOpen} />
+          <AiContextPanel open={contextOpen} />
 
         </div>
       </div>

@@ -4,7 +4,8 @@ import { Check, FileJson, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 export function CutPlanView() {
-  const { state, dispatch, activeSession, async: asyncState } = useStudio()
+  const { state, dispatch, activeSession } = useStudio()
+  const asyncState = state.async
 
   if (asyncState.cutPlan.state === 'loading') return (
     <div className="p-5 space-y-3"><div className="h-4 w-48 bg-zinc-800/50 rounded-lg animate-pulse" />{[1,2,3].map(i => <div key={i} className="h-16 bg-zinc-800/30 rounded-xl animate-pulse" />)}</div>

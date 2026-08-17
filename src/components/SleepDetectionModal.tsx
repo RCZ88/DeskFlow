@@ -1,10 +1,33 @@
 import { motion } from 'framer-motion';
-import { Moon, Bed, Sunrise, Clock, ChevronRight } from 'lucide-react';
+import { Moon, Bed, Sunrise, Clock, CheckCircle2, Sparkles, Sunset } from 'lucide-react';
 import { DurationPicker } from './DurationPicker';
 
 interface TimeState {
   hours: number;
   minutes: number;
+}
+
+export interface AdjacentSleepGap {
+  start: string;
+  end: string;
+  durationSeconds: number;
+  relation: 'before' | 'after';
+}
+
+function fmtGapRange(startIso: string, endIso: string) {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  const day = s.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const st = s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const et = e.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  return `${day} · ${st} – ${et}`;
+}
+
+function fmtGapDur(seconds: number) {
+  const minutes = Math.round(seconds / 60);
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
 export default function SleepDetectionModal({
@@ -19,6 +42,10 @@ export default function SleepDetectionModal({
   onWakeUpAtChange,
   onConfirm,
   onDismiss,
+  adjacentGaps = [],
+  step = 'sleep',
+  onOpenGapFill,
+  onDone,
 }: {
   data: { gapMinutes: number; suggestedBedtime: string; suggestedWakeTime: string };
   customBedtime: TimeState;
@@ -31,7 +58,112 @@ export default function SleepDetectionModal({
   onWakeUpAtChange: (v: TimeState) => void;
   onConfirm: () => void;
   onDismiss: () => void;
+  adjacentGaps?: AdjacentSleepGap[];
+  step?: 'sleep' | 'gaps';
+  onOpenGapFill?: () => void;
+  onDone?: () => void;
 }) {
+  console.log('%c[SleepDetectionModal] v1.1 adjacent-gaps loaded', 'color: #fbbf24; font-weight: bold');
+
+  const handleDone = onDone || onDismiss;
+  const handleOpenGapFill = onOpenGapFill || (() => {});
+
+  if (step === 'gaps') {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+        onClick={handleDone}
+      >
+        <motion.div
+          initial={{ scale: 0.92, opacity: 0, y: 10 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.92, opacity: 0, y: 10 }}
+          transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
+          className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-lg max-h-[min(680px,90vh)] overflow-y-auto shadow-2xl"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Decorative bar */}
+          <div className="h-1 bg-gradient-to-r from-emerald-500/40 via-teal-500/40 to-emerald-500/40" />
+
+          <div className="p-5">
+            {/* ── Header ── */}
+            <div className="flex items-start justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0 ring-1 ring-emerald-500/20">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-semibold text-zinc-100">Sleep saved</h3>
+                  <p className="text-xs text-zinc-500 mt-0.5">
+                    Untracked time around it can be filled
+                  </p>
+                </div>
+              </div>
+              <button onClick={handleDone} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
+              We noticed some untracked time before you fell asleep and after you woke up.
+              Want to fill it with external activities so your day looks complete?
+            </p>
+
+            {adjacentGaps.length === 0 ? (
+              <div className="p-4 rounded-xl bg-zinc-800/40 border border-zinc-700/30 text-center text-sm text-zinc-400">
+                No untracked gaps found around this sleep period.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 mb-5">
+                {adjacentGaps.map((g) => (
+                  <div key={g.start} className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/40 border border-zinc-700/30">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${g.relation === 'before' ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
+                      {g.relation === 'before' ? (
+                        <Sunset className="w-4 h-4 text-amber-400" />
+                      ) : (
+                        <Sunrise className="w-4 h-4 text-emerald-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium text-zinc-200">
+                        {g.relation === 'before' ? 'Before sleep' : 'After wake'}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 font-mono tabular-nums truncate">
+                        {fmtGapRange(g.start, g.end)}
+                      </div>
+                    </div>
+                    <span className={`text-xs font-medium px-2 py-1 rounded-full shrink-0 ${g.relation === 'before' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                      {fmtGapDur(g.durationSeconds)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Action buttons ── */}
+            <div className="flex gap-3">
+              <button
+                onClick={handleDone}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-700/30 transition-colors"
+              >
+                Done
+              </button>
+              <button
+                onClick={handleOpenGapFill}
+                disabled={adjacentGaps.length === 0}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20"
+              >
+                Fill gaps
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      </motion.div>
+    );
+  }
   const durBed = customBedtime.hours * 60 + customBedtime.minutes;
   let durWake = customWaketime.hours * 60 + customWaketime.minutes;
   if (durWake <= durBed) durWake += 24 * 60;
@@ -232,6 +364,32 @@ export default function SleepDetectionModal({
               </div>
             </div>
           </div>
+
+          {/* ── Untracked time around sleep (info) ── */}
+          {adjacentGaps.length > 0 && (
+            <div className="mb-5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
+              <div className="flex items-center gap-1.5 text-amber-400/80 text-[10px] mb-2">
+                <Sparkles className="w-3 h-3" />
+                <span>Untracked time around your sleep</span>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {adjacentGaps.map((g) => (
+                  <div key={g.start} className="flex items-center justify-between gap-2 text-[11px]">
+                    <span className="text-zinc-400">
+                      {g.relation === 'before' ? 'Before sleep' : 'After wake'}
+                      <span className="text-zinc-600 ml-1.5 font-mono">{fmtGapRange(g.start, g.end)}</span>
+                    </span>
+                    <span className={`font-medium shrink-0 ${g.relation === 'before' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                      {fmtGapDur(g.durationSeconds)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-zinc-500">
+                You'll get a chance to fill these right after confirming your sleep.
+              </p>
+            </div>
+          )}
 
           {/* ── Action buttons ── */}
           <div className="flex gap-3">

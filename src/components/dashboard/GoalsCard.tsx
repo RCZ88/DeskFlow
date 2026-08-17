@@ -11,15 +11,13 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Target, Check, Plus, X, Edit3, Trash2, Calendar, Clock,
-  ChevronDown, ChevronUp, RefreshCw, Zap, Link as LinkIcon,
-  Sparkles, ArrowRight, TrendingUp, Flame, AlertCircle,
-  GripVertical, Trophy
+  Target, Check, Plus, X, Edit3, Trash2,
+  ChevronDown, ChevronUp, RefreshCw, Zap,
+  Sparkles, ArrowRight, Flame, AlertCircle,
 } from 'lucide-react';
 import { SpotlightCard } from './SpotlightCard';
 import { AnimatedShinyText } from '../ui/animated-shiny-text';
 import { NumberTicker } from '../ui/number-ticker';
-import { BorderBeam } from '../ui/border-beam';
 import { confetti } from '../ui/confetti';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
@@ -47,11 +45,6 @@ const TARGET_TYPES: { value: TargetType; label: string }[] = [
   { value: 'completion', label: 'Complete it' },
   { value: 'time', label: 'Spend time' },
 ];
-
-const containerVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.05 } },
-};
 
 const itemVariants = {
   hidden: { opacity: 0, y: 8 },
@@ -233,8 +226,6 @@ export function GoalsCard({
       <SpotlightCard spotlightColor="rgba(139, 92, 246, 0.08)" className="rounded-xl h-full">
       <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 p-5 flex flex-col h-full">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/30 via-violet-500/10 to-transparent" />
-
-        {activeGoals.length > 0 && <BorderBeam size={140} duration={10} colorFrom="#10b981" colorTo="#34d399" />}
 
         {/* Header */}
         <div className="flex items-center justify-between mb-4 shrink-0">
@@ -434,8 +425,8 @@ export function GoalsCard({
         </AnimatePresence>
 
         {/* Active Goals List */}
-        <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex-1 space-y-2 min-h-0 overflow-y-auto">
-          <AnimatePresence mode="popLayout">
+        <div className="flex-1 space-y-2 min-h-0 overflow-y-auto">
+          <AnimatePresence>
             {activeGoals.map((goal) => (
               <motion.div
                 key={goal.id}
@@ -443,7 +434,6 @@ export function GoalsCard({
                 initial="hidden"
                 animate="show"
                 exit="exit"
-                layout
                 className="group"
               >
                 {editingId === goal.id ? (
@@ -618,7 +608,7 @@ export function GoalsCard({
               </div>
             </motion.div>
           )}
-        </motion.div>
+        </div>
 
         {/* Completed Goals Section */}
         {completedGoals.length > 0 && (

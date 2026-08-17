@@ -85,7 +85,17 @@ export interface Deadline {
   description?: string;
   category?: DeadlineCategory;
   recurrence?: string;
+  remind_at?: string;
   createdAt: string;
+}
+
+export interface Reminder {
+  id: string;
+  text: string;
+  due_date: string | null;
+  goal_id: string | null;
+  done: boolean;
+  created_at: string;
 }
 
 export interface ScheduleEntry {

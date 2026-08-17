@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { HeartHandshake, Images, Layers, Map, BookOpen, Plus, FileClock, Pencil, Mic, Target, Sparkles } from 'lucide-react'
+import { HeartHandshake, Images, Layers, Map, BookOpen, Plus, FileClock, Pencil, Mic, Target, Sparkles, User, Network, Brain, RefreshCw } from 'lucide-react'
 
 
 import { cn } from '@/lib/utils'
@@ -17,12 +17,20 @@ import { PhaseFormDialog } from '@/components/life-river/phase-form-dialog'
 import { MemoryLightbox } from '@/components/life-river/memory-lightbox'
 import { LifeRiver } from '@/components/life-river/river'
 import { NotesTab } from '@/components/life-river/NotesTab'
+import { LivingSubstrate } from '@/components/life-river/LivingSubstrate'
 import type { LensId } from '@/components/life-river/RingCanvas'
 import type { LifePhase } from '@/lib/riverMath'
 import CovenantPage from '../../features/covenant/CovenantPage'
 import MemoriesPage from '../../features/memories/MemoriesPage'
 import GoldPage from '../../features/warmth/gold/GoldPage'
+import { ProfileTab } from '../../components/life/ProfileTab'
+import { ContextGraphView } from './ContextGraphView'
+import { BrainManagementView } from './context-brain/BrainManagementView'
 import { confetti } from '../../components/ui/confetti'
+import { NumberTicker } from '../../components/ui/number-ticker'
+import { DotPattern } from '../../components/ui/dot-pattern'
+import { Skeleton } from '../../components/ui/skeleton'
+import { SectionHeader } from '../../components/SectionHeader'
 import { useLifePhases } from '@/hooks/useLifePhases'
 import { useCovenant } from '../../features/covenant/useCovenant'
 import { useMemories, type LoadedMemory } from '../../features/memories/useMemories'
@@ -35,13 +43,14 @@ const toStr = (d: Date) =>
 const todayStr = () => toStr(new Date())
 
 type ViewMode = 'pages' | 'river'
-type PageTab = 'covenant' | 'memories' | 'gold' | 'notes'
+type PageTab = 'covenant' | 'memories' | 'gold' | 'notes' | 'self'
 
 const PAGE_TABS: { key: PageTab; label: string; icon: typeof HeartHandshake; accent: string }[] = [
   { key: 'covenant', label: 'Covenant', icon: HeartHandshake, accent: '#e8866b' },
   { key: 'memories', label: 'Memories', icon: Images, accent: '#6fb38f' },
   { key: 'gold', label: 'Gold', icon: Layers, accent: '#fbbf24' },
   { key: 'notes', label: 'Notes', icon: BookOpen, accent: '#a78bfa' },
+  { key: 'self', label: 'Self', icon: User, accent: '#8b5cf6' },
 ]
 
 const crossfade = {
@@ -52,6 +61,53 @@ const crossfade = {
 }
 
 const pillTransition = { type: 'spring' as const, stiffness: 400, damping: 32 }
+
+const SELF_CARD_CLASS = "rounded-xl border border-zinc-800/50 bg-zinc-900/50 backdrop-blur-xl p-6 shadow-2xl shadow-black/20"
+
+function SelfStatStrip() {
+  const [stats, setStats] = useState<{ episodes: number; entities: number; currentFacts: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const data = await (window as any).deskflowAPI?.brainStats?.()
+        if (!cancelled && data) {
+          setStats({ episodes: data.episodes ?? 0, entities: data.entities ?? 0, currentFacts: data.currentFacts ?? 0 })
+        }
+      } catch { /* non-critical */ }
+      if (!cancelled) setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  const items = [
+    { label: 'Episodes', sublabel: 'Brain', value: stats?.episodes ?? 0, icon: Brain, color: '#8b5cf6' },
+    { label: 'Entities', sublabel: 'Network', value: stats?.entities ?? 0, icon: Network, color: '#22c55e' },
+    { label: 'Current Facts', sublabel: 'Active', value: stats?.currentFacts ?? 0, icon: Sparkles, color: '#eab308' },
+  ]
+
+  return (
+    <div className="grid grid-cols-3 gap-3 min-h-[120px]">
+      {items.map(it => (
+        <div key={it.label} className={`${SELF_CARD_CLASS} relative overflow-hidden`}>
+          <DotPattern opacity={0.05} radius={0.8} gap={16} className="absolute inset-0 text-[#8b5cf6]" />
+          <div className="relative">
+            <div className="flex items-center gap-2 mb-2">
+              <it.icon className="w-4 h-4" style={{ color: it.color }} />
+              <span className="text-[11px] uppercase tracking-wider text-zinc-500">{it.sublabel}</span>
+            </div>
+            <div className="text-2xl font-bold font-mono" style={{ color: it.color }}>
+              {loading ? <Skeleton className="h-6 w-16" /> : <NumberTicker value={it.value} />}
+            </div>
+            <div className="text-[12px] text-zinc-400 mt-1">{it.label}</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default function LifePage() {
   const { phases, loading, error, savePhase, reflect } = useLifePhases()
@@ -79,6 +135,14 @@ export default function LifePage() {
     try { return (localStorage.getItem('life-redirect-mode') as 'instant' | 'confirm') || 'instant' } catch { return 'instant' }
   })
   const [confirmRedirect, setConfirmRedirect] = useState<{ lens: LensId; label: string } | null>(null)
+  const [goldVersion, setGoldVersion] = useState(0)
+  const [expandedPhaseId, setExpandedPhaseId] = useState<string | null>(null)
+  const [expandedMode, setExpandedMode] = useState<'system' | 'manual'>('system')
+
+  const togglePhaseContext = useCallback((phaseId: string) => {
+    setExpandedPhaseId(current => current === phaseId ? null : phaseId)
+    setExpandedMode('system')
+  }, [])
 
   const toggleRedirectMode = useCallback(() => {
     setRedirectMode(prev => {
@@ -88,6 +152,54 @@ export default function LifePage() {
     })
   }, [])
 
+  const handleAttachMemory = useCallback(async (memoryIds: string[], phaseId: string) => {
+    for (const id of memoryIds) {
+      const mem = memories.items.find(m => m.meta.id === id)
+      if (mem) {
+        await memories.updateMeta(id, { phaseId } as any)
+      }
+    }
+  }, [memories])
+
+  const handleAttachGoal = useCallback(async (goalIds: string[], phaseId: string) => {
+    const api = (window as any).deskflowAPI
+    for (const id of goalIds) {
+      const goal = ltgs.find(g => g.id === id)
+      if (goal) {
+        const links = [...((goal as any).links || []), { type: 'life-phase', id: phaseId }]
+        await api.saveGoalsBatch([{ ...goal, links }])
+      }
+    }
+    setGoldVersion(v => v + 1)
+  }, [ltgs])
+
+  const handleDetachMemory = useCallback(async (memoryId: string) => {
+    await memories.updateMeta(memoryId, { phaseId: undefined } as any)
+  }, [memories])
+
+  const handleDetachGoal = useCallback(async (goalId: string) => {
+    const api = (window as any).deskflowAPI
+    const goal = ltgs.find(g => g.id === goalId)
+    if (goal) {
+      const links = ((goal as any).links || []).filter((l: any) => l?.type !== 'life-phase')
+      await api.saveGoalsBatch([{ ...goal, links }])
+    }
+    setGoldVersion(v => v + 1)
+  }, [ltgs])
+
+  const setMode = useCallback((m: ViewMode) => {
+    setViewMode(m)
+    try { localStorage.setItem('life-view-mode', m) } catch { /* ignore */ }
+  }, [])
+
+  const handleOpenPage = useCallback((page: string) => {
+    const tabMap: Record<string, PageTab> = { memories: 'memories', gold: 'gold', covenant: 'covenant', profile: 'self', graph: 'self', brain: 'self' }
+    if (tabMap[page]) {
+      setPageTab(tabMap[page])
+      setMode('pages')
+    }
+  }, [setMode])
+
   const feedRef = useRef<HTMLDivElement>(null)
   const { scrollY } = useScroll({ container: feedRef })
   const mapOpacity = useTransform(scrollY, [0, 200], [1, 0.85])
@@ -95,11 +207,6 @@ export default function LifePage() {
 
   useEffect(() => () => {
     if (highlightTimer.current) clearTimeout(highlightTimer.current)
-  }, [])
-
-  const setMode = useCallback((m: ViewMode) => {
-    setViewMode(m)
-    try { localStorage.setItem('life-view-mode', m) } catch { /* ignore */ }
   }, [])
 
   const reloadGoals = useCallback(async () => {
@@ -133,7 +240,7 @@ export default function LifePage() {
   }, [])
 
   const redirectToPage = useCallback((lens: LensId) => {
-    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories' }
+    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories', profile: 'self', graph: 'self', brain: 'self' }
     const tab = tabMap[lens]
     if (tab) {
       setPageTab(tab)
@@ -441,13 +548,46 @@ export default function LifePage() {
                 <NotesTab />
               </motion.div>
             )}
+            {pageTab === 'self' && (
+              <motion.div key="self" {...crossfade} className="max-w-5xl mx-auto relative" style={{ ['--page-accent' as string]: '#8b5cf6' }}>
+                {/* Hero Header */}
+                <div className="text-center mb-8">
+                  <h1 className="text-3xl font-serif text-transparent bg-clip-text bg-gradient-to-r from-[#8b5cf6] via-[#a78bfa] to-[#c4b5fd]">
+                    Contextual Self
+                  </h1>
+                  <p className="text-[13px] text-zinc-400 mt-2">Your identity, connections, and memory — unified.</p>
+                </div>
+
+                {/* Stat Strip */}
+                <SelfStatStrip />
+
+                {/* Sections */}
+                <div className="space-y-10 mt-10">
+                  <section className="space-y-3">
+                    <SectionHeader title="Identity & Profile" icon={<User className="w-4 h-4" />} />
+                    <ProfileTab />
+                  </section>
+                  <section className="space-y-3">
+                    <SectionHeader title="Knowledge Graph" icon={<Network className="w-4 h-4" />} />
+                    <ContextGraphView />
+                  </section>
+                  <section className="space-y-3">
+                    <SectionHeader title="Memory & Brain" icon={<Brain className="w-4 h-4" />} />
+                    <BrainManagementView />
+                  </section>
+                </div>
+              </motion.div>
+            )}
           </AnimatePresence>
         </div>
       ) : (
         /* ═══ NEW RIVER MODE ═══ */
         <div className="flex flex-1 min-h-0 relative gap-6" ref={feedRef}>
+          {/* Living substrate — full-bleed Aether background */}
+          <LivingSubstrate />
+
           {/* Vital Thread — continuous glowing line */}
-          <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 pointer-events-none z-0"
+          <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 pointer-events-none z-[1]"
             style={{
               background: 'linear-gradient(to bottom, rgba(251,191,36,0.25) 0%, rgba(111,179,143,0.2) 40%, rgba(56,189,248,0.15) 80%, transparent 100%)',
               filter: 'blur(0.5px)',
@@ -513,7 +653,7 @@ export default function LifePage() {
                 {/* Lens indicator — always visible */}
                 <div
                   data-lens-indicator
-                  className={`flex flex-col gap-3 rounded-xl border bg-zinc-900/30 px-5 py-4 backdrop-blur md:flex-row md:items-center md:justify-between ${LENS_META[lens].activeClass}`}
+                  className={`flex flex-col gap-3 rounded-xl border bg-zinc-900/75 backdrop-blur-xl px-5 py-4 md:flex-row md:items-center md:justify-between ${LENS_META[lens].activeClass}`}
                 >
                   <div className="flex items-center gap-3">
                     <LensIcon className="h-4 w-4" />
@@ -560,7 +700,7 @@ export default function LifePage() {
                     className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
                       lens === 'phases'
                         ? 'border-amber-400/40 bg-amber-400/10 text-amber-100'
-                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 text-zinc-300 hover:border-zinc-700'
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -579,7 +719,7 @@ export default function LifePage() {
                     className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
                       lens === 'covenant'
                         ? 'border-rose-400/40 bg-rose-500/10 text-rose-100'
-                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 text-zinc-300 hover:border-zinc-700'
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -595,7 +735,7 @@ export default function LifePage() {
                     className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
                       lens === 'gold'
                         ? 'border-amber-400/40 bg-amber-500/10 text-amber-100'
-                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 text-zinc-300 hover:border-zinc-700'
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -611,7 +751,7 @@ export default function LifePage() {
                     className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-4 py-3 text-left text-sm transition-colors ${
                       lens === 'memories'
                         ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-100'
-                        : 'border-zinc-800 bg-zinc-900/40 text-zinc-300 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 text-zinc-300 hover:border-zinc-700'
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -645,7 +785,7 @@ export default function LifePage() {
                     className={`rounded-xl border p-5 text-left transition-colors ${
                       lens === 'covenant'
                         ? 'border-rose-400/40 bg-rose-500/10'
-                        : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 hover:border-zinc-700'
                     }`}
                   >
                     <div className="flex items-center gap-2 text-rose-300">
@@ -669,7 +809,7 @@ export default function LifePage() {
                     className={`rounded-xl border p-5 text-left transition-colors ${
                       lens === 'gold'
                         ? 'border-amber-400/40 bg-amber-500/10'
-                        : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 hover:border-zinc-700'
                     }`}
                   >
                     <div className="flex items-center gap-2 text-amber-300">
@@ -693,7 +833,7 @@ export default function LifePage() {
                     className={`rounded-xl border p-5 text-left transition-colors ${
                       lens === 'memories'
                         ? 'border-emerald-400/40 bg-emerald-500/10'
-                        : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700'
+                        : 'border-zinc-800 bg-zinc-900/75 hover:border-zinc-700'
                     }`}
                   >
                     <div className="flex items-center gap-2 text-emerald-300">
@@ -716,7 +856,7 @@ export default function LifePage() {
                 {/* Draft shelf — always visible */}
                 <div
                   data-drafts-shelf
-                  className="rounded-xl border border-zinc-800 bg-zinc-900/30 p-5 backdrop-blur"
+                  className="rounded-xl border border-zinc-800 bg-zinc-900/75 backdrop-blur-xl p-5"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
@@ -827,6 +967,16 @@ export default function LifePage() {
                       onAddGoal={() => redirectToPageForAdd('gold')}
                       onAddCovenant={() => redirectToPageForAdd('covenant')}
                       onEditPhase={() => setEditingPhase(phase)}
+                      expanded={expandedPhaseId === phase.id}
+                      expandedMode={expandedMode}
+                      onToggleExpand={() => togglePhaseContext(phase.id)}
+                      onModeChange={setExpandedMode}
+                      onAttachMemory={(ids) => handleAttachMemory(ids, phase.id)}
+                      onAttachGoal={(ids) => handleAttachGoal(ids, phase.id)}
+                      onCovenantSaved={() => {/* covenant saved via localStorage */}}
+                      onDetachMemory={handleDetachMemory}
+                      onDetachGoal={handleDetachGoal}
+                      onOpenPage={handleOpenPage}
                     />
                     </div>
                   </motion.div>

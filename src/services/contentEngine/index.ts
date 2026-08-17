@@ -1,0 +1,1224 @@
+// Content Engine — full backend module (tables, IPC, AI bridge).
+// v2.0.0: 14-criteria rubric + 3 scoring schemes + process timeline +
+// human reflection + analytics import + score calibration + learning-loop promotion.
+// Registered from main.ts like services/learn. All AI calls go through the
+// provider chain via the aiCall closure (buildChain 'contentEngine' + runWithFallback).
+import { ipcMain } from 'electron';
+import { NON_NEGOTIABLE_IDS, RETENTION_CRITERIA_IDS, RETENTION_RUBRIC } from './rubric';
+import { parseAiJson } from './responseParser';
+import {
+  contentEngineSystem,
+  PROMPT_ANALYTICS_IMPORT,
+  PROMPT_CLASSIFY_IDEA,
+  PROMPT_FRAMEWORK_UPDATE,
+  PROMPT_GATE_VALIDATOR,
+  PROMPT_HUMAN_REFLECTION,
+  PROMPT_LESSON_EXTRACTOR,
+  PROMPT_PROCESS_SUMMARY,
+  PROMPT_SCORE_CALIBRATION,
+  PROMPT_SCRIPT_FRAMES,
+  PROMPT_REGENERATE_LINE,
+  PROMPT_SEO_INJECTOR,
+  PROMPT_SYNTHESIZE_IDEAS,
+  PROMPT_THEME_GENERATOR,
+  PROMPT_ANALYTICS_INSIGHT,
+  PROMPT_VALIDATE_SCRIPT_EVIDENCE,
+} from './prompts';
+import {
+  SCORING_SCHEMES,
+  computeFrameScore,
+  estimateSchemeForEpisode,
+  getScheme,
+  schemeSummary,
+  schemeWeightsForPrompt,
+} from './scoringSchemes';
+
+export type AiCall = (prompt: string, systemPrompt: string, maxTokens?: number) => Promise<string>;
+
+const JSON_SYSTEM = 'You are a precise JSON generator. You ALWAYS respond with valid JSON only.';
+
+function now() {
+  return new Date().toISOString();
+}
+
+export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
+  ensureTables(db);
+  seedBuiltins(db);
+
+  // ── process timeline (auto-logged on every AI call / user action) ──
+  function logEvent(episodeId: number | null | undefined, eventType: string, label?: string, detail?: any) {
+    if (!episodeId) return;
+    try {
+      db.prepare('INSERT INTO process_timeline (episode_id, event_type, label, detail) VALUES (?,?,?,?)').run(
+        episodeId,
+        eventType,
+        label || null,
+        detail ? JSON.stringify(detail) : null
+      );
+    } catch {
+      /* timeline logging must never break the flow */
+    }
+  }
+
+  // ── script input composition: framework rules + lessons + reflection patterns ──
+  function buildScriptInput(episodeId?: number | null, idea?: any, ep?: any) {
+    const frameworks = db.prepare('SELECT * FROM content_frameworks WHERE is_active=1 ORDER BY is_builtin DESC, name ASC').all();
+    const fwRules = frameworks.flatMap((f: any) => {
+      const rules = safeJson(f.rules, []);
+      return rules.map((r: any) => `[${f.name}] ${r.rule}`);
+    });
+    const lessons = db
+      .prepare('SELECT * FROM content_lessons WHERE status=? ORDER BY confidence DESC LIMIT 10')
+      .all('active')
+      .map((l: any) => `[${l.applies_to || 'general'}] ${l.lesson} (confidence ${l.confidence})`);
+    let reflections: string[] = [];
+    if (episodeId) {
+      const reflRows = db.prepare('SELECT analysis FROM video_reflections WHERE episode_id=? ORDER BY created_at DESC LIMIT 3').all(episodeId);
+      reflections = reflRows.flatMap((r: any) => {
+        const a = safeJson(r.analysis, null);
+        if (!a) return [];
+        return [a.extracted_pattern, a.suggested_lesson?.lesson].filter(Boolean);
+      });
+    }
+    return {
+      framework_rules: fwRules.length ? fwRules.join('\n') : '(no framework rules yet — use the 3-Cs and value-loop criteria)',
+      lessons: lessons.length ? lessons.join('\n') : '(no proven lessons yet)',
+      reflection_patterns: reflections.length ? reflections.join('\n') : '(none yet)',
+    };
+  }
+
+  // ── Ideas ────────────────────────────────────────────────
+  ipcMain.handle('content:ideas:list', async () => {
+    const rows = db.prepare('SELECT * FROM content_ideas ORDER BY updated_at DESC').all();
+    return rows.map(mapIdea);
+  });
+  ipcMain.handle('content:ideas:save', async (_, idea: any) => {
+    const ts = now();
+    if (idea.id) {
+      db.prepare(
+        `UPDATE content_ideas SET title=?, hook=?, format_type=?, status=?, priority=?, series=?, niche=?, frames=?, synthesized_from=?, gates=?, updated_at=? WHERE id=?`
+      ).run(
+        idea.title,
+        idea.hook || null,
+        idea.format_type || 'listicle',
+        idea.status || 'raw',
+        idea.priority ?? 3,
+        idea.series || null,
+        idea.niche || null,
+        JSON.stringify(idea.frames || []),
+        JSON.stringify(idea.synthesized_from || []),
+        JSON.stringify(idea.gates || null),
+        ts,
+        idea.id
+      );
+      return { ok: true, id: idea.id };
+    }
+    const info = db
+      .prepare(
+        `INSERT INTO content_ideas (title, hook, format_type, status, priority, series, niche, frames, synthesized_from, gates, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        idea.title,
+        idea.hook || null,
+        idea.format_type || 'listicle',
+        idea.status || 'raw',
+        idea.priority ?? 3,
+        idea.series || null,
+        idea.niche || null,
+        JSON.stringify(idea.frames || []),
+        JSON.stringify(idea.synthesized_from || []),
+        JSON.stringify(idea.gates || null),
+        ts,
+        ts
+      );
+    return { ok: true, id: info.lastInsertRowid };
+  });
+  ipcMain.handle('content:ideas:delete', async (_, id: number) => {
+    db.prepare('DELETE FROM content_ideas WHERE id=?').run(id);
+    return { ok: true };
+  });
+
+  // ── Episodes ─────────────────────────────────────────────
+  ipcMain.handle('content:episodes:list', async (_, { ideaId }: any = {}) => {
+    const rows = ideaId
+      ? db.prepare('SELECT * FROM content_episodes WHERE idea_id=? ORDER BY updated_at DESC').all(ideaId)
+      : db.prepare('SELECT * FROM content_episodes ORDER BY updated_at DESC').all();
+    return rows.map(mapEpisode);
+  });
+  ipcMain.handle('content:episodes:get', async (_, id: number) => {
+    const row = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(id);
+    return row ? mapEpisode(row) : null;
+  });
+  ipcMain.handle('content:episodes:save', async (_, ep: any) => {
+    const ts = now();
+    if (ep.id) {
+      db.prepare(
+        `UPDATE content_episodes SET title=?, idea_id=?, theme_id=?, status=?, niche=?, script=?, seo=?, gates=?, gate_override=?, scheme_id=?, published_at=?, updated_at=? WHERE id=?`
+      ).run(
+        ep.title,
+        ep.idea_id || null,
+        ep.theme_id || null,
+        ep.status || 'draft',
+        ep.niche || null,
+        JSON.stringify(ep.script || []),
+        JSON.stringify(ep.seo || null),
+        JSON.stringify(ep.gates || null),
+        ep.gate_override ? 1 : 0,
+        ep.scheme_id || getScheme(ep.scheme_id).id,
+        ep.published_at || null,
+        ts,
+        ep.id
+      );
+      if (ep.status === 'published' && ep.published_at) logEvent(ep.id, 'published', `Published: ${ep.title}`);
+      return { ok: true, id: ep.id };
+    }
+    const info = db
+      .prepare(
+        `INSERT INTO content_episodes (title, idea_id, theme_id, status, niche, script, seo, gates, gate_override, scheme_id, published_at, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        ep.title,
+        ep.idea_id || null,
+        ep.theme_id || null,
+        ep.status || 'draft',
+        ep.niche || null,
+        JSON.stringify(ep.script || []),
+        JSON.stringify(ep.seo || null),
+        JSON.stringify(ep.gates || null),
+        ep.gate_override ? 1 : 0,
+        ep.scheme_id || getScheme(ep.scheme_id).id,
+        ep.published_at || null,
+        ts,
+        ts
+      );
+    const newId = info.lastInsertRowid;
+    logEvent(Number(newId), 'episode_created', `Episode created: ${ep.title}`);
+    return { ok: true, id: newId };
+  });
+  ipcMain.handle('content:episodes:delete', async (_, id: number) => {
+    db.prepare('DELETE FROM content_episodes WHERE id=?').run(id);
+    return { ok: true };
+  });
+
+  // ── Script generation (frames + retention evidence) ──────
+  ipcMain.handle('content:script:generate', async (_, { episodeId, ideaId, schemeId }: any) => {
+    let idea: any = null;
+    let ep: any = null;
+    if (episodeId) ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    if (ideaId || (ep && ep.idea_id)) {
+      idea = db.prepare('SELECT * FROM content_ideas WHERE id=?').get(ideaId || ep.idea_id);
+    }
+    const niche = (idea?.niche || ep?.niche || 'general') as string;
+    const format = idea?.format_type || 'listicle';
+    const title = idea?.title || ep?.title || 'Untitled idea';
+    const hook = idea?.hook || '';
+    const framesPlan = idea?.frames || [];
+    const ideaText = JSON.stringify({ title, hook, format_type: format, frames_plan: framesPlan });
+
+    // Dynamic scheme: explicit > episode > maturity estimate from published videos.
+    let scheme = getScheme(schemeId || ep?.scheme_id);
+    if (!schemeId && !ep?.scheme_id) {
+      const stats = db.prepare('SELECT COUNT(*) c, AVG(views) avg_views FROM content_videos').get() as any;
+      scheme = estimateSchemeForEpisode({ videoCount: stats?.c || 0, avgViews: stats?.avg_views || 0 });
+    }
+    const composed = buildScriptInput(episodeId || ep?.id, idea, ep);
+
+    const res = await parseAiJson<any>(
+      PROMPT_SCRIPT_FRAMES
+        .replace('{{format_type}}', format)
+        .replace('{{niche}}', niche)
+        .replace('{{duration}}', scheme.duration)
+        .replace('{{scheme_weights}}', schemeWeightsForPrompt(scheme))
+        .replace('{{framework_rules}}', composed.framework_rules)
+        .replace('{{lessons}}', composed.lessons)
+        .replace('{{reflection_patterns}}', composed.reflection_patterns)
+        .replace('{{idea}}', ideaText),
+      { required: ['frames'], arrayAt: 'frames' },
+      (p, s) => aiCall(p, s, 4000),
+      contentEngineSystem(scheme)
+    );
+    if (!res.ok) return { ok: false, error: `Script generation failed: ${res.error}` };
+
+    const frames = res.data.frames.map((f: any, i: number) => ({
+      ...f,
+      index: i,
+      timestamp: f.timestamp || fmtTs(i),
+      rejected: false,
+      rejection_reasons: [],
+    }));
+
+    // Auto gate-check the generated script
+    const gates = await runGateCheck(ideaText, frames);
+    const epId = episodeId || ep?.id;
+    if (epId) {
+      db.prepare('UPDATE content_episodes SET script=?, gates=?, status=?, scheme_id=?, updated_at=? WHERE id=?').run(
+        JSON.stringify(frames),
+        JSON.stringify(gates),
+        gates.overall === 'pass' ? 'scripted' : 'gated',
+        scheme.id,
+        now(),
+        epId
+      );
+      logEvent(epId, 'script_generated', `Script generated (${scheme.name}, ${frames.length} frames)`, { scheme_id: scheme.id, frames: frames.length });
+    }
+    return { ok: true, frames, gates, scheme: { id: scheme.id, name: scheme.name, tier: scheme.tier } };
+  });
+
+  ipcMain.handle('content:script:regenerate-line', async (_, { episodeId, frameIndex, instruction }: any) => {
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const script = JSON.parse(ep.script || '[]');
+    const frame = script[frameIndex];
+    if (!frame) return { ok: false, error: 'Frame not found' };
+
+    const retentionRules = `Retention criteria (version ${RETENTION_RUBRIC.version}, threshold ${RETENTION_RUBRIC.threshold}): ${RETENTION_RUBRIC.criteria
+      .map((c) => `${c.name} [${c.id}] (NON-NEGOTIABLE: ${c.non_negotiable}) — ${c.definition}`)
+      .join('; ')}. Evidence rule: every frame must prove which criteria its exact wording satisfies. ${RETENTION_RUBRIC.nonNegotiableRule}`;
+    const res = await parseAiJson<any>(
+      PROMPT_REGENERATE_LINE
+        .replace('{{score}}', String(frame.retention?.score ?? 0))
+        .replace('{{threshold}}', String(RETENTION_RUBRIC.threshold))
+        .replace('{{retention_rules}}', retentionRules)
+        .replace('{{frame}}', JSON.stringify(frame))
+        .replace('{{instruction}}', instruction || 'Make it stronger'),
+      { required: ['text', 'retention'] },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Regeneration failed: ${res.error}` };
+
+    const updated = { ...frame, ...res.data, index: frameIndex, timestamp: frame.timestamp, rejected: false, rejection_reasons: [] };
+    script[frameIndex] = updated;
+    db.prepare('UPDATE content_episodes SET script=?, updated_at=? WHERE id=?').run(JSON.stringify(script), now(), episodeId);
+    logEvent(episodeId, 'bullet_regenerated', `Frame ${frameIndex + 1} regenerated`, { instruction: instruction || 'Make it stronger' });
+    return { ok: true, frame: updated };
+  });
+
+  ipcMain.handle('content:validate-script-evidence', async (_, { episodeId }: any) => {
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const script = JSON.parse(ep.script || '[]');
+    if (!script.length) return { ok: false, error: 'No script yet — generate one first' };
+
+    const res = await parseAiJson<any>(
+      PROMPT_VALIDATE_SCRIPT_EVIDENCE
+        .replace('{{valid_ids}}', RETENTION_CRITERIA_IDS.join(', '))
+        .replace('{{threshold}}', String(RETENTION_RUBRIC.threshold))
+        .replace('{{non_negotiable}}', NON_NEGOTIABLE_IDS.join(', '))
+        .replace('{{frames}}', JSON.stringify(script)),
+      { required: ['frames'], arrayAt: 'frames' },
+      (p, s) => aiCall(p, s, 3000)
+    );
+    if (!res.ok) return { ok: false, error: `Evidence validation failed: ${res.error}` };
+
+    const results = res.data.frames;
+    let failed = 0;
+    for (const r of results) {
+      if (r.pass && r.retention && script[r.index]) {
+        script[r.index] = { ...script[r.index], retention: r.retention, rejected: false, rejection_reasons: [] };
+      } else if (!r.pass && script[r.index]) {
+        failed++;
+        script[r.index] = {
+          ...script[r.index],
+          rejected: true,
+          rejection_reasons: Array.isArray(script[r.index].rejection_reasons)
+            ? [...script[r.index].rejection_reasons, r.reason || 'Evidence validation failed']
+            : [r.reason || 'Evidence validation failed'],
+        };
+      }
+    }
+    db.prepare('UPDATE content_episodes SET script=?, updated_at=? WHERE id=?').run(JSON.stringify(script), now(), episodeId);
+    logEvent(episodeId, 'evidence_validated', `${res.data.summary?.passed ?? 0}/${res.data.summary?.total ?? results.length} frames passed`, { failed });
+    return { ok: true, results, script };
+  });
+
+  // ── 3-Gate validator + override ──────────────────────────
+  async function runGateCheck(ideaText: string, frames: any[] = []) {
+    try {
+      const res = await parseAiJson<any>(
+        PROMPT_GATE_VALIDATOR.replace('{{idea}}', JSON.stringify({ idea: ideaText, frames })),
+        { required: ['scroll_stop', 'hard_cut', 'asset_ready', 'overall'] },
+        (p, s) => aiCall(p, s, 2000)
+      );
+      if (res.ok) return { ...res.data, checked_at: now() };
+    } catch (e) {
+      // fall through to heuristic check
+    }
+    return {
+      scroll_stop: { pass: !!(ideaText && ideaText.length > 0), reason: 'heuristic: hook present' },
+      hard_cut: { pass: frames.length >= 1, reason: 'heuristic: frames exist' },
+      asset_ready: { pass: true, reason: 'heuristic: assume available' },
+      overall: frames.length >= 1 && !!ideaText ? 'pass' : 'fail',
+      suggestions: [],
+      checked_at: now(),
+    };
+  }
+
+  ipcMain.handle('content:validate-gates', async (_, { ideaId, episodeId }: any) => {
+    let idea: any = null;
+    let ep: any = null;
+    if (ideaId) idea = db.prepare('SELECT * FROM content_ideas WHERE id=?').get(ideaId);
+    if (episodeId) ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    const ideaText = idea ? JSON.stringify({ title: idea.title, hook: idea.hook, frames: idea.frames }) : JSON.stringify({ title: ep?.title, frames: JSON.parse(ep?.script || '[]') });
+    const gates = await runGateCheck(ideaText, JSON.parse(ep?.script || '[]'));
+    if (idea) {
+      db.prepare('UPDATE content_ideas SET gates=?, updated_at=? WHERE id=?').run(JSON.stringify(gates), now(), idea.id);
+    }
+    if (ep) {
+      db.prepare('UPDATE content_episodes SET gates=?, updated_at=? WHERE id=?').run(JSON.stringify(gates), now(), ep.id);
+    }
+    return { ok: true, gates };
+  });
+  ipcMain.handle('content:gate-override', async (_, { episodeId, override }: any) => {
+    db.prepare('UPDATE content_episodes SET gate_override=?, status=?, updated_at=? WHERE id=?').run(
+      override ? 1 : 0,
+      override ? 'scripted' : 'gated',
+      now(),
+      episodeId
+    );
+    logEvent(episodeId, 'gate_overridden', override ? 'Gates overridden — proceeding' : 'Gate override revoked');
+    return { ok: true };
+  });
+
+  // ── SEO injector ─────────────────────────────────────────
+  ipcMain.handle('content:inject-seo', async (_, { episodeId, niche }: any) => {
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const content = (ep.script ? JSON.parse(ep.script) : []).map((f: any) => f.text).join(' ');
+    const res = await parseAiJson<any>(
+      PROMPT_SEO_INJECTOR.replace('{{niche}}', niche || ep.niche || 'general').replace('{{content}}', content),
+      { required: ['phrases'], arrayAt: 'phrases' },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `SEO generation failed: ${res.error}` };
+    db.prepare('UPDATE content_episodes SET seo=?, updated_at=? WHERE id=?').run(JSON.stringify(res.data.phrases), now(), episodeId);
+    logEvent(episodeId, 'seo_injected', `${res.data.phrases.length} SEO phrases injected`);
+    return { ok: true, phrases: res.data.phrases };
+  });
+
+  // ── Idea synthesis ───────────────────────────────────────
+  ipcMain.handle('ideas:synthesize', async (_, { note, count = 3 }: any = {}) => {
+    const raw = db
+      .prepare('SELECT title, hook, niche, series, priority FROM content_ideas WHERE status IN (?, ?) ORDER BY priority ASC LIMIT 30')
+      .all('raw', 'refined');
+    if (!raw.length) return { ok: true, ideas: [] };
+    const res = await parseAiJson<any>(
+      PROMPT_SYNTHESIZE_IDEAS
+        .replace('{{note}}', note || 'Combine the weakest raw ideas into stronger ones.')
+        .replace('{{count}}', String(count))
+        .replace('{{ideas}}', JSON.stringify(raw)),
+      { required: ['ideas'], arrayAt: 'ideas' },
+      (p, s) => aiCall(p, s, 3000)
+    );
+    if (!res.ok) return { ok: false, error: `Synthesis failed: ${res.error}` };
+    const ts = now();
+    const saved: any[] = [];
+    for (const idea of res.data.ideas) {
+      const info = db
+        .prepare(
+          `INSERT INTO content_ideas (title, hook, format_type, status, priority, series, niche, frames, synthesized_from, gates, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+        )
+        .run(
+          idea.title,
+          idea.hook || '',
+          idea.format_type || 'listicle',
+          'raw',
+          idea.priority ?? 3,
+          idea.series || null,
+          idea.niche || null,
+          JSON.stringify(idea.frames || []),
+          JSON.stringify(raw.map((r: any) => r.id)),
+          JSON.stringify(idea.gates || null),
+          ts,
+          ts
+        );
+      saved.push({ id: info.lastInsertRowid, ...idea });
+    }
+    return { ok: true, ideas: saved };
+  });
+
+  // ── Brainstorm classification ────────────────────────────
+  ipcMain.handle('content:brainstorm:classify', async (_, { thought }: any) => {
+    if (!thought || !thought.trim()) return { ok: false, error: 'Empty thought' };
+    try {
+      const res = await parseAiJson<any>(
+        PROMPT_CLASSIFY_IDEA.replace('{{thought}}', thought),
+        { required: ['category'] },
+        (p, s) => aiCall(p, s, 800)
+      );
+      if (res.ok) return { ok: true, ...res.data };
+    } catch {
+      /* fall through to local heuristic */
+    }
+    const heuristic = /^(how|why|what|best|worst|top|never|always|secret|tips|mistake|i tried|i tested)\b/i.test(thought.trim())
+      ? 'content_idea'
+      : 'general_thought';
+    return { ok: true, category: heuristic, reason: 'local heuristic fallback (no AI provider)' };
+  });
+
+  // ── Themes ────────────────────────────────────────────────
+  ipcMain.handle('themes:create', async (_, theme: any) => {
+    const info = db
+      .prepare('INSERT INTO themes (name, description, accent_color, icon, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)')
+      .run(
+        theme.name,
+        theme.description || '',
+        theme.accent_color || '#f5c518',
+        theme.icon || 'Palette',
+        theme.status || 'active',
+        now(),
+        now()
+      );
+    return { ok: true, id: info.lastInsertRowid };
+  });
+  ipcMain.handle('themes:generate', async (_, { note }: any = {}) => {
+    const res = await parseAiJson<any>(
+      PROMPT_THEME_GENERATOR.replace('{{note}}', note || ''),
+      { required: ['name', 'audience', 'content_hooks'], arrayAt: 'content_hooks' },
+      (p, s) => aiCall(p, s, 2500)
+    );
+    if (!res.ok) return { ok: false, error: `Theme generation failed: ${res.error}` };
+    const info = db
+      .prepare('INSERT INTO themes (name, description, accent_color, icon, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)')
+      .run(
+        res.data.name,
+        res.data.description || '',
+        res.data.suggested_accent_color || '#f5c518',
+        'Palette',
+        'active',
+        now(),
+        now()
+      );
+    return { ok: true, id: info.lastInsertRowid, theme: res.data };
+  });
+  ipcMain.handle('themes:get-all', async () => {
+    return db.prepare('SELECT * FROM themes ORDER BY created_at DESC').all().map(mapTheme);
+  });
+  ipcMain.handle('themes:apply', async (_, { themeId, episodeId }: any) => {
+    db.prepare('UPDATE content_episodes SET theme_id=? WHERE id=?').run(themeId, episodeId);
+    return { ok: true };
+  });
+  ipcMain.handle('themes:delete', async (_, id: number) => {
+    db.prepare('DELETE FROM themes WHERE id=?').run(id);
+    return { ok: true };
+  });
+
+  // ── Analytics (video performance + learning loop) ────────
+  ipcMain.handle('content:analytics:get', async (_, { episodeId }: any = {}) => {
+    const videos = episodeId
+      ? db.prepare('SELECT * FROM content_videos WHERE episode_id=? ORDER BY published_at DESC').all(episodeId)
+      : db.prepare('SELECT * FROM content_videos ORDER BY published_at DESC').all();
+    const mapped = videos.map(mapVideo);
+    const lessons = db.prepare('SELECT * FROM content_lessons ORDER BY created_at DESC').all().map(mapLesson);
+    const agg = aggregateVideos(mapped);
+    return { ok: true, videos: mapped, lessons, aggregate: agg };
+  });
+  ipcMain.handle('content:analytics:upsert-video', async (_, v: any) => {
+    const ts = now();
+    if (v.id) {
+      db.prepare(
+        `UPDATE content_videos SET episode_id=?, platform=?, url=?, title=?, views=?, likes=?, saves=?, shares=?, comments=?, completion_pct=?, retention_curve=?, audience=?, dropoffs=?, published_at=?, fetched_at=? WHERE id=?`
+      ).run(
+        v.episode_id || null,
+        v.platform || 'tiktok',
+        v.url || null,
+        v.title || '',
+        v.views ?? 0,
+        v.likes ?? 0,
+        v.saves ?? 0,
+        v.shares ?? 0,
+        v.comments ?? 0,
+        v.completion_pct ?? null,
+        JSON.stringify(v.retention_curve || []),
+        JSON.stringify(v.audience || null),
+        JSON.stringify(v.dropoffs || []),
+        v.published_at || null,
+        ts,
+        v.id
+      );
+      if (v.imported) logEvent(v.episode_id, 'analytics_imported', `Analytics imported for ${v.platform || 'video'}`, { views: v.views });
+      return { ok: true, id: v.id };
+    }
+    const info = db
+      .prepare(
+        `INSERT INTO content_videos (episode_id, platform, url, title, views, likes, saves, shares, comments, completion_pct, retention_curve, audience, dropoffs, published_at, fetched_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+      )
+      .run(
+        v.episode_id || null,
+        v.platform || 'tiktok',
+        v.url || null,
+        v.title || '',
+        v.views ?? 0,
+        v.likes ?? 0,
+        v.saves ?? 0,
+        v.shares ?? 0,
+        v.comments ?? 0,
+        v.completion_pct ?? null,
+        JSON.stringify(v.retention_curve || []),
+        JSON.stringify(v.audience || null),
+        JSON.stringify(v.dropoffs || []),
+        v.published_at || null,
+        ts
+      );
+    if (v.imported) logEvent(v.episode_id, 'analytics_imported', `Analytics imported for ${v.platform || 'video'}`, { views: v.views });
+    return { ok: true, id: info.lastInsertRowid };
+  });
+  ipcMain.handle('content:analytics:delete-video', async (_, id: number) => {
+    db.prepare('DELETE FROM content_videos WHERE id=?').run(id);
+    return { ok: true };
+  });
+  ipcMain.handle('content:analytics:insight', async (_, { episodeId }: any = {}) => {
+    const res = await callAnalytics(episodeId);
+    if (!res.ok) return res;
+    const { mapped } = res;
+    const data = mapped.length
+      ? mapped.map((v: any) => ({
+          title: v.title,
+          views: v.views,
+          likes: v.likes,
+          saves: v.saves,
+          shares: v.shares,
+          completion_pct: v.completion_pct,
+          audience: v.audience,
+          retention_curve: v.retention_curve,
+          dropoffs: v.dropoffs,
+        }))
+      : [{ note: 'no published videos yet' }];
+    const out = await parseAiJson<any>(
+      PROMPT_ANALYTICS_INSIGHT.replace('{{data}}', JSON.stringify(data)),
+      { required: ['insights'], arrayAt: 'insights', allowEmpty: true },
+      (p, s) => aiCall(p, s, 3000)
+    );
+    if (!out.ok) return { ok: false, error: `Insight generation failed: ${out.error}` };
+    return { ok: true, insights: out.data.insights, verdict: out.data.verdict || '' };
+  });
+
+  // ── Lessons (learning loop) ──────────────────────────────
+  ipcMain.handle('content:lessons:list', async () => {
+    return db.prepare('SELECT * FROM content_lessons ORDER BY created_at DESC').all().map(mapLesson);
+  });
+  ipcMain.handle('content:lessons:save', async (_, lesson: any) => {
+    const info = db
+      .prepare('INSERT INTO content_lessons (video_id, episode_id, lesson, evidence, confidence, applies_to, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
+      .run(
+        lesson.video_id || null,
+        lesson.episode_id || null,
+        lesson.lesson,
+        JSON.stringify(lesson.evidence || []),
+        lesson.confidence ?? 0.5,
+        lesson.applies_to || null,
+        lesson.status || 'active',
+        now()
+      );
+    return { ok: true, id: info.lastInsertRowid };
+  });
+  ipcMain.handle('content:lessons:delete', async (_, id: number) => {
+    db.prepare('DELETE FROM content_lessons WHERE id=?').run(id);
+    return { ok: true };
+  });
+  ipcMain.handle('content:lessons:extract', async (_, { videoId }: any) => {
+    const v = db.prepare('SELECT * FROM content_videos WHERE id=?').get(videoId);
+    if (!v) return { ok: false, error: 'Video not found' };
+    const data = mapVideo(v);
+    const res = await parseAiJson<any>(
+      PROMPT_LESSON_EXTRACTOR.replace(
+        '{{data}}',
+        JSON.stringify({ title: data.title, views: data.views, likes: data.likes, saves: data.saves, completion_pct: data.completion_pct, retention_curve: data.retention_curve, audience: data.audience })
+      ),
+      { required: ['lessons'], arrayAt: 'lessons', allowEmpty: true },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Lesson extraction failed: ${res.error}` };
+    const saved: any[] = [];
+    for (const l of res.data.lessons) {
+      const info = db
+        .prepare('INSERT INTO content_lessons (video_id, episode_id, lesson, evidence, confidence, applies_to, status, created_at) VALUES (?,?,?,?,?,?,?,?)')
+        .run(videoId, data.episode_id || null, l.lesson, JSON.stringify(l.evidence || []), l.confidence ?? 0.5, l.applies_to || null, 'active', now());
+      saved.push({ id: info.lastInsertRowid, ...l });
+    }
+    logEvent(data.episode_id, 'lesson_extracted', `${saved.length} lessons extracted from video data`, { video_id: videoId });
+    return { ok: true, lessons: saved };
+  });
+
+  // ── Lesson confirm / dismiss (learning loop) ─────────────
+  ipcMain.handle('content:lessons:confirm', async (_, { lessonId, confirm }: any) => {
+    const lesson = db.prepare('SELECT * FROM content_lessons WHERE id=?').get(lessonId);
+    if (!lesson) return { ok: false, error: 'Lesson not found' };
+    if (!confirm) {
+      db.prepare('UPDATE content_lessons SET status=? WHERE id=?').run('dismissed', lessonId);
+      return { ok: true, promoted: false, status: 'dismissed' };
+    }
+    db.prepare('UPDATE content_lessons SET status=? WHERE id=?').run('confirmed', lessonId);
+    // Auto-promotion: a confirmed lesson with confidence >= 0.8 becomes a framework rule.
+    if ((lesson.confidence ?? 0.5) >= 0.8) {
+      const promoted = await promoteLessonToFramework(lesson);
+      if (promoted) {
+        logEvent(lesson.episode_id, 'framework_updated', `Lesson promoted to framework rule "${promoted.rule}"`, { lesson_id: lessonId });
+        return { ok: true, promoted: true, framework: promoted };
+      }
+    }
+    return { ok: true, promoted: false, status: 'confirmed' };
+  });
+
+  async function promoteLessonToFramework(lesson: any): Promise<any | null> {
+    try {
+      const frameworks = db.prepare('SELECT id, name, rules FROM content_frameworks ORDER BY is_builtin DESC, name ASC').all();
+      const res = await parseAiJson<any>(
+        PROMPT_FRAMEWORK_UPDATE
+          .replace('{{lesson}}', lesson.lesson)
+          .replace('{{evidence}}', JSON.stringify(safeJson(lesson.evidence, [])))
+          .replace('{{frameworks}}', JSON.stringify(frameworks.map((f: any) => ({ id: f.id, name: f.name, rules: safeJson(f.rules, []) })))),
+        { required: ['rule'] },
+        (p, s) => aiCall(p, s, 1500)
+      );
+      if (!res.ok) return null;
+      const { rule, target_framework } = res.data;
+      const target = frameworks.find((f: any) => f.name === target_framework) || frameworks.find((f: any) => f.name === 'Learned Rules');
+      if (target) {
+        const existing = db.prepare('SELECT * FROM content_frameworks WHERE id=?').get(target.id);
+        const rules = safeJson(existing.rules, []);
+        rules.push({ id: rule.id || `lr_${Date.now()}`, rule: rule.rule });
+        const history = safeJson(existing.history, []);
+        history.push({ version: existing.version, rules: rules.slice(0, -1), saved_at: now() });
+        db.prepare('UPDATE content_frameworks SET rules=?, version=version+1, history=?, updated_at=? WHERE id=?').run(
+          JSON.stringify(rules),
+          JSON.stringify(history),
+          now(),
+          target.id
+        );
+        return { rule: rule.rule, target_framework: target.name, version: existing.version + 1 };
+      }
+      const info = db
+        .prepare('INSERT INTO content_frameworks (name, description, rules, version, is_builtin, history, created_at, updated_at) VALUES (?,?,?,1,0,?,?,?)')
+        .run(target_framework || 'Learned Rules', `Auto-generated from a confirmed lesson (${lesson.lesson.slice(0, 80)})`, JSON.stringify([{ id: rule.id || `lr_${Date.now()}`, rule: rule.rule }]), JSON.stringify([]), now(), now());
+      return { rule: rule.rule, target_framework: target_framework || 'Learned Rules', version: 1, id: info.lastInsertRowid };
+    } catch {
+      return null;
+    }
+  }
+
+  // ── Frameworks (versioned script rules) ──────────────────
+  ipcMain.handle('content:frameworks:list', async () => {
+    return db.prepare('SELECT * FROM content_frameworks ORDER BY is_builtin DESC, name ASC').all().map(mapFramework);
+  });
+  ipcMain.handle('content:frameworks:save', async (_, fw: any) => {
+    const ts = now();
+    const existing = fw.id ? db.prepare('SELECT * FROM content_frameworks WHERE id=?').get(fw.id) : null;
+    if (existing) {
+      const history = JSON.parse(existing.history || '[]');
+      history.push({ version: existing.version, rules: JSON.parse(existing.rules || '[]'), saved_at: ts });
+      db.prepare('UPDATE content_frameworks SET name=?, description=?, rules=?, version=version+1, history=?, updated_at=? WHERE id=?').run(
+        fw.name,
+        fw.description || '',
+        JSON.stringify(fw.rules || []),
+        JSON.stringify(history),
+        ts,
+        fw.id
+      );
+      return { ok: true, id: fw.id, version: existing.version + 1 };
+    }
+    const info = db
+      .prepare('INSERT INTO content_frameworks (name, description, rules, version, is_builtin, history, created_at, updated_at) VALUES (?,?,?,1,0,?,?,?)')
+      .run(fw.name, fw.description || '', JSON.stringify(fw.rules || []), JSON.stringify([]), ts, ts);
+    return { ok: true, id: info.lastInsertRowid, version: 1 };
+  });
+  ipcMain.handle('content:frameworks:rollback', async (_, { id, version }: any) => {
+    const fw = db.prepare('SELECT * FROM content_frameworks WHERE id=?').get(id);
+    if (!fw) return { ok: false, error: 'Framework not found' };
+    const history = JSON.parse(fw.history || '[]');
+    const target = history.find((h: any) => h.version === version);
+    if (!target) return { ok: false, error: `Version ${version} not in history` };
+    db.prepare('UPDATE content_frameworks SET rules=?, version=?, updated_at=? WHERE id=?').run(
+      JSON.stringify(target.rules),
+      version,
+      now(),
+      id
+    );
+    return { ok: true };
+  });
+
+  // ── Brainstorm session summary ───────────────────────────
+  ipcMain.handle('content:brainstorm:summary', async (_, { note }: any = {}) => {
+    const ideas = db.prepare('SELECT title, hook, niche, priority, status FROM content_ideas ORDER BY updated_at DESC LIMIT 20').all();
+    const res = await parseAiJson<any>(
+      PROMPT_SYNTHESIZE_IDEAS.replace('{{note}}', `Session summary mode. Synthesize a 3-sentence strategy summary of the session. ${note || ''}`).replace('{{count}}', '2').replace('{{ideas}}', JSON.stringify(ideas)),
+      { required: ['ideas'], arrayAt: 'ideas', allowEmpty: true },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Summary failed: ${res.error}` };
+    return { ok: true, summary: res.data.ideas };
+  });
+
+  // ── Human reflection (Phase 3) ───────────────────────────
+  ipcMain.handle('content:reflection:save', async (_, { episodeId, videoId, reflectionText }: any) => {
+    if (!reflectionText || !reflectionText.trim()) return { ok: false, error: 'Empty reflection' };
+    const info = db
+      .prepare('INSERT INTO video_reflections (episode_id, video_id, reflection_text, created_at) VALUES (?,?,?,?)')
+      .run(episodeId || null, videoId || null, reflectionText.trim(), now());
+    logEvent(episodeId, 'human_reflection_added', 'Creator added a reflection');
+    return { ok: true, id: info.lastInsertRowid };
+  });
+  ipcMain.handle('content:reflection:get', async (_, { episodeId, videoId }: any = {}) => {
+    const rows = episodeId
+      ? db.prepare('SELECT * FROM video_reflections WHERE episode_id=? ORDER BY created_at DESC').all(episodeId)
+      : videoId
+        ? db.prepare('SELECT * FROM video_reflections WHERE video_id=? ORDER BY created_at DESC').all(videoId)
+        : db.prepare('SELECT * FROM video_reflections ORDER BY created_at DESC').all();
+    return rows.map(mapReflection);
+  });
+  ipcMain.handle('content:reflection:analyze', async (_, { reflectionId, episodeId }: any) => {
+    let refl: any = null;
+    if (reflectionId) refl = db.prepare('SELECT * FROM video_reflections WHERE id=?').get(reflectionId);
+    if (!refl && episodeId) refl = db.prepare('SELECT * FROM video_reflections WHERE episode_id=? ORDER BY created_at DESC LIMIT 1').get(episodeId);
+    if (!refl) return { ok: false, error: 'No reflection found' };
+
+    const videos = db.prepare('SELECT * FROM content_videos WHERE episode_id=? ORDER BY published_at DESC').all(refl.episode_id);
+    const data = videos.length
+      ? videos.map((v: any) => mapVideo(v)).map((v: any) => ({ title: v.title, views: v.views, completion_pct: v.completion_pct, retention_curve: v.retention_curve, saves: v.saves }))
+      : [{ note: 'no published video data yet — analysis is intuition-only' }];
+
+    const res = await parseAiJson<any>(
+      PROMPT_HUMAN_REFLECTION
+        .replace('{{reflection}}', refl.reflection_text)
+        .replace('{{data}}', JSON.stringify(data)),
+      { required: ['characteristics'], arrayAt: 'characteristics', allowEmpty: true },
+      (p, s) => aiCall(p, s, 2500)
+    );
+    if (!res.ok) return { ok: false, error: `Reflection analysis failed: ${res.error}` };
+
+    db.prepare('UPDATE video_reflections SET analysis=? WHERE id=?').run(JSON.stringify(res.data), refl.id);
+    // Persist extracted characteristics
+    if (refl.episode_id) {
+      const existing = db.prepare('SELECT * FROM video_characteristics WHERE episode_id=?').get(refl.episode_id);
+      const merged = existing ? { ...safeJson(existing.characteristics, {}) } : {};
+      for (const c of res.data.characteristics || []) merged[c.name] = c.value;
+      if (existing) {
+        db.prepare('UPDATE video_characteristics SET characteristics=?, updated_at=? WHERE episode_id=?').run(JSON.stringify(merged), now(), refl.episode_id);
+      } else {
+        db.prepare('INSERT INTO video_characteristics (episode_id, characteristics, updated_at) VALUES (?,?,?)').run(refl.episode_id, JSON.stringify(merged), now());
+      }
+    }
+    logEvent(refl.episode_id, 'reflection_analyzed', 'Reflection analyzed against objective data', { contradiction_count: res.data.contradictions?.length || 0 });
+    return { ok: true, analysis: res.data, id: refl.id };
+  });
+
+  // ── Video characteristics (persisted trait tags) ─────────
+  ipcMain.handle('content:characteristics:get', async (_, { episodeId }: any) => {
+    const row = episodeId ? db.prepare('SELECT * FROM video_characteristics WHERE episode_id=?').get(episodeId) : null;
+    return row ? { ok: true, characteristics: safeJson(row.characteristics, {}) } : { ok: true, characteristics: {} };
+  });
+  ipcMain.handle('content:characteristics:save', async (_, { episodeId, characteristics }: any) => {
+    if (!episodeId) return { ok: false, error: 'episodeId required' };
+    const existing = db.prepare('SELECT * FROM video_characteristics WHERE episode_id=?').get(episodeId);
+    if (existing) {
+      db.prepare('UPDATE video_characteristics SET characteristics=?, updated_at=? WHERE episode_id=?').run(JSON.stringify(characteristics || {}), now(), episodeId);
+    } else {
+      db.prepare('INSERT INTO video_characteristics (episode_id, characteristics, updated_at) VALUES (?,?,?)').run(episodeId, JSON.stringify(characteristics || {}), now());
+    }
+    return { ok: true };
+  });
+
+  // ── Analytics raw import (Phase 4) ───────────────────────
+  ipcMain.handle('content:analytics:parse-raw', async (_, { raw }: any) => {
+    if (!raw || !raw.trim()) return { ok: false, error: 'Empty analytics text' };
+    const res = await parseAiJson<any>(
+      PROMPT_ANALYTICS_IMPORT.replace('{{raw}}', raw.trim().slice(0, 8000)),
+      { required: ['platform'], allowEmpty: true },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Analytics parse failed: ${res.error}` };
+    return { ok: true, candidate: res.data };
+  });
+
+  // ── Scoring schemes (Phase 2/4) ──────────────────────────
+  ipcMain.handle('content:scoring:schemes', async () => {
+    const rows = db.prepare('SELECT * FROM scoring_schemes WHERE is_active=1 ORDER BY tier ASC').all();
+    return {
+      ok: true,
+      schemes: rows.map((r: any) => ({ id: r.scheme_id, name: r.name, tier: r.tier, description: r.description, weights: safeJson(r.weights, {}) })),
+      rubric_version: RETENTION_RUBRIC.version,
+      threshold: RETENTION_RUBRIC.threshold,
+    };
+  });
+  ipcMain.handle('content:scoring:current', async (_, { episodeId }: any) => {
+    const ep = episodeId ? db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId) : null;
+    const scheme = getScheme(ep?.scheme_id);
+    const script = safeJson(ep?.script, []);
+    const breakdown = script.map((f: any) => ({
+      index: f.index,
+      text: f.text,
+      score: f.retention?.score ?? 0,
+      weighted: computeFrameScore(f, scheme).weighted,
+      rejected: !!f.rejected || computeFrameScore(f, scheme).rejected,
+      nonNegotiableFails: computeFrameScore(f, scheme).nonNegotiableFails,
+      criteria: f.retention?.criteria || [],
+    }));
+    const avg = breakdown.length ? breakdown.reduce((a: number, b: any) => a + b.weighted, 0) / breakdown.length : 0;
+    return {
+      ok: true,
+      scheme: { id: scheme.id, name: scheme.name, tier: scheme.tier, description: scheme.description, weights: scheme.weights, duration: scheme.duration },
+      breakdown,
+      average: Math.round(avg * 100) / 100,
+      threshold: RETENTION_RUBRIC.threshold,
+      version: RETENTION_RUBRIC.version,
+    };
+  });
+  ipcMain.handle('content:scoring:calibrate', async (_, { episodeId }: any) => {
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const videos = db.prepare('SELECT * FROM content_videos WHERE episode_id=? ORDER BY published_at DESC').all(episodeId);
+    if (!videos.length) return { ok: false, error: 'No published video data to calibrate against' };
+    const scheme = getScheme(ep.scheme_id);
+    const script = safeJson(ep.script, []);
+    const predictions = script.map((f: any) => ({ index: f.index, criteria: f.retention?.criteria || [], score: f.retention?.score ?? 0 }));
+    const actual = videos.map((v: any) => mapVideo(v)).map((v: any) => ({ title: v.title, views: v.views, completion_pct: v.completion_pct, retention_curve: v.retention_curve, saves: v.saves, likes: v.likes }));
+
+    const res = await parseAiJson<any>(
+      PROMPT_SCORE_CALIBRATION
+        .replace('{{predictions}}', JSON.stringify(predictions))
+        .replace('{{actual}}', JSON.stringify(actual)),
+      { required: ['accuracy', 'per_criterion'], arrayAt: 'per_criterion', allowEmpty: true },
+      (p, s) => aiCall(p, s, 2500)
+    );
+    if (!res.ok) return { ok: false, error: `Calibration failed: ${res.error}` };
+
+    db.prepare(
+      'INSERT INTO score_calibrations (episode_id, scheme_id, accuracy, per_criterion, predictions, actual, recommendations, created_at) VALUES (?,?,?,?,?,?,?,?)'
+    ).run(
+      episodeId,
+      scheme.id,
+      res.data.accuracy ?? 0,
+      JSON.stringify(res.data.per_criterion || []),
+      JSON.stringify(predictions),
+      JSON.stringify(actual),
+      JSON.stringify(res.data.recommendations || []),
+      now()
+    );
+    logEvent(episodeId, 'calibration_run', `Calibration accuracy ${Math.round((res.data.accuracy ?? 0) * 100)}%`);
+    return { ok: true, calibration: res.data };
+  });
+
+  // ── Process timeline (Phase 3/5) ─────────────────────────
+  ipcMain.handle('content:process:timeline', async (_, { episodeId }: any = {}) => {
+    const rows = episodeId
+      ? db.prepare('SELECT * FROM process_timeline WHERE episode_id=? ORDER BY created_at ASC, id ASC').all(episodeId)
+      : db.prepare('SELECT * FROM process_timeline ORDER BY created_at ASC, id ASC').all();
+    return rows.map(mapTimelineEvent);
+  });
+  ipcMain.handle('content:process:log', async (_, { episodeId, eventType, label, detail }: any) => {
+    if (!episodeId || !eventType) return { ok: false, error: 'episodeId and eventType required' };
+    logEvent(episodeId, eventType, label, detail);
+    return { ok: true };
+  });
+  ipcMain.handle('content:process:summary', async (_, { episodeId }: any) => {
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId);
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const events = db.prepare('SELECT * FROM process_timeline WHERE episode_id=? ORDER BY created_at ASC, id ASC').all(episodeId).map(mapTimelineEvent);
+    if (!events.length) return { ok: false, error: 'No process events yet — work on this episode first' };
+
+    const res = await parseAiJson<any>(
+      PROMPT_PROCESS_SUMMARY.replace('{{events}}', JSON.stringify(events)),
+      { required: ['title', 'narrative'] },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Process summary failed: ${res.error}` };
+    logEvent(episodeId, 'process_complete', `Process complete — ${res.data.title}`);
+    return { ok: true, summary: res.data, events };
+  });
+  ipcMain.handle('content:process:gallery', async () => {
+    const eps = db.prepare('SELECT * FROM content_episodes ORDER BY updated_at DESC').all();
+    const items = eps.map((ep: any) => {
+      const events = db.prepare('SELECT * FROM process_timeline WHERE episode_id=? ORDER BY created_at ASC, id ASC').all(ep.id);
+      const videos = db.prepare('SELECT * FROM content_videos WHERE episode_id=? ORDER BY published_at DESC').all(ep.id);
+      const lessons = db.prepare('SELECT * FROM content_lessons WHERE episode_id=? AND status=?').all(ep.id, 'confirmed');
+      const aiCalls = events.filter((e: any) => /script_generated|bullet_regenerated|evidence_validated|seo_injected|lesson_extracted|reflection_analyzed|calibration_run|process_complete/.test(e.event_type)).length;
+      const pivots = events.filter((e: any) => /bullet_regenerated|gate_overridden/.test(e.event_type)).length;
+      const durationMin = events.length ? Math.max(1, Math.round((Date.now() - new Date(events[0].created_at).getTime()) / 60000)) : 0;
+      const score = videos.length ? Math.round((videos.reduce((a: number, v: any) => a + (v.completion_pct || 0), 0) / videos.length) * 100) : null;
+      return {
+        episode_id: ep.id,
+        title: ep.title,
+        status: ep.status,
+        steps: events.length,
+        ai_calls: aiCalls,
+        pivots,
+        duration_min: durationMin,
+        score,
+        views: videos.reduce((a: number, v: any) => a + (v.views || 0), 0),
+        lessons: lessons.length,
+        lesson_text: lessons[0]?.lesson || null,
+        updated_at: ep.updated_at,
+        scheme_id: ep.scheme_id || 'audience_builder',
+      };
+    });
+    return items;
+  });
+
+  // ── helpers ──────────────────────────────────────────────
+  async function callAnalytics(episodeId?: number) {
+    const videos = episodeId
+      ? db.prepare('SELECT * FROM content_videos WHERE episode_id=? ORDER BY published_at DESC').all(episodeId)
+      : db.prepare('SELECT * FROM content_videos ORDER BY published_at DESC').all();
+    return { ok: true, mapped: videos.map(mapVideo) };
+  }
+
+  console.log(`[ContentEngine] v2.0.0 registered — ${RETENTION_RUBRIC.criteria.length} criteria (${NON_NEGOTIABLE_IDS.length} non-negotiable), ${SCORING_SCHEMES.length} schemes, 5 new tables (timeline/reflections/characteristics/calibrations/schemes)`);
+}
+
+// ── schema ─────────────────────────────────────────────────
+function ensureTables(db: any) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS content_ideas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      hook TEXT,
+      format_type TEXT DEFAULT 'listicle',
+      status TEXT DEFAULT 'raw',
+      priority INTEGER DEFAULT 3,
+      series TEXT,
+      niche TEXT,
+      frames JSON,
+      synthesized_from JSON,
+      gates JSON,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS content_episodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      idea_id INTEGER,
+      theme_id INTEGER,
+      status TEXT DEFAULT 'draft',
+      niche TEXT,
+      script JSON,
+      seo JSON,
+      gates JSON,
+      gate_override INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS themes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      accent_color TEXT DEFAULT '#f5c518',
+      icon TEXT DEFAULT 'Palette',
+      status TEXT DEFAULT 'active',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS content_frameworks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT,
+      rules JSON,
+      version INTEGER DEFAULT 1,
+      is_builtin INTEGER DEFAULT 0,
+      history JSON,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS content_videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER,
+      platform TEXT DEFAULT 'tiktok',
+      url TEXT,
+      title TEXT,
+      views INTEGER DEFAULT 0,
+      likes INTEGER DEFAULT 0,
+      saves INTEGER DEFAULT 0,
+      shares INTEGER DEFAULT 0,
+      comments INTEGER DEFAULT 0,
+      completion_pct REAL,
+      retention_curve JSON,
+      audience JSON,
+      dropoffs JSON,
+      published_at DATETIME,
+      fetched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS content_lessons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      video_id INTEGER,
+      episode_id INTEGER,
+      lesson TEXT NOT NULL,
+      evidence JSON,
+      confidence REAL DEFAULT 0.5,
+      applies_to TEXT,
+      status TEXT DEFAULT 'active',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS video_reflections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER,
+      video_id INTEGER,
+      reflection_text TEXT NOT NULL,
+      analysis JSON,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS video_characteristics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER,
+      characteristics JSON,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS process_timeline (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER,
+      event_type TEXT NOT NULL,
+      label TEXT,
+      detail JSON,
+      ai_model TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS score_calibrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER,
+      scheme_id TEXT,
+      accuracy REAL,
+      per_criterion JSON,
+      predictions JSON,
+      actual JSON,
+      recommendations JSON,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS scoring_schemes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scheme_id TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      tier TEXT,
+      description TEXT,
+      weights JSON,
+      is_active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_episodes_idea ON content_episodes(idea_id);
+    CREATE INDEX IF NOT EXISTS idx_videos_episode ON content_videos(episode_id);
+    CREATE INDEX IF NOT EXISTS idx_lessons_video ON content_lessons(video_id);
+    CREATE INDEX IF NOT EXISTS idx_timeline_episode ON process_timeline(episode_id);
+    CREATE INDEX IF NOT EXISTS idx_reflections_episode ON video_reflections(episode_id);
+  `);
+  const cols: Record<string, string[]> = {};
+  for (const t of ['content_lessons', 'content_frameworks', 'content_episodes']) {
+    cols[t] = (db.prepare(`PRAGMA table_info(${t})`).all() as any[]).map((c) => c.name);
+  }
+  if (!cols.content_lessons.includes('confidence')) db.exec(`ALTER TABLE content_lessons ADD COLUMN confidence REAL DEFAULT 0.5`);
+  if (!cols.content_lessons.includes('applies_to')) db.exec(`ALTER TABLE content_lessons ADD COLUMN applies_to TEXT`);
+  if (!cols.content_frameworks.includes('is_active')) db.exec(`ALTER TABLE content_frameworks ADD COLUMN is_active INTEGER DEFAULT 1`);
+  if (!cols.content_episodes.includes('scheme_id')) db.exec(`ALTER TABLE content_episodes ADD COLUMN scheme_id TEXT DEFAULT 'audience_builder'`);
+  if (!cols.content_episodes.includes('published_at')) db.exec(`ALTER TABLE content_episodes ADD COLUMN published_at DATETIME`);
+  if (!cols.content_episodes.includes('process')) db.exec(`ALTER TABLE content_episodes ADD COLUMN process JSON`);
+}
+
+// ── built-in frameworks (v3.0 spec) ────────────────────────
+function seedBuiltins(db: any) {
+  const count = (db.prepare('SELECT COUNT(*) c FROM content_frameworks WHERE is_builtin=1').get() as any).c;
+  if (count > 0) return;
+  const builtins = [
+    { name: 'Hook-Value Loop', description: 'Open with a hook that promises a payoff, then deliver value beats that each re-hook the viewer for the next segment.', rules: [
+      { id: 'hv1', rule: 'Every value segment ends with an unresolved teaser that re-hooks into the next segment' },
+      { id: 'hv2', rule: 'The first payoff lands within 8 seconds' },
+      { id: 'hv3', rule: 'CTA only after the final payoff' },
+    ] },
+    { name: 'Contrast Story', description: 'Show the "before" pain, then the "after" transformation — the gap keeps viewers watching for the payoff.', rules: [
+      { id: 'cs1', rule: 'Establish the pain concretely in the first 5 seconds' },
+      { id: 'cs2', rule: 'Hold back the transformation until at least 40% through' },
+      { id: 'cs3', rule: 'Make the transformation measurable (numbers, before/after)' },
+    ] },
+    { name: 'Problem → Solution Echo', description: 'State the problem, promise a solution, then echo the problem at the end to confirm the solution landed.', rules: [
+      { id: 'pe1', rule: 'First line names the exact problem the viewer feels' },
+      { id: 'pe2', rule: 'Middle delivers one solution per segment' },
+      { id: 'pe3', rule: 'Last segment re-states the problem and confirms the fix' },
+    ] },
+    { name: 'Listicle Value', description: 'Numbered value list — each item is a self-contained payoff with a mini-hook.', rules: [
+      { id: 'lv1', rule: 'Count is stated up front (3-7 items)' },
+      { id: 'lv2', rule: 'Each item opens with a mini-hook and pays off within 10 seconds' },
+      { id: 'lv3', rule: 'Order items worst → best' },
+    ] },
+    { name: 'Question-Reveal', description: 'Open with a provocative question, then reveal the answer through the body — the reveal IS the retention engine.', rules: [
+      { id: 'qr1', rule: 'The question must have stakes (what happens if you get it wrong)' },
+      { id: 'qr2', rule: 'Tease the reveal at 30% and 60% without giving it away' },
+      { id: 'qr3', rule: 'Reveal lands in the final 15%' },
+    ] },
+  ];
+  const insert = db.prepare('INSERT INTO content_frameworks (name, description, rules, version, is_builtin, history, created_at, updated_at) VALUES (?,?,?,1,1,?,?,?)');
+  const ts = now();
+  for (const b of builtins) insert.run(b.name, b.description, JSON.stringify(b.rules), JSON.stringify([]), ts, ts);
+  console.log(`[ContentEngine] seeded ${builtins.length} built-in frameworks`);
+
+  const schemeCount = (db.prepare('SELECT COUNT(*) c FROM scoring_schemes').get() as any).c;
+  if (schemeCount === 0) {
+    const sInsert = db.prepare('INSERT OR IGNORE INTO scoring_schemes (scheme_id, name, tier, description, weights, is_active) VALUES (?,?,?,?,?,1)');
+    for (const s of SCORING_SCHEMES) {
+      sInsert.run(s.id, s.name, s.tier, s.description, JSON.stringify(s.weights));
+    }
+    console.log(`[ContentEngine] seeded ${SCORING_SCHEMES.length} scoring schemes`);
+  }
+}
+
+// ── mappers ────────────────────────────────────────────────
+function mapIdea(r: any) {
+  return { ...r, frames: safeJson(r.frames), synthesized_from: safeJson(r.synthesized_from), gates: safeJson(r.gates) };
+}
+function mapEpisode(r: any) {
+  return { ...r, script: safeJson(r.script), seo: safeJson(r.seo), gates: safeJson(r.gates), gate_override: !!r.gate_override, process: safeJson(r.process, {}) };
+}
+function mapTheme(r: any) {
+  return { ...r };
+}
+function mapVideo(r: any) {
+  return {
+    ...r,
+    retention_curve: safeJson(r.retention_curve),
+    audience: safeJson(r.audience),
+    dropoffs: safeJson(r.dropoffs),
+  };
+}
+function mapLesson(r: any) {
+  return { ...r, evidence: safeJson(r.evidence) };
+}
+function mapReflection(r: any) {
+  return { ...r, analysis: safeJson(r.analysis) };
+}
+function mapTimelineEvent(r: any) {
+  return { ...r, detail: safeJson(r.detail) };
+}
+function mapFramework(r: any) {
+  return { ...r, rules: safeJson(r.rules), history: safeJson(r.history), is_builtin: !!r.is_builtin, is_active: r.is_active !== 0 };
+}
+function safeJson(v: any, fallback: any = null) {
+  if (v == null) return fallback;
+  try {
+    return JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+}
+function fmtTs(index: number) {
+  const s = index * 8;
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+function aggregateVideos(videos: any[]) {
+  if (!videos.length) return { count: 0 };
+  const sum = (k: string) => videos.reduce((a, v) => a + (v[k] || 0), 0);
+  const withRetention = videos.filter((v) => Array.isArray(v.retention_curve) && v.retention_curve.length > 0);
+  return {
+    count: videos.length,
+    views: sum('views'),
+    likes: sum('likes'),
+    saves: sum('saves'),
+    shares: sum('shares'),
+    comments: sum('comments'),
+    avgCompletion: videos.filter((v) => v.completion_pct != null).length
+      ? videos.filter((v) => v.completion_pct != null).reduce((a, v) => a + (v.completion_pct || 0), 0) / videos.filter((v) => v.completion_pct != null).length
+      : null,
+    avgRetentionCurve: withRetention.length
+      ? withRetention[0].retention_curve.map((_: any, i: number) => ({
+          t: withRetention[0].retention_curve[i].t,
+          pct: withRetention.reduce((a, v) => a + (v.retention_curve[i]?.pct || 0), 0) / withRetention.length,
+        }))
+      : [],
+  };
+}

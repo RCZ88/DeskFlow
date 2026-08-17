@@ -688,7 +688,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // ========= Actions JSON Bridge =========
   writeAgentFile: (data: { relativePath: string; content: string }) =>
     ipcRenderer.invoke('write-agent-file', data),
-  assembleContext: (data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number }) =>
+  assembleContext: (data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number; topic?: string; sessionId?: string }) =>
     ipcRenderer.invoke('assemble-context', data),
   writeAgentActions: (data: { projectPath: string; terminalId: string; actions: any[] }) =>
     ipcRenderer.invoke('write-agent-actions', data),

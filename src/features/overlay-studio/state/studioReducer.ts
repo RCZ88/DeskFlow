@@ -1,5 +1,6 @@
 import type { StudioState, StudioStage, StudioSession, ManualBridgeState, AsyncStatus } from './studioTypes'
 import type { DirectorCut } from '../../../types/overlayStudio'
+import type { VisualDigest, DetectedObject, FaceRegion, TextRegion, ShotBoundary } from '../vision/types/vision'
 
 export type StudioAction =
   | { type: 'LOAD_SESSIONS_START' } | { type: 'LOAD_SESSIONS_SUCCESS'; sessions: StudioSession[] } | { type: 'LOAD_SESSIONS_ERROR'; error: string }
@@ -8,13 +9,31 @@ export type StudioAction =
   | { type: 'SET_TRANSCRIPT'; sessionId: string; transcript: any } | { type: 'SET_CUT_PLAN'; sessionId: string; cutPlan: any } | { type: 'SET_SCENE_PLAN'; sessionId: string; scenePlan: DirectorCut }
   | { type: 'SELECT_SEGMENT'; segmentId: string } | { type: 'CLEAR_SELECTION' }
   | { type: 'TOGGLE_SEGMENT_KEEP_CUT'; segmentId: string } | { type: 'APPROVE_CUT_PLAN' } | { type: 'REJECT_CUT_PLAN' }
-  | { type: 'OPEN_BRIDGE'; mode: 'cut-plan' | 'scene-dsl' } | { type: 'SET_BRIDGE_STEP'; step: ManualBridgeState['step'] }
+  | { type: 'OPEN_BRIDGE'; mode: 'cut-plan' | 'scene-dsl' | 'visual-digest' } | { type: 'SET_BRIDGE_STEP'; step: ManualBridgeState['step'] }
   | { type: 'SET_BRIDGE_PROMPT'; prompt: string } | { type: 'SET_BRIDGE_RESPONSE'; rawResponse: string }
   | { type: 'VALIDATE_BRIDGE_SUCCESS'; checks: Array<{ rule: string; message: string; passed: boolean }> }
   | { type: 'VALIDATE_BRIDGE_ERROR'; error: string }
   | { type: 'ACCEPT_BRIDGE_RESULT' } | { type: 'CLOSE_BRIDGE' }
   | { type: 'SET_PLAYHEAD'; time: number } | { type: 'PLAY' } | { type: 'PAUSE' } | { type: 'SET_DURATION'; duration: number }
   | { type: 'TOGGLE_SAFE_ZONES' } | { type: 'TOGGLE_SIDEBAR' } | { type: 'TOGGLE_INSPECTOR' }
+  | { type: 'SET_DIGEST'; sessionId: string; digest: VisualDigest }
+  | { type: 'ADD_OBJECT'; sessionId: string; obj: DetectedObject }
+  | { type: 'REMOVE_OBJECT'; sessionId: string; objectId: string }
+  | { type: 'ADD_FACE'; sessionId: string; face: FaceRegion }
+  | { type: 'REMOVE_FACE'; sessionId: string; faceId: string }
+  | { type: 'ADD_TEXT_REGION'; sessionId: string; region: TextRegion }
+  | { type: 'REMOVE_TEXT_REGION'; sessionId: string; regionId: string }
+  | { type: 'SET_SHOTS'; sessionId: string; shots: ShotBoundary[] }
+  | { type: 'TOGGLE_PROTECTED_REGIONS' } | { type: 'TOGGLE_FACE_REGIONS' } | { type: 'TOGGLE_TEXT_REGIONS' } | { type: 'TOGGLE_OBJECT_REGIONS' }
+
+function updateSession(state: StudioState, updates: Partial<StudioSession>): StudioState {
+  return {
+    ...state,
+    sessions: state.sessions.map(s =>
+      s.id === state.activeSessionId ? { ...s, ...updates } : s
+    ),
+  }
+}
 
 export function studioReducer(state: StudioState, action: StudioAction): StudioState {
   switch (action.type) {
@@ -45,6 +64,19 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'TOGGLE_SAFE_ZONES': return { ...state, ui: { ...state.ui, showSafeZones: !state.ui.showSafeZones } }
     case 'TOGGLE_SIDEBAR': return { ...state, ui: { ...state.ui, sidebarCollapsed: !state.ui.sidebarCollapsed } }
     case 'TOGGLE_INSPECTOR': return { ...state, ui: { ...state.ui, inspectorCollapsed: !state.ui.inspectorCollapsed } }
+    // Visual analysis actions
+    case 'SET_DIGEST': return updateSession(state, { digest: action.digest })
+    case 'ADD_OBJECT': return updateSession(state, { objects: [...(state.sessions.find(s => s.id === state.activeSessionId)?.objects || []), action.obj] })
+    case 'REMOVE_OBJECT': return updateSession(state, { objects: (state.sessions.find(s => s.id === state.activeSessionId)?.objects || []).filter(o => o.id !== action.objectId) })
+    case 'ADD_FACE': return updateSession(state, { faces: [...(state.sessions.find(s => s.id === state.activeSessionId)?.faces || []), action.face] })
+    case 'REMOVE_FACE': return updateSession(state, { faces: (state.sessions.find(s => s.id === state.activeSessionId)?.faces || []).filter(f => f.id !== action.faceId) })
+    case 'ADD_TEXT_REGION': return updateSession(state, { textRegions: [...(state.sessions.find(s => s.id === state.activeSessionId)?.textRegions || []), action.region] })
+    case 'REMOVE_TEXT_REGION': return updateSession(state, { textRegions: (state.sessions.find(s => s.id === state.activeSessionId)?.textRegions || []).filter(r => r.id !== action.regionId) })
+    case 'SET_SHOTS': return updateSession(state, { shots: action.shots })
+    case 'TOGGLE_PROTECTED_REGIONS': return { ...state, ui: { ...state.ui, showProtectedRegions: !state.ui.showProtectedRegions } }
+    case 'TOGGLE_FACE_REGIONS': return { ...state, ui: { ...state.ui, showFaceRegions: !state.ui.showFaceRegions } }
+    case 'TOGGLE_TEXT_REGIONS': return { ...state, ui: { ...state.ui, showTextRegions: !state.ui.showTextRegions } }
+    case 'TOGGLE_OBJECT_REGIONS': return { ...state, ui: { ...state.ui, showObjectRegions: !state.ui.showObjectRegions } }
     default: return state
   }
 }

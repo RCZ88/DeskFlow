@@ -2147,6 +2147,19 @@ function initializeStorage() {
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool_project ON ai_usage(tool, project_path)');
         db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_tool_model ON ai_usage(tool, model)');
 
+        // AI Debug Vault — verbatim audit log of every AI interaction
+        try {
+          const { initVault } = require('./services/aiDebugVault');
+          initVault(db);
+          const { setDebugSink } = require('./services/providers/router');
+          setDebugSink((ev: any) => {
+            try { require('./services/aiDebugVault').vaultLog(ev); } catch { }
+          });
+          console.log('[DeskFlow] ✅ AI Debug Vault initialized');
+        } catch (err: any) {
+          console.error('[DeskFlow] ⚠️ AI Debug Vault init failed:', err.message);
+        }
+
         // AI Features: briefs cache
         db.exec(`
       CREATE TABLE IF NOT EXISTS ai_briefs (
@@ -2409,6 +2422,26 @@ function initializeStorage() {
         try { db.exec(`CREATE INDEX IF NOT EXISTS idx_mem_thread ON ai_chat_memories(thread_date)`); } catch (_e) {}
         try { db.exec(`CREATE INDEX IF NOT EXISTS idx_mem_category ON ai_chat_memories(category)`); } catch (_e) {}
         try { db.exec(`CREATE INDEX IF NOT EXISTS idx_mem_importance ON ai_chat_memories(importance DESC)`); } catch (_e) {}
+
+        // AI Context Captures — conversations captured from external AI services (ChatGPT, Claude, Perplexity)
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS ai_context_captures (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              provider TEXT NOT NULL,
+              messages TEXT NOT NULL,
+              url TEXT,
+              title TEXT,
+              source TEXT DEFAULT 'fetch-intercept',
+              timestamp TEXT,
+              dedup_key TEXT,
+              captured_at INTEGER DEFAULT (unixepoch() * 1000)
+            )
+        `);
+        try { db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_provider ON ai_context_captures(provider)`); } catch (_e) {}
+        try { db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_captured ON ai_context_captures(captured_at DESC)`); } catch (_e) {}
+        try { db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_dedup ON ai_context_captures(dedup_key)`); } catch (_e) {}
+        // Safe migration for existing databases
+        try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN dedup_key TEXT`); } catch (_e) {}
 
         // Memory retrieval cache (per-thread recent context)
         db.exec(`
@@ -2804,6 +2837,23 @@ function initializeStorage() {
         `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_routing_costs_timestamp ON routing_costs(timestamp)');
 
+        // Manual time assignments (user-claimed time fills for empty spans —
+        // differentiated from auto-tracked data; merged into stats like normal tracking)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS manual_time_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            ended_at TEXT NOT NULL,
+            duration_seconds INTEGER NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'custom' CHECK(mode IN ('random','custom')),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_manual_time_assignments_date ON manual_time_assignments(date)');
+        try { db.exec('ALTER TABLE manual_time_assignments ADD COLUMN app TEXT'); } catch {}
+        try { db.exec('ALTER TABLE manual_time_assignments ADD COLUMN category TEXT'); } catch {}
+
         // Goals table (AI goal tracking)
         db.exec(`
           CREATE TABLE IF NOT EXISTS goals (
@@ -2915,6 +2965,126 @@ function initializeStorage() {
           )
         `);
         db.exec('CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at)');
+        // Notes deadline migration
+        try { db.exec('ALTER TABLE notes ADD COLUMN deadline TEXT DEFAULT NULL'); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN deadline_time TEXT DEFAULT NULL'); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN reminder TEXT DEFAULT \'none\''); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT \'active\''); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN is_draft INTEGER DEFAULT 0'); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN links TEXT DEFAULT \'[]\''); } catch {}
+        try { db.exec('CREATE INDEX IF NOT EXISTS idx_notes_deadline ON notes(deadline)'); } catch {}
+        try { db.exec('CREATE INDEX IF NOT EXISTS idx_notes_is_draft ON notes(is_draft)'); } catch {}
+
+        // ========== User Context Profile (always-updating context system) ==========
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS user_context_profile (
+            id TEXT PRIMARY KEY DEFAULT 'main',
+            traits TEXT DEFAULT '{}',
+            habits TEXT DEFAULT '{}',
+            preferences TEXT DEFAULT '{}',
+            goals_pattern TEXT DEFAULT '{}',
+            activity_pattern TEXT DEFAULT '{}',
+            growth_markers TEXT DEFAULT '[]',
+            communication_style TEXT DEFAULT '{}',
+            interests TEXT DEFAULT '{}',
+            context_version INTEGER DEFAULT 1,
+            last_updated_at INTEGER,
+            created_at INTEGER
+          )
+        `);
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS user_context_signals (
+            id TEXT PRIMARY KEY,
+            signal_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL,
+            confidence REAL DEFAULT 0.5,
+            first_seen_at INTEGER,
+            last_seen_at INTEGER,
+            occurrence_count INTEGER DEFAULT 1,
+            superseded_by TEXT
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_context_signals_type ON user_context_signals(signal_type)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_context_signals_source ON user_context_signals(source)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_context_signals_last_seen ON user_context_signals(last_seen_at)');
+        // Guarded column migrations for context profile/signals (v2)
+        try { db.exec("ALTER TABLE user_context_profile ADD COLUMN summary TEXT DEFAULT ''"); } catch {}
+        try { db.exec("ALTER TABLE user_context_profile ADD COLUMN memory_highlights TEXT DEFAULT '[]'"); } catch {}
+        try { db.exec("ALTER TABLE user_context_signals ADD COLUMN source_ref TEXT"); } catch {}
+        try { db.exec("ALTER TABLE user_context_signals ADD COLUMN category TEXT"); } catch {}
+        try { db.exec("ALTER TABLE user_context_signals ADD COLUMN active INTEGER DEFAULT 1"); } catch {}
+        try { db.exec('CREATE INDEX IF NOT EXISTS idx_context_signals_active ON user_context_signals(active)'); } catch {}
+        // Extraction jobs table (async LLM enrichment)
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS context_extraction_jobs (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            started_at INTEGER,
+            completed_at INTEGER,
+            locked_at INTEGER
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_context_extraction_jobs_status ON context_extraction_jobs(status)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_context_extraction_jobs_episode ON context_extraction_jobs(episode_id)');
+
+        // ========== Context Brain System (episodes, entities, facts) ==========
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS context_episodes (
+            id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            source_ref TEXT,
+            content TEXT NOT NULL,
+            occurred_at TEXT NOT NULL,
+            ingested_at TEXT NOT NULL,
+            metadata TEXT
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_episodes_source ON context_episodes(source)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_episodes_occurred ON context_episodes(occurred_at)');
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS context_entities (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            aliases TEXT DEFAULT '[]',
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_entities_type ON context_entities(type)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_entities_name ON context_entities(name)');
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS context_facts (
+            id TEXT PRIMARY KEY,
+            subject_id TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            object_id TEXT,
+            object_literal TEXT,
+            valid_from TEXT NOT NULL,
+            valid_to TEXT,
+            source_episode_id TEXT NOT NULL,
+            confidence REAL DEFAULT 1.0
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_facts_subject ON context_facts(subject_id)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_facts_predicate ON context_facts(predicate)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_facts_valid ON context_facts(valid_from, valid_to)');
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS context_embeddings (
+            ref_id TEXT PRIMARY KEY,
+            ref_type TEXT NOT NULL,
+            embedding BLOB
+          )
+        `);
+        db.exec('CREATE INDEX IF NOT EXISTS idx_embeddings_type ON context_embeddings(ref_type)');
 
         // ========== Schedule & Planning Tables ==========
         db.exec(`
@@ -2958,6 +3128,11 @@ function initializeStorage() {
             created_at TEXT DEFAULT (datetime('now'))
           )
         `);
+
+        // Migration: add remind_at column to deadlines
+        try {
+          db.exec(`ALTER TABLE deadlines ADD COLUMN remind_at TEXT`);
+        } catch {}
 
         // Migration: merge reminders into deadlines
         try {
@@ -3711,6 +3886,29 @@ const { buildChain, runWithFallback } = require("./services/providers/router");
           console.log('[DeskFlow] ✅ Lyceum Learn module registered');
         } catch (err: any) {
           console.error('[DeskFlow] ⚠️ Lyceum Learn module failed to register:', err.message, err.stack);
+        }
+
+        // Register Content Engine module (ideas/themes/scripts/gates/seo/analytics/lessons/frameworks)
+        try {
+          const { registerContentEngineHandlers } = require('./services/contentEngine/index.js');
+          registerContentEngineHandlers(db, async (prompt: string, systemPrompt: string, maxTokens?: number) => {
+            const p = userPreferences || {};
+            const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null'));
+            if (!pState || !pState.providers || pState.providers.filter((pp: any) => pp.enabled).length === 0) {
+              throw new Error('No AI provider configured');
+            }
+            const chain = buildChain(pState, 'contentEngine');
+            if (chain.length === 0) throw new Error('No AI provider configured');
+            const { result } = await runWithFallback(chain, {
+              system: systemPrompt,
+              messages: [{ role: 'user', content: prompt }],
+              maxTokens: maxTokens || 2000,
+            });
+            return result.content;
+          });
+          console.log('[DeskFlow] ✅ Content Engine module registered');
+        } catch (err: any) {
+          console.error('[DeskFlow] ⚠️ Content Engine module failed to register:', err.message);
         }
 
         storageError = null;
@@ -5451,6 +5649,15 @@ electron_1.ipcMain.handle('set-tracking', (event, enabled) => {
     console.log('[DeskFlow] Tracking set:', isTracking ? 'ON' : 'OFF');
     return isTracking;
 });
+electron_1.ipcMain.handle('restart-tracking', () => {
+    const pollInterval = userPreferences.trackingPollInterval || 1000;
+    if (trackingInterval) clearInterval(trackingInterval);
+    trackingInterval = setInterval(pollForeground, pollInterval);
+    lastPollTime = Date.now();
+    isTracking = true;
+    console.log('[DeskFlow] 🔄 Tracking restarted via IPC');
+    return true;
+});
 electron_1.ipcMain.handle('clear-data', () => {
     try {
         if (useJson) {
@@ -5746,6 +5953,78 @@ electron_1.ipcMain.handle('stt:transcribe', async (_event, payload) => {
     }
     catch (err) {
         return { ok: false, error: (err && err.message) ? err.message : 'Speech service failed' };
+    }
+});
+// ─── Overlay Studio: Auto-transcribe via faster-whisper (local, no API key) ───
+electron_1.ipcMain.handle('overlay-studio:transcribe', async (_event, payload) => {
+    try {
+        const filePath = payload?.filePath;
+        if (!filePath || typeof filePath !== 'string') {
+            return { ok: false, error: 'No file path provided' };
+        }
+        if (!fs_1.default.existsSync(filePath)) {
+            return { ok: false, error: `File not found: ${filePath}` };
+        }
+        const ext = path_1.default.extname(filePath).toLowerCase();
+        const isAudio = ['.wav', '.mp3', '.m4a', '.ogg', '.flac', '.webm'].includes(ext);
+        const isVideo = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].includes(ext);
+        if (!isAudio && !isVideo) {
+            return { ok: false, error: `Unsupported file type: ${ext}. Use audio files (.wav, .mp3, .m4a) for auto-transcription.` };
+        }
+        // Build Python transcription script
+        const pyScript = `
+import sys, json
+try:
+    from faster_whisper import WhisperModel
+    model = WhisperModel("base", device="cpu", compute_type="int8")
+    segments_iter, info = model.transcribe("${filePath.replace(/\\/g, '\\\\')}", beam_size=5, language="en")
+    segments = []
+    for i, seg in enumerate(segments_iter):
+        segments.append({"id": i, "start": round(seg.start, 2), "end": round(seg.end, 2), "text": seg.text.strip()})
+    result = {"video_id": "${path_1.default.basename(filePath)}", "duration": round(info.duration, 2), "segments": segments}
+    print(json.dumps(result))
+except Exception as e:
+    print(json.dumps({"error": str(e)}), file=sys.stderr)
+    sys.exit(1)
+`;
+        const pyPath = path_1.default.join(userDataPath, 'overlay-studio-transcribe.py');
+        fs_1.default.writeFileSync(pyPath, pyScript, 'utf-8');
+        const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+        const result = child_process_1.default.spawnSync(pythonCmd, [pyPath], {
+            timeout: 120000, // 2 min timeout
+            windowsHide: true,
+            encoding: 'utf-8',
+            maxBuffer: 10 * 1024 * 1024,
+        });
+        try { fs_1.default.unlinkSync(pyPath); } catch { /* ignore */ }
+        if (result.error) {
+            return { ok: false, error: `Python not available: ${result.error.message}. Install Python 3.12+ with faster-whisper.` };
+        }
+        if (result.stderr) {
+            const errText = result.stderr.trim();
+            if (errText.includes('No module named')) {
+                return { ok: false, error: `faster-whisper not installed. Run: pip install faster-whisper` };
+            }
+            if (errText && !errText.includes('UserWarning')) {
+                console.error('[OverlayStudio] Transcription stderr:', errText.slice(0, 500));
+            }
+        }
+        if (!result.stdout || !result.stdout.trim()) {
+            return { ok: false, error: 'Transcription produced no output. The file may not contain speech.' };
+        }
+        try {
+            const transcript = JSON.parse(result.stdout.trim());
+            if (transcript.error) {
+                return { ok: false, error: transcript.error };
+            }
+            return { ok: true, transcript };
+        }
+        catch (parseErr) {
+            return { ok: false, error: `Failed to parse transcription output: ${result.stdout.slice(0, 200)}` };
+        }
+    }
+    catch (err) {
+        return { ok: false, error: (err && err.message) ? err.message : 'Transcription failed' };
     }
 });
 electron_1.ipcMain.handle('stt:native-start', (event, lang) => {
@@ -7358,6 +7637,76 @@ electron_1.ipcMain.handle('get-browser-category-stats', (event, period = 'week',
         return [];
     }
 });
+
+// ========== AI Context Captures (external AI conversations) ==========
+electron_1.ipcMain.handle('ai-context:list', (_event, opts: any = {}) => {
+    try {
+        const { provider, search, limit = 50, offset = 0 } = opts || {};
+        let where = '1=1';
+        const params: any[] = [];
+        if (provider) { where += ' AND provider = ?'; params.push(provider); }
+        if (search) { where += ' AND (provider LIKE ? OR url LIKE ? OR title LIKE ? OR messages LIKE ?)'; const s = `%${search}%`; params.push(s, s, s, s); }
+        const rows = db.prepare(`SELECT * FROM ai_context_captures WHERE ${where} ORDER BY captured_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+        const { total } = db.prepare(`SELECT COUNT(*) as total FROM ai_context_captures WHERE ${where}`).get(...params) as any;
+        return { captures: rows.map((r: any) => ({ ...r, messages: JSON.parse(r.messages || '[]') })), total };
+    } catch (err: any) {
+        return { captures: [], total: 0 };
+    }
+});
+electron_1.ipcMain.handle('ai-context:stats', () => {
+    try {
+        const total = (db.prepare('SELECT COUNT(*) as n FROM ai_context_captures').get() as any)?.n || 0;
+        const byProvider = db.prepare('SELECT provider, COUNT(*) as count FROM ai_context_captures GROUP BY provider').all();
+        const newest = (db.prepare('SELECT MAX(captured_at) as ts FROM ai_context_captures').get() as any)?.ts || null;
+        // Captures by day (last 30 days)
+        const byDay = db.prepare("SELECT date(captured_at/1000, 'unixepoch') as day, COUNT(*) as count FROM ai_context_captures WHERE captured_at > (unixepoch('now') - 30*86400)*1000 GROUP BY day ORDER BY day").all();
+        return { total, byProvider: Object.fromEntries(byProvider.map((r: any) => [r.provider, r.count])), newestMs: newest, capturesByDay: byDay };
+    } catch (err: any) {
+        return { total: 0, byProvider: {}, newestMs: null, capturesByDay: [] };
+    }
+});
+electron_1.ipcMain.handle('ai-context:delete', (_event, id: number) => {
+    try { db.prepare('DELETE FROM ai_context_captures WHERE id = ?').run(id); return { ok: true }; }
+    catch (err: any) { return { ok: false, error: err?.message }; }
+});
+electron_1.ipcMain.handle('ai-context:clear', (_event, provider?: string) => {
+    try {
+        if (provider) db.prepare('DELETE FROM ai_context_captures WHERE provider = ?').run(provider);
+        else db.prepare('DELETE FROM ai_context_captures').run();
+        return { ok: true };
+    } catch (err: any) { return { ok: false, error: err?.message }; }
+});
+electron_1.ipcMain.handle('ai-context:get-brain-links', (_event, captureId: number) => {
+    try {
+        const cap = db.prepare('SELECT * FROM ai_context_captures WHERE id = ?').get(captureId) as any;
+        if (!cap) return { episodes: [], entities: [], facts: [], signals: [] };
+        const sourceRef = `ai_context_capture:${captureId}`;
+        const episodes = db.prepare("SELECT * FROM context_episodes WHERE source_ref LIKE ? OR content LIKE ? LIMIT 10").all(`${sourceRef}%`, `%${cap.provider}%`);
+        const entityIds = new Set<string>();
+        const entities: any[] = [];
+        const facts: any[] = [];
+        for (const ep of episodes) {
+            const epEntities = db.prepare("SELECT * FROM context_entity_facts WHERE episode_id = ?").all((ep as any).id);
+            for (const ef of epEntities) {
+                if (!entityIds.has((ef as any).entity_id)) {
+                    entityIds.add((ef as any).entity_id);
+                    const ent = db.prepare("SELECT * FROM context_entities WHERE id = ?").get((ef as any).entity_id);
+                    if (ent) entities.push(ent);
+                    facts.push(ef);
+                }
+            }
+        }
+        const signals = db.prepare("SELECT * FROM user_context_signals WHERE source_ref LIKE ? OR content LIKE ? LIMIT 10").all(`%${captureId}%`, `%${cap.provider}%`);
+        return { episodes, entities, facts, signals };
+    } catch (err: any) { return { episodes: [], entities: [], facts: [], signals: [] }; }
+});
+electron_1.ipcMain.handle('ai-context:topics', () => {
+    try {
+        const topics = db.prepare("SELECT id, type, name, aliases, created_at FROM context_entities ORDER BY created_at DESC LIMIT 50").all();
+        return { topics };
+    } catch (err: any) { return { topics: [] }; }
+});
+
 electron_1.ipcMain.handle('get-available-browsers', async () => {
     const browsers: string[] = [];
     const platform = process.platform;
@@ -11489,6 +11838,16 @@ interface AgentState {
 }
 const agentStates = new Map<string, AgentState>();
 
+// ---- AI Debug Vault helpers (best-effort, never throw) ----
+function vaultLogSafe(ev: any) {
+  try { require('./services/aiDebugVault').vaultLog(ev); } catch { }
+}
+
+function agentStatusBroadcast(id: string, st: any) {
+  broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+  vaultLogSafe({ source: 'terminal-agent', event: 'state', contextId: id, payload: { phase: st.phase, sessionId: st.sessionId, error: st.lastError } });
+}
+
 function buildAgentInputPayload(data: string, agentType?: string): string {
   const normalized = String(data ?? '').replace(/\r\n?/g, '\n').trimEnd();
   const cfg = getAgentConfig(agentType);
@@ -11519,7 +11878,7 @@ function markAgentReady(id: string, st: AgentState) {
   clearAgentTimeout(id);
   flushPendingAgentWrites(id, st);
   broadcast('agent:ready', { terminalId: id });
-  broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+  agentStatusBroadcast(id, st);
 }
 
 function isTuiSettled(st: AgentState): boolean {
@@ -12367,15 +12726,15 @@ electron_1.ipcMain.handle('terminal:create', async (_event, id: string, cwd: str
                     st.idleSeq += 1;
                     flushPendingAgentWrites(id, st);
                     broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
-                    broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+                    agentStatusBroadcast(id, st);
                     broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
                 } else if (st.phase === 'busy' && actionRequired) {
                     st.phase = 'attention';
-                    broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+                    agentStatusBroadcast(id, st);
                     broadcast('ai-task:updated', { terminalId: id, status: 'action_required' });
                 } else if (st.phase === 'attention' && !actionRequired && data.length > 0) {
                     st.phase = 'busy';
-                    broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+                    agentStatusBroadcast(id, st);
                     broadcast('ai-task:updated', { terminalId: id, status: 'in_progress' });
                 }
 
@@ -12543,15 +12902,15 @@ electron_1.ipcMain.handle('spawn-terminal', async (_event, id: string, cwd?: str
                     st.idleSeq += 1;
                     flushPendingAgentWrites(id, st);
                     broadcast('agent:idle', { terminalId: id, seq: st.idleSeq });
-                    broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+                    agentStatusBroadcast(id, st);
                     broadcast('ai-task:updated', { terminalId: id, status: 'completed' });
                 } else if (st.phase === 'busy' && actionRequired) {
                     st.phase = 'attention';
-                    broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+                    agentStatusBroadcast(id, st);
                     broadcast('ai-task:updated', { terminalId: id, status: 'action_required' });
                 } else if (st.phase === 'attention' && !actionRequired && data.length > 0) {
                     st.phase = 'busy';
-                    broadcast('agent:status', { terminalId: id, phase: st.phase, sessionId: st.sessionId, error: st.lastError });
+                    agentStatusBroadcast(id, st);
                     broadcast('ai-task:updated', { terminalId: id, status: 'in_progress' });
                 }
 
@@ -12620,7 +12979,16 @@ electron_1.ipcMain.handle('agent:send', async (_event, terminalId: string, data:
             const sid = getSessionIdForTerminal(terminalId);
             if (!sid) return undefined;
             pendingCompletions.add(terminalId);
-            return db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(sid, 'user', data, 'in_progress');
+            const result = db.prepare('INSERT INTO terminal_messages (session_id, role, content, status) VALUES (?, ?, ?, ?)').run(sid, 'user', data, 'in_progress');
+            vaultLogSafe({ source: 'terminal-agent', event: 'prompt', contextId: sid, role: 'user', payload: { text: data, agentType } });
+            // [CONTEXT-BRAIN] Feed workspace agent prompts into the context brain
+            try {
+                const sessionRow = db.prepare('SELECT id, agent_type, topic FROM terminal_sessions WHERE id = ?').get(sid) as any;
+                if (sessionRow) {
+                    episodeWriters.writeTerminalEpisode({ id: sid, agent_type: sessionRow.agent_type, topic: sessionRow.topic }, data, 'user');
+                }
+            } catch (_e) { /* brain write is best-effort */ }
+            return result;
         } catch (_e) { return undefined; }
     };
     const notifyTask = (messageId: number | bigint | undefined) => {
@@ -13141,6 +13509,11 @@ electron_1.ipcMain.handle('terminal:resize', async (_event, terminalId: string, 
 const memoryStore = require('./main/ai/memoryStore');
 const memoryCapture = require('./main/ai/memoryCapture');
 const memoryCompaction = require('./main/ai/memoryCompaction');
+const userContextService = require('./main/ai/userContextService');
+const contextBrain = require('./main/ai/contextBrain');
+const memoryRetrieval = require('./main/ai/memoryRetrieval');
+const contextFormatter = require('./main/ai/contextFormatter');
+const episodeWriters = require('./main/ai/episodeWriters');
 
 // Initialize memory system on startup
 function initMemorySystem() {
@@ -13155,6 +13528,61 @@ function initMemorySystem() {
             } catch {}
         }, 30 * 60 * 1000);
     } catch (e) { console.error('[Memory] Init failed:', e); }
+}
+
+// Initialize user context system on startup
+function initContextSystem() {
+    try {
+        userContextService.setContextDb(db);
+        // Wire LLM extraction caller (provider chain)
+        try {
+            const extraction = require('./main/ai/entityExtraction');
+            extraction.setLlmCaller(async (prompt: string, systemPrompt: string, maxTokens?: number) => {
+                const p = userPreferences || {};
+                const pState = migrateProviderNames(JSON.parse(p.aiProviders || 'null'));
+                if (!pState || !pState.providers || pState.providers.filter((x: any) => x.enabled).length === 0) {
+                    throw new Error('No AI provider configured');
+                }
+                const chain = buildChain(pState, 'goalAssistant');
+                if (chain.length === 0) throw new Error('No AI provider configured');
+                const { result } = await runWithFallback(chain, {
+                    systemPrompt,
+                    messages: [{ role: 'user', content: prompt }],
+                    maxTokens: maxTokens || 600,
+                });
+                return result.content;
+            });
+            console.log('[ContextBrain] LLM extraction caller wired');
+        } catch (e: any) { console.warn('[ContextBrain] LLM caller wiring failed:', e?.message); }
+        // Start background schedulers
+        try {
+            const { startSchedulers } = require('./main/ai/contextScheduler');
+            startSchedulers();
+        } catch (e: any) { console.warn('[ContextBrain] Scheduler start failed:', e?.message); }
+        // History backfill — mine existing data into the brain (idempotent)
+        try {
+            const { setContextDb, runContextBackfill } = require('./main/ai/contextBackfill');
+            setContextDb(db);
+            setTimeout(() => { try { runContextBackfill() } catch {} }, 3000);
+        } catch (e: any) { console.warn('[ContextBackfill] init failed:', e?.message); }
+        // Rebuild profile on startup from existing data
+        setTimeout(() => { try { userContextService.rebuildProfile(); } catch {} }, 5000);
+        // Embedding catch-up after warmup
+        setTimeout(() => { try { require('./main/ai/embeddingService').reindexEpisodes(); } catch {} }, 20000);
+    } catch (e) { console.error('[Context] Init failed:', e); }
+}
+
+// Initialize Context Brain system on startup
+let mcpServerRunning = false;
+function initContextBrain() {
+    try {
+        contextBrain.setBrainDb(db);
+        // Start MCP server
+        const { startMcpServer } = require('./main/ai/contextBrainMCP');
+        const server = startMcpServer();
+        if (server) mcpServerRunning = true;
+        console.log('[ContextBrain] Initialized');
+    } catch (e) { console.error('[ContextBrain] Init failed:', e); }
 }
 
 electron_1.ipcMain.handle('memory:get', async (_event, tier: string, limit: number = 50) => {
@@ -13181,6 +13609,138 @@ electron_1.ipcMain.handle('memory:stats', async () => {
 electron_1.ipcMain.handle('memory:compact', async () => {
     const config = { hot: { max_entries: 15, max_tokens: 1200, min_importance: 0.7 }, warm: { max_entries: 40, max_tokens: 2000, min_importance: 0.4 }, cold: { auto_archive_after_days: 120 }, scoring: { stale_threshold: 0.3 } };
     return memoryCompaction.compactMemories(config);
+});
+
+// ========== User Context Profile ==========
+electron_1.ipcMain.handle('context:get-profile', async () => {
+    return userContextService.getProfile();
+});
+
+electron_1.ipcMain.handle('context:update-profile', async (_event, patch: any) => {
+    userContextService.updateProfile(patch);
+    return { ok: true };
+});
+
+electron_1.ipcMain.handle('context:add-signal', async (_event, signalType: string, content: string, source: string, confidence?: number) => {
+    userContextService.addSignal(signalType, content, source, confidence);
+    return { ok: true };
+});
+
+electron_1.ipcMain.handle('context:get-signals', async (_event, signalType?: string, source?: string, limit?: number) => {
+    return userContextService.getSignals(signalType, source, limit);
+});
+
+electron_1.ipcMain.handle('context:rebuild', async () => {
+    userContextService.rebuildProfile();
+    return { ok: true };
+});
+
+electron_1.ipcMain.handle('context:get-growth', async () => {
+    const profile = userContextService.getProfile();
+    return profile.growthMarkers;
+});
+
+// ========== Context Brain ==========
+electron_1.ipcMain.handle('brain:search', async (_event, query: string, strategies?: string[]) => {
+    return contextBrain.retrieve(query, strategies);
+});
+
+electron_1.ipcMain.handle('brain:get-entity', async (_event, name: string) => {
+    const entities = contextBrain.findEntities(name);
+    if (entities.length === 0) return null;
+    const entity = entities[0];
+    const facts = contextBrain.getCurrentFacts(entity.id);
+    return { entity, facts };
+});
+
+electron_1.ipcMain.handle('brain:get-entity-history', async (_event, name: string) => {
+    const entities = contextBrain.findEntities(name);
+    if (entities.length === 0) return [];
+    return contextBrain.getFactHistory(entities[0].id);
+});
+
+electron_1.ipcMain.handle('brain:log-episode', async (_event, source: string, content: string, sourceRef?: string) => {
+    return contextBrain.logEpisode(source, content, sourceRef);
+});
+
+electron_1.ipcMain.handle('brain:stats', async () => {
+    return contextBrain.getBrainStats();
+});
+
+electron_1.ipcMain.handle('brain:export', async () => {
+    return contextBrain.exportContextBundle();
+});
+
+// ========== Context Brain Management (brain management UI) ==========
+electron_1.ipcMain.handle('brain:get-episodes', async (_event, opts?: any) => {
+    return contextBrain.getEpisodesList(opts || {});
+});
+
+electron_1.ipcMain.handle('brain:get-entities', async (_event, opts?: any) => {
+    return contextBrain.getEntitiesList(opts || {});
+});
+
+electron_1.ipcMain.handle('brain:get-facts', async (_event, opts?: any) => {
+    return contextBrain.getFactsList(opts || {});
+});
+
+electron_1.ipcMain.handle('brain:get-entity-related', async (_event, entityId: string) => {
+    return contextBrain.getRelatedEpisodes(entityId);
+});
+
+electron_1.ipcMain.handle('brain:get-jobs', async () => {
+    return { jobs: contextBrain.getJobs(), stats: contextBrain.getJobStats() };
+});
+
+electron_1.ipcMain.handle('brain:retry-job', async (_event, jobId: string) => {
+    contextBrain.retryJob(jobId);
+    return { ok: true };
+});
+
+electron_1.ipcMain.handle('brain:create-episode', async (_event, data: { source: string; content: string; sourceRef?: string; metadata?: any }) => {
+    const epId = contextBrain.logEpisode(data.source || 'manual', data.content, data.sourceRef, data.metadata);
+    if (epId) {
+        // Queue LLM extraction for longer manual entries
+        if (data.content.length >= 40) contextBrain.createExtractionJob(epId);
+        // Immediate regex signal extraction
+        try {
+            const ucs = require('./main/ai/userContextService');
+            const signals = ucs.extractSignalsFromText(data.content, 'manual');
+            for (const s of signals) ucs.addSignal(s.signalType, s.content, 'manual', s.confidence, { sourceRef: epId });
+        } catch {}
+    }
+    return { ok: !!epId, episodeId: epId };
+});
+
+electron_1.ipcMain.handle('brain:mcp-status', async () => {
+    return { running: mcpServerRunning, port: 54322 };
+});
+
+electron_1.ipcMain.handle('brain:reindex-embeddings', async () => {
+    try {
+        const { reindexEpisodes } = require('./main/ai/embeddingService');
+        const res = reindexEpisodes();
+        return { ok: true, ...res };
+    } catch (e: any) {
+        return { ok: false, error: e?.message };
+    }
+});
+
+electron_1.ipcMain.handle('context:get-memory-highlights', async () => {
+    return userContextService.getMemoryHighlights();
+});
+
+electron_1.ipcMain.handle('context:get-debug', async () => {
+    return userContextService.getContextDebug();
+});
+
+electron_1.ipcMain.handle('context:run-now', async (_event, kind: string) => {
+    try {
+        const { runNow } = require('./main/ai/contextScheduler');
+        return { ok: true, ...(await runNow(kind)) };
+    } catch (e: any) {
+        return { ok: false, error: e?.message };
+    }
 });
 
 electron_1.ipcMain.handle('terminal:destroy-old-format', async (_event, terminalId: string) => {
@@ -14512,7 +15072,7 @@ electron_1.ipcMain.handle('execute-actions-from-file', async (_event, data: { pr
   return { success: true };
 });
 
-electron_1.ipcMain.handle('assemble-context', async (_event, data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number }) => {
+electron_1.ipcMain.handle('assemble-context', async (_event, data: { projectId: string; problemIds?: string[]; requestIds?: string[]; tokenBudget?: number; topic?: string; sessionId?: string }) => {
   try {
     const parts = [];
     let totalChars = 0;
@@ -14569,6 +15129,90 @@ electron_1.ipcMain.handle('assemble-context', async (_event, data: { projectId: 
     parts.push(backupProtocol);
     totalChars += backupProtocol.length;
 
+    // [CONTEXT-BRAIN] Inject compact user context profile into workspace assembly
+    try {
+        const profile = userContextService.getProfile();
+        if (profile) {
+            const userLines: string[] = ['## User Context (auto-derived)'];
+            if (profile.summary) {
+                const line = '- Summary: ' + profile.summary;
+                if (totalChars + line.length <= maxChars) { userLines.push(line); totalChars += line.length; }
+            }
+            const traits = Object.keys(profile.traits || {});
+            if (traits.length > 0) {
+                const line = '- Traits: ' + traits.map((k: string) => profile.traits[k].content).join(', ');
+                if (totalChars + line.length <= maxChars) { userLines.push(line); totalChars += line.length; }
+            }
+            const interests = Object.keys(profile.interests || {});
+            if (interests.length > 0) {
+                const line = '- Interests: ' + interests.map((k: string) => profile.interests[k].content).join(', ');
+                if (totalChars + line.length <= maxChars) { userLines.push(line); totalChars += line.length; }
+            }
+            const comm = Object.keys(profile.communicationStyle || {});
+            if (comm.length > 0) {
+                const line = '- Communication: ' + comm.map((k: string) => profile.communicationStyle[k].content).join(', ');
+                if (totalChars + line.length <= maxChars) { userLines.push(line); totalChars += line.length; }
+            }
+            const highlights = profile.memoryHighlights || [];
+            const corrections = highlights.filter((h: any) => h.source === 'signal' && h.importance > 0.5);
+            if (corrections.length > 0 && totalChars + 120 <= maxChars) {
+                userLines.push('- Important rules/corrections (follow these):');
+                for (const h of corrections.slice(0, 3)) {
+                    const line = '  - ' + h.content;
+                    if (totalChars + line.length > maxChars) break;
+                    userLines.push(line);
+                    totalChars += line.length;
+                }
+            }
+            if (userLines.length > 1) parts.push(userLines.join('\n'));
+        }
+    } catch (_e) { /* profile injection is best-effort */ }
+
+    // [CONTEXT-BRAIN] Topic-based memory restoration (assemble-context gap fix)
+    try {
+        let sessionTopic = '';
+        if (data.sessionId) {
+            try {
+                const sess = db.prepare('SELECT topic FROM terminal_sessions WHERE id = ?').get(data.sessionId) as any;
+                sessionTopic = (sess && sess.topic) || '';
+            } catch { /* session lookup best-effort */ }
+        }
+        const queryTopic = (data.topic || sessionTopic || '').trim();
+        if (queryTopic.length > 1) {
+            const brainMd = (() => {
+                try {
+                    return contextFormatter.formatBrainContext(queryTopic, contextBrain.retrieve(queryTopic, ['keyword', 'graph']));
+                } catch (e: any) {
+                    console.warn('[assemble-context] Brain retrieval failed:', e.message);
+                    return '';
+                }
+            })();
+            const memoryMd = (() => {
+                try {
+                    const agentMemories = memoryStore.searchMemories(queryTopic);
+                    const chatMemories = memoryRetrieval.getRelevantMemories(db, '', queryTopic, 3);
+                    return contextFormatter.formatMemoryContext(agentMemories, chatMemories);
+                } catch (e: any) {
+                    console.warn('[assemble-context] Memory retrieval failed:', e.message);
+                    return '';
+                }
+            })();
+            const combinedMd = (brainMd + '\n' + memoryMd).trim();
+            if (combinedMd.length > 0) {
+                const remainingBudget = maxChars - totalChars - 200;
+                if (remainingBudget > 100) {
+                    const truncatedMd = contextFormatter.truncateToBudget(combinedMd, remainingBudget);
+                    if (truncatedMd.length > 0) {
+                        parts.push(truncatedMd);
+                        totalChars += truncatedMd.length;
+                    }
+                }
+            }
+        }
+    } catch (err: any) {
+        console.warn('[assemble-context] Memory restoration block failed:', err.message);
+    }
+
     const context = parts.join('\n\n---\n\n');
 
     return { success: true, context, tokensUsed: Math.ceil(totalChars / 4) };
@@ -14604,7 +15248,32 @@ electron_1.ipcMain.handle('save-terminal-message', async (_event, data: {
                 if (updates.length > 0) {
                     params.push(data.sessionId);
                     db.prepare(`UPDATE terminal_sessions SET ${updates.join(', ')} WHERE id = ?`).run(...params);
-                    
+
+                    // Capture agent memory when a session completes (memory restoration loop)
+                    if (meta.status === 'completed' && meta.title) {
+                        try {
+                            const content = `Session "${meta.title}"${meta.description ? ' - ' + meta.description : ''}`;
+                            const dedupKey = ('session-completed:' + meta.title).toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '').slice(0, 60).trim();
+                            memoryStore.insertMemory({
+                                id: crypto.randomUUID(),
+                                content: content.slice(0, 500),
+                                category: 'workflow',
+                                tier: 'warm',
+                                importance: 0.55,
+                                accessCount: 0,
+                                lastAccessedAt: Date.now(),
+                                createdAt: Date.now(),
+                                correctedAt: [Date.now()],
+                                dedupKey,
+                                source: { type: 'manual', sessionId: data.sessionId, cycleNumber: null, originalMessage: null },
+                                decayRate: 0.01,
+                                staleAfterDays: 90,
+                            });
+                        } catch (e: any) {
+                            console.warn('Failed to capture agent memory on completion:', e.message);
+                        }
+                    }
+
                     // Generate auto-tags from metadata
                     const tags: string[] = [];
                     if (meta.category) tags.push(`category:${meta.category}`);
@@ -14705,6 +15374,188 @@ electron_1.ipcMain.handle('get-session-messages', async (_event, sessionId: stri
         return { success: true, data: messages };
     } catch (err: any) {
         console.error('[DeskFlow] get-session-messages error:', err.message);
+        return { success: false, error: err.message, data: [] };
+    }
+});
+
+// ── AI Session Messages (read from JSONL/SQLite source files) ──
+electron_1.ipcMain.handle('get-ai-session-messages', async (_event, sessionId: string, tool: string) => {
+    try {
+        const homedir = require('os').homedir();
+        const messages: { role: string; content: string; model?: string; tokens?: number; timestamp?: string; index: number }[] = [];
+
+        if (tool === 'claude-code') {
+            // Claude Code: JSONL files at ~/.claude/projects/<hash>/<session-id>.jsonl
+            // sessionId in DB is like "claude-code-<original-session-id>"
+            const rawId = sessionId.replace(/^claude-code-/, '');
+            const projectsDir = path_1.default.join(homedir, '.claude', 'projects');
+            if (fs_1.default.existsSync(projectsDir)) {
+                const findAndParse = (dir: string): boolean => {
+                    try {
+                        const entries = fs_1.default.readdirSync(dir, { withFileTypes: true }) as any[];
+                        for (const entry of entries) {
+                            const full = path_1.default.join(dir, entry.name);
+                            if (entry.isDirectory()) {
+                                if (findAndParse(full)) return true;
+                            } else if (entry.name.endsWith('.jsonl')) {
+                                const fileBase = entry.name.replace('.jsonl', '');
+                                if (fileBase === rawId || fileBase.includes(rawId) || rawId.includes(fileBase)) {
+                                    const content = fs_1.default.readFileSync(full, 'utf8');
+                                    const lines = content.split('\n').filter(Boolean);
+                                    let idx = 0;
+                                    for (const line of lines) {
+                                        try {
+                                            const entry = JSON.parse(line);
+                                            const type = entry.type;
+                                            if (type === 'user' || type === 'assistant') {
+                                                const msg = entry.message || entry;
+                                                let text = '';
+                                                if (typeof msg.content === 'string') {
+                                                    text = msg.content;
+                                                } else if (Array.isArray(msg.content)) {
+                                                    text = msg.content.map((c: any) => c.text || c.content || '').filter(Boolean).join('\n');
+                                                }
+                                                if (text) {
+                                                    const tokens = (msg.usage?.input_tokens || 0) + (msg.usage?.output_tokens || 0);
+                                                    messages.push({
+                                                        role: type,
+                                                        content: text.slice(0, 8000),
+                                                        model: msg.model,
+                                                        tokens,
+                                                        timestamp: entry.timestamp || entry.ts,
+                                                        index: idx++,
+                                                    });
+                                                }
+                                            }
+                                        } catch {}
+                                    }
+                                    return true;
+                                }
+                            }
+                        }
+                    } catch {}
+                    return false;
+                };
+                findAndParse(projectsDir);
+            }
+        } else if (tool === 'opencode') {
+            // OpenCode: SQLite at ~/.local/share/opencode/opencode.db
+            const rawId = sessionId.replace(/^opencode-/, '');
+            const dbPath = path_1.default.join(homedir, '.local', 'share', 'opencode', 'opencode.db');
+            if (fs_1.default.existsSync(dbPath)) {
+                try {
+                    const Database = require('better-sqlite3');
+                    const odb = new Database(dbPath, { readonly: true });
+                    const rows = odb.prepare(
+                        "SELECT data FROM message WHERE session_id = ? ORDER BY rowid ASC"
+                    ).all(rawId) as any[];
+                    let idx = 0;
+                    for (const row of rows) {
+                        try {
+                            const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
+                            if (!data) continue;
+                            const role = data.type || data.role || (data.content?.startsWith?.('<|im_start|>user') ? 'user' : 'assistant');
+                            let text = '';
+                            if (typeof data.content === 'string') {
+                                text = data.content;
+                            } else if (data.text) {
+                                text = data.text;
+                            } else if (Array.isArray(data.content)) {
+                                text = data.content.map((c: any) => c.text || '').filter(Boolean).join('\n');
+                            }
+                            if (text) {
+                                const tokens = (data.tokens?.input || 0) + (data.tokens?.output || 0);
+                                messages.push({
+                                    role: role === 'user' ? 'user' : 'assistant',
+                                    content: text.slice(0, 8000),
+                                    model: data.modelID,
+                                    tokens,
+                                    timestamp: data.timestamp || data.createdAt,
+                                    index: idx++,
+                                });
+                            }
+                        } catch {}
+                    }
+                    odb.close();
+                } catch {}
+            }
+        } else if (tool === 'gemini') {
+            // Gemini: JSON files at ~/.gemini/history/<session>.json
+            const rawId = sessionId.replace(/^gemini-/, '');
+            const historyDir = path_1.default.join(homedir, '.gemini', 'history');
+            const tmpDir = path_1.default.join(homedir, '.gemini', 'tmp');
+            for (const dir of [historyDir, tmpDir]) {
+                if (!fs_1.default.existsSync(dir)) continue;
+                try {
+                    const entries = fs_1.default.readdirSync(dir, { withFileTypes: true }) as any[];
+                    for (const entry of entries) {
+                        if (!entry.isFile()) continue;
+                        const full = path_1.default.join(dir, entry.name);
+                        const fileBase = entry.name.replace(/\.(json|jsonl)$/, '');
+                        if (fileBase === rawId || fileBase.includes(rawId) || rawId.includes(fileBase)) {
+                            const content = fs_1.default.readFileSync(full, 'utf8');
+                            if (entry.name.endsWith('.jsonl')) {
+                                const lines = content.split('\n').filter(Boolean);
+                                let idx = 0;
+                                for (const line of lines) {
+                                    try {
+                                        const e = JSON.parse(line);
+                                        if (e.type === 'user' || e.type === 'model') {
+                                            const text = e.text || e.content || e.message || '';
+                                            if (text) messages.push({ role: e.type === 'user' ? 'user' : 'assistant', content: String(text).slice(0, 8000), model: e.model, index: idx++ });
+                                        }
+                                    } catch {}
+                                }
+                            } else {
+                                const data = JSON.parse(content);
+                                const hist = data.messages || data.history || [];
+                                let idx = 0;
+                                for (const msg of hist) {
+                                    const role = msg.role || msg.author || 'assistant';
+                                    const text = msg.text || msg.content || msg.message || '';
+                                    if (text) messages.push({ role: role === 'user' ? 'user' : 'assistant', content: String(text).slice(0, 8000), model: msg.model, index: idx++ });
+                                }
+                            }
+                            return { success: true, data: messages };
+                        }
+                    }
+                } catch {}
+            }
+        } else if (tool === 'codex') {
+            // Codex: JSONL at ~/.codex/sessions/<session>.jsonl
+            const rawId = sessionId.replace(/^codex-/, '');
+            const sessionsDir = path_1.default.join(homedir, '.codex', 'sessions');
+            if (fs_1.default.existsSync(sessionsDir)) {
+                try {
+                    const entries = fs_1.default.readdirSync(sessionsDir, { withFileTypes: true }) as any[];
+                    for (const entry of entries) {
+                        if (!entry.isFile()) continue;
+                        const full = path_1.default.join(sessionsDir, entry.name);
+                        const fileBase = entry.name.replace(/\.(json|jsonl)$/, '');
+                        if (fileBase === rawId || fileBase.includes(rawId) || rawId.includes(fileBase)) {
+                            const content = fs_1.default.readFileSync(full, 'utf8');
+                            const lines = content.split('\n').filter(Boolean);
+                            let idx = 0;
+                            for (const line of lines) {
+                                try {
+                                    const e = JSON.parse(line);
+                                    if (e.role === 'user' || e.role === 'assistant' || e.type === 'message') {
+                                        const text = e.content || e.text || e.message || '';
+                                        const role = e.role || (e.type === 'message' ? 'assistant' : 'user');
+                                        if (text) messages.push({ role, content: String(text).slice(0, 8000), model: e.model, index: idx++ });
+                                    }
+                                } catch {}
+                            }
+                            return { success: true, data: messages };
+                        }
+                    }
+                } catch {}
+            }
+        }
+
+        return { success: true, data: messages };
+    } catch (err: any) {
+        console.error('[DeskFlow] get-ai-session-messages error:', err.message);
         return { success: false, error: err.message, data: [] };
     }
 });
@@ -16402,6 +17253,7 @@ electron_1.ipcMain.handle('save-ai-config', async (_event, config: any) => {
 // 3a. route-prompt — core routing: match prompt to session
 electron_1.ipcMain.handle('route-prompt', async (_event, request: { prompt: string; projectPath?: string }) => {
     const { prompt } = request;
+    vaultLogSafe({ source: 'route-prompt', event: 'prompt', role: 'user', payload: { prompt, projectPath: request.projectPath } });
     const config = loadAutoAssignConfig();
     if (!config.enabled) return { action: 'manual', reason: 'Auto-assign is disabled' };
 
@@ -16456,6 +17308,7 @@ RESPOND WITH EXACTLY THIS JSON FORMAT, NOTHING ELSE:
         const jsonMatch = llmResponse.content.match(/\{[\s\S]*\}/);
         if (!jsonMatch) return { action: 'manual', reason: 'Could not parse routing result' };
         const routingResult = JSON.parse(jsonMatch[0]);
+        vaultLogSafe({ source: 'route-prompt', event: 'parsed', model: config.routingModel, payload: routingResult });
 
         if (routingResult.action === 'create_new') {
             return {
@@ -16820,15 +17673,22 @@ electron_1.ipcMain.handle('provider-chat-call', async (event, data: { provider: 
     const cfg = data.provider?.id ? data.provider : pState?.providers.find((pr: any) => pr.id === (data.provider || pState.routing?.default?.providerId));
     if (!cfg) return { success: false, error: 'No provider found or configured' };
     const { callProvider: call } = require('./services/providers/callProvider');
+    vaultLogSafe({ source: 'ai-assistant', event: 'prompt', provider: cfg.id, model: data.model || cfg.models[0], role: 'system', payload: { messages: data.messages } });
     const result = await call(
       cfg,
       { model: data.model || cfg.models[0] || 'gpt-4o-mini', messages: data.messages, maxTokens: data.maxTokens, temperature: data.temperature },
       { onChunk: (delta: string) => { event.sender.send('provider-chunk', { delta, providerId: cfg.id }); }, pathTag: 'B-chat' },
     );
+    const reasoning = (result as any).reasoning;
+    if (reasoning != null && String(reasoning).trim()) {
+      vaultLogSafe({ source: 'ai-assistant', event: 'thinking', provider: cfg.id, model: data.model || cfg.models[0], payload: reasoning });
+    }
+    vaultLogSafe({ source: 'ai-assistant', event: 'output', provider: cfg.id, model: data.model || cfg.models[0], payload: result.content, tokensIn: result.usage?.prompt_tokens, tokensOut: result.usage?.completion_tokens });
     event.sender.send('provider-chunk', { delta: null, done: true, providerId: cfg.id, full: result.content, diagId: result.diagId, durationMs: result.durationMs });
     return { success: true, content: result.content, diagId: result.diagId, durationMs: result.durationMs };
   } catch (err: any) {
     event.sender.send('provider-chunk', { delta: null, error: err.message, done: true });
+    vaultLogSafe({ source: 'ai-assistant', event: 'error', provider: (data as any).provider?.id, payload: err.message });
     return { success: false, error: err.message };
   }
 });
@@ -16841,13 +17701,16 @@ electron_1.ipcMain.handle('provider-chat-basic', async (_event, data: { provider
     const cfg = data.provider?.id ? data.provider : pState?.providers.find((pr: any) => pr.id === (data.provider || pState.routing?.default?.providerId));
     if (!cfg) return { success: false, error: 'No provider found or configured' };
     const { callProvider: call } = require('./services/providers/callProvider');
+    vaultLogSafe({ source: 'ai-assistant', event: 'prompt', provider: cfg.id, model: data.model || cfg.models[0], role: 'system', payload: { messages: data.messages } });
     const result = await call(
       cfg,
       { model: data.model || cfg.models[0] || 'gpt-4o-mini', messages: data.messages, maxTokens: data.maxTokens, temperature: data.temperature },
       { pathTag: 'B-chat' },
     );
+    vaultLogSafe({ source: 'ai-assistant', event: 'output', provider: cfg.id, model: data.model || cfg.models[0], payload: result.content, tokensIn: result.usage?.prompt_tokens, tokensOut: result.usage?.completion_tokens });
     return { success: true, content: result.content, diagId: result.diagId, durationMs: result.durationMs };
   } catch (err: any) {
+    vaultLogSafe({ source: 'ai-assistant', event: 'error', provider: (data as any).provider?.id, payload: err.message });
     return { success: false, error: err.message };
   }
 });
@@ -16891,6 +17754,10 @@ electron_1.ipcMain.handle('ai-chat:save', async (_event, data: { threadDate: str
       }
     });
     tx();
+    // Capture AI chat episode into context brain (debounced per thread)
+    try {
+      episodeWriters.writeAiChatEpisode(messages.filter((m: any) => m.role === 'user'), threadDate);
+    } catch {}
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -17099,6 +17966,8 @@ For type "error": data = { message: string, recovery?: string }`;
     );
 
     const finalContent = result.content || '';
+    vaultLogSafe({ source: 'ai-chat', event: 'prompt', provider: cfg.id, model: cfg.models?.[0], contextId: threadDate, role: 'system', payload: { messages } });
+    vaultLogSafe({ source: 'ai-chat', event: 'output', provider: cfg.id, model: cfg.models?.[0], contextId: threadDate, payload: finalContent, tokensIn: result.usage?.prompt_tokens, tokensOut: result.usage?.completion_tokens });
 
     event.sender.send('provider-chunk', { delta: null, done: true, providerId: cfg.id, full: finalContent, threadDate });
 
@@ -17108,6 +17977,7 @@ For type "error": data = { message: string, recovery?: string }`;
       const jsonMatch = finalContent.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsedJson = JSON.parse(jsonMatch[0]);
+        vaultLogSafe({ source: 'ai-chat', event: 'parsed', provider: cfg.id, model: cfg.models?.[0], contextId: threadDate, payload: parsedJson });
       }
     } catch {}
 
@@ -17148,8 +18018,27 @@ For type "error": data = { message: string, recovery?: string }`;
     };
   } catch (err: any) {
     event.sender.send('provider-chunk', { delta: null, error: err.message, done: true });
+    vaultLogSafe({ source: 'ai-chat', event: 'error', contextId: (data as any)?.threadDate, payload: err.message });
     return { success: false, error: err.message };
   }
+});
+
+// ========== AI Debug Vault ==========
+electron_1.ipcMain.handle('ai-debug:log', (_e, ev: any) => {
+  vaultLogSafe({ source: 'renderer', ...(ev || {}) });
+  return { ok: true };
+});
+electron_1.ipcMain.handle('ai-debug:query', (_e, opts: any) => {
+  try { return require('./services/aiDebugVault').vaultQuery(opts || {}); } catch (err: any) { return { events: [], total: 0, error: err.message }; }
+});
+electron_1.ipcMain.handle('ai-debug:stats', () => {
+  try { return require('./services/aiDebugVault').vaultStats(); } catch (err: any) { return { total: 0, error: err.message }; }
+});
+electron_1.ipcMain.handle('ai-debug:export', (_e, opts: any) => {
+  try { return require('./services/aiDebugVault').vaultExport(opts || {}); } catch (err: any) { return { markdown: '', count: 0, error: err.message }; }
+});
+electron_1.ipcMain.handle('ai-debug:clear', (_e, opts: any) => {
+  try { return require('./services/aiDebugVault').vaultClear(opts || {}); } catch (err: any) { return { deleted: 0, error: err.message }; }
 });
 
 // ========== Provider diagnostics & logging ==========
@@ -17308,6 +18197,12 @@ electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) =
       JSON.stringify(goal.links || []), goal.progressSeconds || 0, goal.completedAt || null,
       goal.priority ?? 0, parentId, parentIdsJson, goal.deadline || null,
     );
+    // Capture goal episode into context brain
+    try {
+      const existing = db!.prepare('SELECT status FROM goals WHERE id = ?').get(goal.id) as any;
+      const action = goal.status === 'done' ? 'completed' : (!existing ? 'created' : 'updated');
+      episodeWriters.writeGoalEpisode(goal, action);
+    } catch {}
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -17337,7 +18232,11 @@ electron_1.ipcMain.handle('get-longterm-goals', async () => {
 
 electron_1.ipcMain.handle('delete-goal', async (_event, goalId: string) => {
   try {
+    const goalRow = db!.prepare('SELECT * FROM goals WHERE id = ?').get(goalId) as any;
     db!.prepare('DELETE FROM goals WHERE id = ?').run(goalId);
+    if (goalRow) {
+      try { episodeWriters.writeGoalEpisode({ id: goalId, title: goalRow.title || goalId, category: goalRow.category }, 'deleted'); } catch {}
+    }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -17462,6 +18361,11 @@ electron_1.ipcMain.handle('lifePhase:getSummary', async () => {
 electron_1.ipcMain.handle('lifePhase:save', async (_event, phase: any) => {
   try {
     upsertLifePhase(phase);
+    // Capture life phase episode into context brain
+    try {
+      const existing = db!.prepare('SELECT id FROM life_phases WHERE id = ?').get(phase.id) as any;
+      episodeWriters.writeLifePhaseEpisode(phase, 'created');
+    } catch {}
     const row = db!.prepare('SELECT * FROM life_phases WHERE id = ?').get(phase.id) as any;
     return { ok: true, data: row ? mapLifePhaseRow(row) : null };
   } catch (err: any) { return { ok: false, error: err.message }; }
@@ -17478,6 +18382,7 @@ electron_1.ipcMain.handle('lifePhase:delete', async (_event, phaseId: string) =>
         db!.prepare('UPDATE life_phases SET connections = ? WHERE id = ?').run(JSON.stringify(conns.filter((c: string) => c !== phaseId)), r.id);
       }
     }
+    try { episodeWriters.writeLifePhaseEpisode({ id: phaseId, title: `Deleted phase ${phaseId}`, category: 'general' }, 'updated'); } catch {}
     return { ok: true, data: null };
   } catch (err: any) { return { ok: false, error: err.message }; }
 });
@@ -17536,65 +18441,217 @@ electron_1.ipcMain.handle('lifePhase:aiAssist', async (_event, params: { kind?: 
 electron_1.ipcMain.handle('lifePhase:getPeriodContext', async (_event, params: { startDate: string; endDate: string }) => {
   try {
     const { startDate, endDate } = params || {};
-    if (!startDate || !endDate) return { ok: false, error: 'startDate and endDate are required' };
-    const start = `${String(startDate).slice(0, 10)}T00:00:00`;
-    const end = `${String(endDate).slice(0, 10)}T23:59:59`;
+    if (!startDate) return { ok: false, error: 'startDate is required' };
+    const phaseStart = `${String(startDate).slice(0, 10)}`;
+    const phaseEnd = endDate ? `${String(endDate).slice(0, 10)}` : new Date().toISOString().slice(0, 10);
+    const startTs = `${phaseStart}T00:00:00`;
+    const endTs = `${phaseEnd}T23:59:59`;
 
-    // Goals: completed daily goals in range + up to 3 long-term goal titles.
-    const goalRow = db!.prepare(
-      `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS done
-       FROM goals WHERE date >= ? AND date <= ?`
-    ).get(startDate, endDate) as any;
-    const ltgTitles = (db!.prepare(
-      `SELECT title FROM goals WHERE period = 'longterm' AND status != 'cancelled' ORDER BY created_at ASC LIMIT 3`
-    ).all() as any[]).map((r: any) => r.title);
+    // ── App Usage ──
+    const appCatRows = db!.prepare(
+      `SELECT category, COALESCE(SUM(duration_ms), 0) AS total_ms
+       FROM logs WHERE timestamp >= ? AND timestamp <= ? AND COALESCE(is_browser_tracking, 0) = 0
+       GROUP BY category`
+    ).all(startTs, endTs) as any[];
+    const productiveMs = appCatRows.find((r: any) => r.category === 'productive')?.total_ms || 0;
+    const distractingMs = appCatRows.find((r: any) => r.category === 'distracting')?.total_ms || 0;
+    const neutralMs = appCatRows.find((r: any) => r.category === 'neutral')?.total_ms || 0;
+    const externalMs = appCatRows.find((r: any) => r.category === 'external')?.total_ms || 0;
+    const totalAppMs = productiveMs + distractingMs + neutralMs + externalMs;
 
-    // Focus groups: total real focus time per group within range.
-    const focusRows = db!.prepare(
-      `SELECT fg.name AS name, COALESCE(SUM(dfs.actual_sec), 0) AS total_sec
+    const appTopRows = db!.prepare(
+      `SELECT app AS name, category, COALESCE(SUM(duration_ms), 0) AS total_ms
+       FROM logs WHERE timestamp >= ? AND timestamp <= ? AND COALESCE(is_browser_tracking, 0) = 0
+       GROUP BY app, category ORDER BY total_ms DESC LIMIT 10`
+    ).all(startTs, endTs) as any[];
+    const topApps = appTopRows.map((r: any) => ({ name: r.name, totalMs: r.total_ms, category: r.category }));
+
+    const hourlyRows = db!.prepare(
+      `SELECT CAST(substr(timestamp, 12, 2) AS INTEGER) AS hour, COALESCE(SUM(duration_ms), 0) AS total_ms
+       FROM logs WHERE timestamp >= ? AND timestamp <= ? AND COALESCE(is_browser_tracking, 0) = 0
+       GROUP BY hour ORDER BY hour`
+    ).all(startTs, endTs) as any[];
+    const hourly = hourlyRows.map((r: any) => ({ hour: r.hour, totalMs: r.total_ms }));
+
+    const appUsage = totalAppMs > 0 ? { totalMs: totalAppMs, productiveMs, distractingMs, neutralMs, topApps, hourly } : null;
+
+    // ── Browser Activity ──
+    const browserRows = db!.prepare(
+      `SELECT domain, COALESCE(SUM(total_sec), 0) AS total_sec, COALESCE(SUM(session_count), 0) AS sessions
+       FROM browser_sessions WHERE date >= ? AND date <= ?
+       GROUP BY domain ORDER BY total_sec DESC LIMIT 10`
+    ).all(phaseStart, phaseEnd) as any[];
+    const browserTotalMs = browserRows.reduce((s: number, r: any) => s + r.total_sec * 1000, 0);
+    const browser = browserTotalMs > 0 ? {
+      totalMs: browserTotalMs,
+      topDomains: browserRows.map((r: any) => ({ domain: r.domain, totalMs: r.total_sec * 1000, category: 'unknown' as string }))
+    } : null;
+
+    // ── Focus Sessions ──
+    const focusSessionRows = db!.prepare(
+      `SELECT id, started_at, ended_at, COALESCE(actual_sec, 0) AS actual_sec, strictness
+       FROM deep_focus_sessions WHERE started_at >= ? AND started_at <= ? AND status = 'completed'
+       ORDER BY started_at`
+    ).all(startTs, endTs) as any[];
+    const focusTotalMs = focusSessionRows.reduce((s: number, r: any) => s + r.actual_sec * 1000, 0);
+    const focusCount = focusSessionRows.length;
+    const avgFocusMs = focusCount > 0 ? Math.round(focusTotalMs / focusCount) : 0;
+
+    const strictMap: Record<string, { count: number; totalMs: number }> = {};
+    for (const r of focusSessionRows) {
+      const k = r.strictness || 'unknown';
+      if (!strictMap[k]) strictMap[k] = { count: 0, totalMs: 0 };
+      strictMap[k].count++;
+      strictMap[k].totalMs += r.actual_sec * 1000;
+    }
+    const strictness = Object.entries(strictMap).map(([label, v]) => ({ label, count: v.count, totalMs: v.totalMs }));
+
+    const focusGroupRows = db!.prepare(
+      `SELECT fg.name, fg.color, COALESCE(SUM(dfs.actual_sec), 0) AS total_sec
        FROM focus_group_usage u
        JOIN deep_focus_sessions dfs ON dfs.id = u.session_id
        JOIN focus_groups fg ON fg.id = u.group_id
        WHERE dfs.started_at >= ? AND dfs.started_at <= ?
-       GROUP BY fg.id
-       HAVING total_sec > 0
-       ORDER BY total_sec DESC`
-    ).all(start, end) as any[];
-    const focusGroups = focusRows.map((r: any) => ({ name: r.name, totalMs: r.total_sec * 1000 }));
+       GROUP BY fg.id HAVING total_sec > 0 ORDER BY total_sec DESC`
+    ).all(startTs, endTs) as any[];
+    const focusGroups = focusGroupRows.map((r: any) => ({ name: r.name, color: r.color, totalMs: r.total_sec * 1000 }));
 
-    // External activities (sleep excluded per product rule): top by time.
-    const extRows = db!.prepare(
-      `SELECT a.name AS name, COALESCE(SUM(s.duration_seconds), 0) AS total_sec
-       FROM external_sessions s
-       JOIN external_activities a ON a.id = s.activity_id
-       WHERE a.type != 'sleep' AND s.started_at >= ? AND s.started_at <= ?
-       GROUP BY a.id
-       HAVING total_sec > 0
-       ORDER BY total_sec DESC
-       LIMIT 5`
-    ).all(start, end) as any[];
-    const externalActivities = extRows.map((r: any) => ({ label: r.name, totalMs: r.total_sec * 1000 }));
+    const focus = focusTotalMs > 0 ? { totalMs: focusTotalMs, sessionCount: focusCount, averageSessionMs: avgFocusMs, strictness, topApps: [], groups: focusGroups } : null;
 
-    // App usage: top apps by tracked time in range (browser website rows excluded from totals).
-    const appRows = db!.prepare(
-      `SELECT app AS name, COALESCE(SUM(duration_ms), 0) AS total_ms
-       FROM logs
-       WHERE timestamp >= ? AND timestamp <= ? AND COALESCE(is_browser_tracking, 0) = 0
-       GROUP BY app
-       ORDER BY total_ms DESC
-       LIMIT 5`
-    ).all(start, end) as any[];
-    const topApps = appRows.map((r: any) => ({ name: r.name, totalMs: r.total_ms }));
+    // ── Finance ──
+    const finRows = db!.prepare(
+      `SELECT type, COALESCE(SUM(amount), 0) AS total
+       FROM finance_transactions WHERE date >= ? AND date <= ?
+       GROUP BY type`
+    ).all(phaseStart, phaseEnd) as any[];
+    const incomeTotal = finRows.find((r: any) => r.type === 'income')?.total || 0;
+    const expenseTotal = finRows.find((r: any) => r.type === 'expense')?.total || 0;
+    const transferTotal = finRows.find((r: any) => r.type === 'transfer')?.total || 0;
+
+    const finCatRows = db!.prepare(
+      `SELECT fc.name AS label, ftx.type, COALESCE(SUM(ftx.amount), 0) AS total
+       FROM finance_transactions ftx
+       LEFT JOIN finance_categories fc ON fc.id = ftx.category_id
+       WHERE ftx.date >= ? AND ftx.date <= ? AND ftx.type = 'expense'
+       GROUP BY fc.name ORDER BY total DESC LIMIT 8`
+    ).all(phaseStart, phaseEnd) as any[];
+    const topCategories = finCatRows.map((r: any) => ({ categoryId: null, label: r.label || 'Uncategorized', total: r.total, type: r.type }));
+
+    const finance = (incomeTotal > 0 || expenseTotal > 0) ? {
+      incomeTotal, expenseTotal, transferTotal, net: incomeTotal - expenseTotal,
+      currency: null as string | null, topCategories, walletDeltas: []
+    } : null;
+
+    // ── Subscriptions ──
+    const subRows = db!.prepare(
+      `SELECT id, name, amount, billing_cycle, category, status
+       FROM finance_subscriptions WHERE status = 'active'`
+    ).all() as any[];
+    const activeSubs = subRows.filter((s: any) => {
+      if (!s.amount) return false;
+      return true;
+    });
+    const estimatedMonthlyBurn = activeSubs.reduce((s: number, r: any) => {
+      const amt = r.amount || 0;
+      if (r.billing_cycle === 'monthly') return s + amt;
+      if (r.billing_cycle === 'yearly') return s + amt / 12;
+      if (r.billing_cycle === 'weekly') return s + amt * 4.33;
+      return s + amt;
+    }, 0);
+    const subscriptions = activeSubs.length > 0 ? {
+      activeDuringPhase: activeSubs.map((r: any) => ({ id: r.id, name: r.name, amount: r.amount, billingCycle: r.billing_cycle, category: r.category, status: r.status })),
+      estimatedMonthlyBurn
+    } : null;
+
+    // ── Sleep ──
+    const sleepRows = db!.prepare(
+      `SELECT started_at, ended_at, COALESCE(duration_seconds, 0) AS dur
+       FROM external_sessions WHERE type = 'sleep' AND started_at >= ? AND started_at <= ?
+       ORDER BY started_at`
+    ).all(startTs, endTs) as any[];
+    const sleepTotalMin = sleepRows.reduce((s: number, r: any) => s + Math.round(r.dur / 60), 0);
+    const sleepCount = sleepRows.length;
+    const sleepAvgMin = sleepCount > 0 ? Math.round(sleepTotalMin / sleepCount) : 0;
+    const sleep = sleepCount > 0 ? {
+      sessionCount: sleepCount, totalMinutes: sleepTotalMin, averageMinutes: sleepAvgMin,
+      averageBedtime: null as string | null, averageWakeTime: null as string | null,
+      consistencyScore: null as number | null,
+      nightly: sleepRows.slice(0, 30).map((r: any) => ({ date: (r.started_at || '').slice(0, 10), startedAt: r.started_at, endedAt: r.ended_at, durationMinutes: Math.round(r.dur / 60) }))
+    } : null;
+
+    // ── AI Usage ──
+    const aiRows = db!.prepare(
+      `SELECT tool, model, COALESCE(SUM(input_tokens), 0) AS tokens_in, COALESCE(SUM(output_tokens), 0) AS tokens_out,
+              COALESCE(SUM(cost_usd), 0) AS cost, COUNT(*) AS cnt
+       FROM ai_usage WHERE date >= ? AND date <= ?
+       GROUP BY tool, model ORDER BY cost DESC`
+    ).all(phaseStart, phaseEnd) as any[];
+    const aiTotalCost = aiRows.reduce((s: number, r: any) => s + r.cost, 0);
+    const aiTotalTokensIn = aiRows.reduce((s: number, r: any) => s + r.tokens_in, 0);
+    const aiTotalTokensOut = aiRows.reduce((s: number, r: any) => s + r.tokens_out, 0);
+    const aiTotalReqs = aiRows.reduce((s: number, r: any) => s + r.cnt, 0);
+
+    const toolMap: Record<string, { count: number; cost: number }> = {};
+    const modelMap: Record<string, { count: number; cost: number }> = {};
+    for (const r of aiRows) {
+      if (!toolMap[r.tool]) toolMap[r.tool] = { count: 0, cost: 0 };
+      toolMap[r.tool].count += r.cnt;
+      toolMap[r.tool].cost += r.cost;
+      if (r.model) {
+        if (!modelMap[r.model]) modelMap[r.model] = { count: 0, cost: 0 };
+        modelMap[r.model].count += r.cnt;
+        modelMap[r.model].cost += r.cost;
+      }
+    }
+    const ai = aiTotalReqs > 0 ? {
+      totalRequests: aiTotalReqs, totalTokensIn: aiTotalTokensIn, totalTokensOut: aiTotalTokensOut, totalCost: aiTotalCost,
+      topTools: Object.entries(toolMap).map(([tool, v]) => ({ tool, count: v.count, cost: v.cost })),
+      topModels: Object.entries(modelMap).map(([model, v]) => ({ model, count: v.count, cost: v.cost }))
+    } : null;
+
+    // ── Code Activity ──
+    const codeRows = db!.prepare(
+      `SELECT file_path, workspace_path, COALESCE(SUM(lines_added), 0) AS added, COALESCE(SUM(lines_removed), 0) AS removed, COUNT(*) AS events
+       FROM code_activity WHERE timestamp >= ? AND timestamp <= ?
+       GROUP BY file_path, workspace_path ORDER BY events DESC LIMIT 10`
+    ).all(startTs, endTs) as any[];
+    const codeTotalAdded = codeRows.reduce((s: number, r: any) => s + r.added, 0);
+    const codeTotalRemoved = codeRows.reduce((s: number, r: any) => s + r.removed, 0);
+    const codeTotalEvents = codeRows.reduce((s: number, r: any) => s + r.events, 0);
+    const code = codeTotalEvents > 0 ? {
+      totalEvents: codeTotalEvents, linesAdded: codeTotalAdded, linesRemoved: codeTotalRemoved,
+      topFiles: codeRows.map((r: any) => ({ filePath: r.file_path, workspacePath: r.workspace_path, events: r.events, linesAdded: r.added, linesRemoved: r.removed })),
+      topWorkspaces: []
+    } : null;
+
+    // ── IDE Projects ──
+    const projectRows = db!.prepare(
+      `SELECT id, name, path, detected_at, last_seen_at FROM projects ORDER BY last_seen_at DESC LIMIT 10`
+    ).all() as any[];
+    const activeProjects = projectRows.map((r: any) => ({ id: r.id, name: r.name, path: r.path, detectedAt: r.detected_at, lastSeenAt: r.last_seen_at }));
+    const projects = activeProjects.length > 0 ? { activeProjects, aiUsageByProject: [] } : null;
+
+    // ── Goals (manual counts) ──
+    const goalRow = db!.prepare(
+      `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS done
+       FROM goals WHERE date >= ? AND date <= ?`
+    ).get(phaseStart, phaseEnd) as any;
 
     return {
       ok: true,
       data: {
-        goals: { completedCount: Number(goalRow?.done ?? 0), longTermGoalTitles: ltgTitles },
-        focusGroups,
-        externalActivities,
-        memories: [], // IndexedDB-backed — filled renderer-side from useMemories
-        appUsage: topApps.length > 0 ? { topApps } : null,
-        covenantCompletionRate: null, // localStorage-backed — computed renderer-side from useCovenant
+        range: { start: phaseStart, end: phaseEnd, isOngoing: !endDate },
+        availability: { appUsage: !!appUsage, browser: !!browser, focus: !!focus, finance: !!finance, sleep: !!sleep, ai: !!ai, code: !!code, projects: !!projects, subscriptions: !!subscriptions },
+        summary: {
+          productiveMs, distractingMs, neutralMs,
+          focusMs: focusTotalMs, focusSessionCount: focusCount,
+          netFinance: finance?.net || 0, incomeTotal, expenseTotal,
+          sleepAvgMinutes: sleepAvgMin, aiCost: aiTotalCost,
+          codeLinesAdded: codeTotalAdded, codeLinesRemoved: codeTotalRemoved,
+          memoryCount: 0, covenantCompletionCount: 0, goalCount: goalRow?.total || 0
+        },
+        appUsage, browser, focus, finance, subscriptions, sleep, ai, code, projects,
+        goals: { completedCount: Number(goalRow?.done ?? 0), longTermGoalTitles: [] },
       },
     };
   } catch (err: any) { return { ok: false, error: err.message }; }
@@ -17769,6 +18826,12 @@ electron_1.ipcMain.handle('save-goals-batch', async (_event, goals: any[]) => {
       }
     });
     txn(goals);
+    // Capture goal episodes into context brain (first 5 only to avoid spam)
+    try {
+      for (const g of (goals || []).slice(0, 5)) {
+        episodeWriters.writeGoalEpisode(g, g.status === 'done' ? 'completed' : 'created');
+      }
+    } catch {}
     return { success: true, count: goals.length };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -18007,6 +19070,10 @@ electron_1.ipcMain.handle('create-reminder', async (_event, data: { text: string
     db!.prepare('INSERT INTO reminders (id, text, due_date, goal_id, done) VALUES (?, ?, ?, ?, 0)').run(
       id, data.text, data.due_date || null, data.goal_id || null,
     );
+    // Capture deadline episode into context brain
+    try {
+      episodeWriters.writeDeadlineEpisode({ id, title: data.text, due_date: data.due_date || 'no date', course: undefined }, 'created');
+    } catch {}
     return { success: true, id };
   } catch (err: any) {
     return { success: false, error: err.message };
@@ -18032,7 +19099,7 @@ electron_1.ipcMain.handle('delete-reminder', async (_event, id: string) => {
 });
 
 // --- Notes IPC -----------------------------------------------------------------------
-electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: string; tag?: string; group?: string }) => {
+electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: string; tag?: string; group?: string; includeDrafts?: boolean; upcomingDeadlines?: boolean }) => {
   try {
     let sql = 'SELECT * FROM notes';
     const conditions: string[] = [];
@@ -18049,6 +19116,12 @@ electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: strin
       conditions.push('group_name = ?');
       args.push(params.group);
     }
+    if (!params?.includeDrafts) {
+      conditions.push('COALESCE(is_draft, 0) = 0');
+    }
+    if (params?.upcomingDeadlines) {
+      conditions.push('deadline IS NOT NULL AND deadline != \'\'');
+    }
     if (conditions.length > 0) sql += ' WHERE ' + conditions.join(' AND ');
     sql += ' ORDER BY updated_at DESC';
     const rows = db!.prepare(sql).all(...args) as any[];
@@ -18064,11 +19137,13 @@ electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: strin
   }
 });
 
-electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string; content: string; tags?: string[]; group_name?: string }) => {
+electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string; content: string; tags?: string[]; group_name?: string; deadline?: string; deadline_time?: string; reminder?: string; is_draft?: number; links?: string[] }) => {
   try {
     const id = 'note_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-    db!.prepare('INSERT INTO notes (id, title, content, tags, group_name) VALUES (?, ?, ?, ?, ?)').run(
+    db!.prepare('INSERT INTO notes (id, title, content, tags, group_name, deadline, deadline_time, reminder, is_draft, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
       id, data.title || '', data.content, JSON.stringify(data.tags || []), data.group_name || '',
+      data.deadline || null, data.deadline_time || null, data.reminder || 'none', data.is_draft || 0,
+      JSON.stringify(data.links || []),
     );
     return { success: true, id };
   } catch (err: any) {
@@ -18076,7 +19151,7 @@ electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string;
   }
 });
 
-electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string }) => {
+electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string; deadline?: string | null; deadline_time?: string | null; reminder?: string; is_draft?: number; status?: string; links?: string[] }) => {
   try {
     const sets: string[] = [];
     const args: any[] = [];
@@ -18084,6 +19159,12 @@ electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; tit
     if (data.content !== undefined) { sets.push('content = ?'); args.push(data.content); }
     if (data.tags !== undefined) { sets.push('tags = ?'); args.push(JSON.stringify(data.tags)); }
     if (data.group_name !== undefined) { sets.push('group_name = ?'); args.push(data.group_name); }
+    if (data.deadline !== undefined) { sets.push('deadline = ?'); args.push(data.deadline); }
+    if (data.deadline_time !== undefined) { sets.push('deadline_time = ?'); args.push(data.deadline_time); }
+    if (data.reminder !== undefined) { sets.push('reminder = ?'); args.push(data.reminder); }
+    if (data.is_draft !== undefined) { sets.push('is_draft = ?'); args.push(data.is_draft); }
+    if (data.status !== undefined) { sets.push('status = ?'); args.push(data.status); }
+    if (data.links !== undefined) { sets.push('links = ?'); args.push(JSON.stringify(data.links)); }
     if (sets.length === 0) return { success: true };
     sets.push("updated_at = datetime('now')");
     args.push(data.id);
@@ -18167,8 +19248,8 @@ electron_1.ipcMain.handle('get-deadlines', async (_event, opts?: { days?: number
   try {
     const { days = 30, course } = opts || {};
     const cutoff = new Date(Date.now() + days * 86400000).toISOString();
-    let sql = 'SELECT * FROM deadlines WHERE due_date <= ? AND status != ? ORDER BY due_date ASC';
-    const params: any[] = [cutoff, 'done'];
+    let sql = 'SELECT * FROM deadlines WHERE (due_date <= ? OR (remind_at IS NOT NULL AND remind_at <= ?)) AND status != ? ORDER BY COALESCE(remind_at, due_date) ASC';
+    const params: any[] = [cutoff, cutoff, 'done'];
     if (course) { sql += ' AND course = ?'; params.push(course); }
     const rows = db!.prepare(sql).all(...params);
     return { success: true, deadlines: rows };
@@ -18178,8 +19259,8 @@ electron_1.ipcMain.handle('get-deadlines', async (_event, opts?: { days?: number
 electron_1.ipcMain.handle('add-deadline', async (_event, dl: any) => {
   try {
     const id = 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-    db!.prepare('INSERT INTO deadlines (id, title, course, due_date, priority, description, category) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, dl.title, dl.course || null, dl.due_date, dl.priority || 'medium', dl.description || null, dl.category || null);
+    db!.prepare('INSERT INTO deadlines (id, title, course, due_date, priority, description, category, remind_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, dl.title, dl.course || null, dl.due_date, dl.priority || 'medium', dl.description || null, dl.category || null, dl.remind_at || null);
     return { success: true, id };
   } catch (err: any) { return { success: false, error: err.message }; }
 });
@@ -18208,7 +19289,7 @@ electron_1.ipcMain.handle('delete-deadline', async (_event, id: string) => {
 
 electron_1.ipcMain.handle('update-deadline', async (_event, id: string, patch: any) => {
   try {
-    const allowed = ['title', 'course', 'due_date', 'priority', 'description', 'category', 'recurrence', 'status'];
+    const allowed = ['title', 'course', 'due_date', 'priority', 'description', 'category', 'recurrence', 'status', 'remind_at'];
     const fields = Object.keys(patch).filter(k => allowed.includes(k) && patch[k] !== undefined);
     if (fields.length === 0) return { success: true };
     const sets = fields.map(f => `${f} = ?`).join(', ');
@@ -18297,6 +19378,10 @@ electron_1.ipcMain.handle('connectors:add', async (_event, connector: { type: st
       INSERT INTO connectors (id, type, provider, display_name, config, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'disconnected', ?, ?)
     `).run(id, connector.type, connector.provider, connector.displayName, JSON.stringify(connector.config), now, now);
+    // Capture connector episode into context brain
+    try {
+      episodeWriters.writeConnectorEpisode({ id, displayName: connector.displayName, type: connector.type, provider: connector.provider }, [], 'synced');
+    } catch {}
     return {
       success: true,
       connector: { id, type: connector.type, provider: connector.provider, displayName: connector.displayName, config: connector.config, status: 'disconnected' as const },
@@ -18477,6 +19562,10 @@ electron_1.ipcMain.handle('connectors:sync', async (_event, id: string) => {
       }
     }
     db!.prepare("UPDATE connectors SET last_sync = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(id);
+    // Capture connector sync episode into context brain
+    try {
+      episodeWriters.writeConnectorEpisode(row, Array.from({ length: Math.min(itemsAdded, 5) }), itemsAdded > 0 ? 'synced' : 'new_items');
+    } catch {}
     // Detect new unread emails and notify renderer
     if (row.type === 'email' && itemsAdded > 0) {
       const unreadCount = db!.prepare('SELECT COUNT(*) as cnt FROM connector_items WHERE connector_id = ? AND item_type = ? AND is_read = 0').get(id, 'email') as any;
@@ -19122,6 +20211,71 @@ function startBrowserTrackingServer() {
                 }
                 catch (err) {
                     console.error('[DeskFlow] Invalid code activity data:', err);
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'error', message: 'Invalid payload' }));
+                }
+            });
+        }
+        else if (req.method === 'POST' && req.url === '/ai-context') {
+            // AI context captures from browser extension (ChatGPT, Claude, Perplexity conversations)
+            let body = '';
+            req.on('data', chunk => { body += chunk.toString(); });
+            req.on('end', () => {
+                try {
+                    const payload = JSON.parse(body);
+                    const captures = Array.isArray(payload?.captures) ? payload.captures : [];
+                    if (!captures.length) {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ status: 'ok', accepted: 0 }));
+                        return;
+                    }
+                    const stmt = db.prepare(`
+                        INSERT OR IGNORE INTO ai_context_captures (provider, messages, url, title, source, timestamp, dedup_key, captured_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    `);
+                    let accepted = 0;
+                    for (const cap of captures) {
+                        try {
+                            const messagesJson = JSON.stringify(cap.messages || []);
+                            if (messagesJson.length > 300000) continue;
+                            const dedupKey = cap.captureKey || `${cap.provider}:${cap.url}:${(cap.messages || []).length}`;
+                            const existing = db.prepare('SELECT id FROM ai_context_captures WHERE dedup_key = ?').get(dedupKey);
+                            if (existing) continue;
+                            const info = stmt.run(
+                                cap.provider || 'unknown',
+                                messagesJson,
+                                cap.url || null,
+                                cap.title || null,
+                                cap.source || 'fetch-intercept',
+                                cap.timestamp || new Date().toISOString(),
+                                dedupKey,
+                                Date.now()
+                            );
+                            if (!info.changes) continue;
+                            accepted++;
+                            // Write episode for Context Brain (stable source_ref = ai_context_capture:<id>)
+                            try {
+                                episodeWriters.writeAiContextEpisode({
+                                    id: Number(info.lastInsertRowid),
+                                    provider: cap.provider || 'unknown',
+                                    messages: cap.messages || [],
+                                    url: cap.url,
+                                    title: cap.title,
+                                });
+                            } catch {}
+                        } catch {}
+                    }
+                    if (accepted > 0) {
+                        console.log(`[DeskFlow] /ai-context: accepted ${accepted}/${captures.length} captures`);
+                        // Notify renderer of new captures
+                        if (mainWindow?.webContents) {
+                            mainWindow.webContents.send('ai-context-captured', { count: accepted });
+                        }
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'ok', accepted }));
+                } catch (err) {
+                    console.error('[DeskFlow] Invalid ai-context data:', err);
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     res.end(JSON.stringify({ status: 'error', message: 'Invalid payload' }));
                 }
@@ -19985,6 +21139,8 @@ electron_1.app.whenReady().then(() => {
 
     initializeStorage();
     initMemorySystem();
+    initContextSystem();
+    initContextBrain();
     loadFinanceSettings();
     loadCategoryConfig();
     loadSleepState(); // Load sleep tracking state
@@ -20372,6 +21528,7 @@ electron_1.ipcMain.handle('detect-usage-gaps', (event, { period = 'week', minGap
 
         const logs = db.prepare(`SELECT timestamp, duration_ms FROM logs WHERE timestamp >= ? ORDER BY timestamp ASC`).all(periodStartIso);
         const externals = db.prepare(`SELECT started_at, ended_at FROM external_sessions WHERE ended_at IS NOT NULL AND started_at >= ?`).all(periodStartIso);
+        const manualRows = db.prepare(`SELECT started_at, ended_at FROM manual_time_assignments WHERE started_at >= ?`).all(periodStartIso);
 
         const intervals = [];
         for (const log of logs) {
@@ -20382,6 +21539,13 @@ electron_1.ipcMain.handle('detect-usage-gaps', (event, { period = 'week', minGap
         for (const es of externals) {
             const start = new Date(es.started_at).getTime();
             const end = new Date(es.ended_at).getTime();
+            if (end > start) intervals.push({ start, end });
+        }
+        // Manual assignments count as tracked coverage — a filled span must
+        // NOT come back as a gap on the timeline.
+        for (const ma of manualRows) {
+            const start = new Date(ma.started_at).getTime();
+            const end = new Date(ma.ended_at).getTime();
             if (end > start) intervals.push({ start, end });
         }
 
@@ -20415,6 +21579,191 @@ electron_1.ipcMain.handle('detect-usage-gaps', (event, { period = 'week', minGap
     } catch (err) {
         console.error('[DeskFlow] detect-usage-gaps error:', err);
         return [];
+    }
+});
+
+// ── Manual time assignments ────────────────────────────────────────────────
+// User-claimed blocks of time filling EMPTY spans where no auto-tracking
+// happened. Stored in a dedicated table (differentiable manual vs auto) and
+// merged into stats/aggregates like normal tracking. Manual assignments are
+// part of the intervals fed to detect-usage-gaps (via the merged interval
+// helper below) so the timeline never shows them as untracked gaps.
+
+function getManualIntervalsSince(sinceIso) {
+    if (useJson || !ensureDb()) return [];
+    try {
+        const rows = db.prepare(`SELECT started_at, ended_at FROM manual_time_assignments WHERE started_at >= ?`).all(sinceIso);
+        return rows.filter((r) => r.started_at && r.ended_at).map((r) => ({
+            start: new Date(r.started_at).getTime(),
+            end: new Date(r.ended_at).getTime(),
+        }));
+    }
+    catch (err) {
+        console.error('[DeskFlow] getManualIntervalsSince error:', err);
+        return [];
+    }
+}
+
+// Keeps the pre-aggregated stats tables in sync with manual assignments for a
+// date. Manual time lives in its own table (source of truth) but is ALSO
+// mirrored into daily_stats / daily_aggregates / stats_daily under the
+// pseudo-app "Manual time" so dashboard heatmaps, stats pages and overview
+// totals include it without rewriting every query. Deleting the last manual
+// assignment for a date removes the mirrored rows.
+function syncManualStats(dateStr) {
+    if (useJson || !ensureDb()) return;
+    try {
+        const row = db.prepare(`SELECT COALESCE(SUM(duration_seconds),0) as total_sec, COUNT(*) as session_count FROM manual_time_assignments WHERE date = ?`).get(dateStr);
+        const totalSec = row ? row.total_sec : 0;
+        const sessionCount = row ? row.session_count : 0;
+
+        if (totalSec > 0) {
+            db.prepare(`
+                INSERT INTO daily_stats (date, app, category, total_sec, sessions)
+                VALUES (?, 'Manual time', 'neutral', ?, ?)
+                ON CONFLICT(date, app) DO UPDATE SET
+                  total_sec = excluded.total_sec,
+                  sessions = excluded.sessions
+            `).run(dateStr, totalSec, sessionCount);
+            db.prepare(`
+                INSERT INTO daily_aggregates (date, app, category, total_sec, session_count)
+                VALUES (?, 'Manual time', 'neutral', ?, ?)
+                ON CONFLICT(date, app) DO UPDATE SET
+                  total_sec = excluded.total_sec,
+                  session_count = excluded.session_count
+            `).run(dateStr, totalSec, sessionCount);
+            db.prepare(`
+                INSERT INTO stats_daily (date, app_name, app_type, category, total_seconds, session_count)
+                VALUES (?, 'Manual time', 'manual', 'neutral', ?, ?)
+                ON CONFLICT(date, app_name) DO UPDATE SET
+                  total_seconds = excluded.total_seconds,
+                  session_count = excluded.session_count
+            `).run(dateStr, totalSec, sessionCount);
+        }
+        else {
+            db.prepare(`DELETE FROM daily_stats WHERE date = ? AND app = 'Manual time'`).run(dateStr);
+            db.prepare(`DELETE FROM daily_aggregates WHERE date = ? AND app = 'Manual time'`).run(dateStr);
+            db.prepare(`DELETE FROM stats_daily WHERE date = ? AND app_name = 'Manual time'`).run(dateStr);
+        }
+        markStatsDirty();
+    }
+    catch (err) {
+        console.error('[DeskFlow] syncManualStats error:', err);
+    }
+}
+
+electron_1.ipcMain.handle('manual-assign:list', (event, { date } = {}) => {
+    if (useJson) return [];
+    try {
+        return db.prepare(`SELECT id, date, started_at, ended_at, duration_seconds, mode, app, category, created_at FROM manual_time_assignments WHERE date = ? ORDER BY started_at ASC`).all(date);
+    }
+    catch (err) {
+        console.error('[DeskFlow] manual-assign:list error:', err);
+        return [];
+    }
+});
+
+// Day context for the manual-assign editor: everything tracked on a given
+// LOCAL day (logs + external sessions) so the UI can show what's occupied
+// vs what's free, plus existing manual assignments for that day.
+electron_1.ipcMain.handle('manual-assign:day-context', (event, { date } = {}) => {
+    if (useJson) return { tracked: [], manual: [] };
+    try {
+        const dayStart = new Date(date + 'T00:00:00');
+        const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+        const dayStartIso = dayStart.toISOString();
+        const dayEndIso = dayEnd.toISOString();
+
+        const logs = db.prepare(`SELECT timestamp, duration_ms, app FROM logs WHERE timestamp >= ? AND timestamp < ?`).all(dayStartIso, dayEndIso);
+        const externals = db.prepare(`SELECT started_at, ended_at FROM external_sessions WHERE ended_at IS NOT NULL AND started_at < ? AND ended_at > ?`).all(dayEndIso, dayStartIso);
+        const manual = db.prepare(`SELECT id, date, started_at, ended_at, duration_seconds, mode, app, category FROM manual_time_assignments WHERE date = ?`).all(date);
+
+        const tracked = [];
+        for (const log of logs) {
+            const start = new Date(log.timestamp).getTime();
+            const end = start + Math.max((log.duration_ms || 0), 1000);
+            tracked.push({ started_at: new Date(start).toISOString(), ended_at: new Date(end).toISOString(), app: log.app || null });
+        }
+        for (const es of externals) {
+            const start = Math.max(new Date(es.started_at).getTime(), dayStart.getTime());
+            const end = Math.min(new Date(es.ended_at).getTime(), dayEnd.getTime());
+            if (end > start) tracked.push({ started_at: new Date(start).toISOString(), ended_at: new Date(end).toISOString() });
+        }
+
+        return { tracked, manual };
+    }
+    catch (err) {
+        console.error('[DeskFlow] manual-assign:day-context error:', err);
+        return { tracked: [], manual: [] };
+    }
+});
+
+electron_1.ipcMain.handle('manual-assign:create', (event, data = {}) => {
+    if (useJson) return { ok: false, error: 'JSON storage mode does not support manual assignments' };
+    try {
+        const { startedAt, endedAt, mode = 'custom', app = null, category = null } = data;
+        if (!startedAt || !endedAt) return { ok: false, error: 'Missing startedAt/endedAt' };
+
+        const startMs = new Date(startedAt).getTime();
+        const endMs = new Date(endedAt).getTime();
+        if (!isFinite(startMs) || !isFinite(endMs)) return { ok: false, error: 'Invalid timestamps' };
+        if (endMs <= startMs) return { ok: false, error: 'endedAt must be after startedAt' };
+
+        const durationSeconds = Math.floor((endMs - startMs) / 1000);
+        const dateStr = startedAt.split('T')[0];
+
+        // NEVER replace real tracked time: reject if the span overlaps any
+        // auto-tracked log, external session, or existing manual assignment.
+        const overlapsLog = db.prepare(`
+            SELECT 1 FROM logs
+            WHERE timestamp < ? AND (timestamp + MAX(duration_ms, 1000)) > ?
+            LIMIT 1
+        `).get(endedAt, startedAt);
+        if (overlapsLog) return { ok: false, error: 'Span overlaps auto-tracked time — only empty spans can be filled' };
+
+        const overlapsExternal = db.prepare(`
+            SELECT 1 FROM external_sessions
+            WHERE started_at < ? AND ended_at IS NOT NULL AND ended_at > ?
+            LIMIT 1
+        `).get(endedAt, startedAt);
+        if (overlapsExternal) return { ok: false, error: 'Span overlaps an external activity — only empty spans can be filled' };
+
+        const overlapsManual = db.prepare(`
+            SELECT 1 FROM manual_time_assignments
+            WHERE started_at < ? AND ended_at > ?
+            LIMIT 1
+        `).get(endedAt, startedAt);
+        if (overlapsManual) return { ok: false, error: 'Span overlaps an existing manual assignment' };
+
+        const info = db.prepare(`
+            INSERT INTO manual_time_assignments (date, started_at, ended_at, duration_seconds, mode, app, category)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(dateStr, startedAt, endedAt, durationSeconds, mode === 'random' ? 'random' : 'custom', app || null, category || null);
+
+        syncManualStats(dateStr);
+
+        console.log(`[DeskFlow] ✅ Manual assignment ${info.lastInsertRowid}: ${durationSeconds}s (${mode}) on ${dateStr}`);
+        return { ok: true, id: Number(info.lastInsertRowid), durationSeconds };
+    }
+    catch (err) {
+        console.error('[DeskFlow] manual-assign:create error:', err);
+        return { ok: false, error: String(err && err.message || err) };
+    }
+});
+
+electron_1.ipcMain.handle('manual-assign:delete', (event, { id } = {}) => {
+    if (useJson) return { ok: false, error: 'JSON storage mode does not support manual assignments' };
+    try {
+        const row = db.prepare(`SELECT date FROM manual_time_assignments WHERE id = ?`).get(id);
+        if (!row) return { ok: false, error: 'Assignment not found' };
+        db.prepare(`DELETE FROM manual_time_assignments WHERE id = ?`).run(id);
+        syncManualStats(row.date);
+        console.log(`[DeskFlow] 🗑 Manual assignment ${id} deleted`);
+        return { ok: true };
+    }
+    catch (err) {
+        console.error('[DeskFlow] manual-assign:delete error:', err);
+        return { ok: false, error: String(err && err.message || err) };
     }
 });
 
@@ -20564,19 +21913,25 @@ electron_1.ipcMain.handle('get-sleep-for-date', (event, dateStr: string) => {
         const sleepActivity = db.prepare(`SELECT id FROM external_activities WHERE type = 'sleep' LIMIT 1`).get() as any;
         if (!sleepActivity) return null;
 
-        // Match by the stationary sleep day used by the popup and chart.
-        // Sleep date = the calendar day the session belongs to.
-        // 00:00-05:59 bedtime is assigned to the NEXT calendar day.
-        // So for date "Aug 11", search from Aug 11 00:00 to Aug 12 00:00.
-        const winStart = new Date(dateStr + 'T00:00:00');
-        const winEnd = new Date(dateStr + 'T00:00:00');
+// Match by the stationary sleep day used by the popup and chart.
+        // Sleep date = the calendar day the session BELONGS to (bedtime past
+        // midnight before 12:00 belongs to the PREVIOUS day's sleep).
+        // Primary window: [date 12:00, date+1 12:00) on started_at, which covers
+        // bedtime Aug 11 22:00 AND bedtime Aug 12 03:03 (both Aug 11's sleep).
+        // Also match the RAW bedtime calendar day (started_at within [date 00:00, date+1 00:00))
+        // so searching the raw bedtime/wake-up date still finds the sleep.
+        const winStart = new Date(dateStr + 'T12:00:00');
+        const winEnd = new Date(dateStr + 'T12:00:00');
         winEnd.setDate(winEnd.getDate() + 1);
+        const dayStart = new Date(dateStr + 'T00:00:00');
+        const dayEnd = new Date(dateStr + 'T00:00:00');
+        dayEnd.setDate(dayEnd.getDate() + 1);
         const sessions = db.prepare(`
             SELECT * FROM external_sessions
             WHERE activity_id = ? AND ended_at IS NOT NULL
-              AND started_at >= ? AND started_at < ?
+              AND ((started_at >= ? AND started_at < ?) OR (started_at >= ? AND started_at < ?))
             ORDER BY started_at ASC
-        `).all(sleepActivity.id, winStart.toISOString(), winEnd.toISOString()) as any[];
+        `).all(sleepActivity.id, winStart.toISOString(), winEnd.toISOString(), dayStart.toISOString(), dayEnd.toISOString()) as any[];
         const session = sessions[0] || null;
 
         if (!session) return null;
@@ -20680,6 +22035,69 @@ electron_1.ipcMain.handle('dismiss-morning-prompt', (event) => {
 });
 
 // ── Sleep Detection IPC ──
+// Detect device-usage gaps adjacent to a sleep window (before sleep / after wake),
+// so the sleep popup can offer to fill them as external activities.
+// Reuses the same interval-merging logic as detect-usage-gaps (logs + external_sessions).
+function detectAdjacentSleepGaps(gapStartIso, gapEndIso) {
+    const MIN_GAP_MS = 5 * 60 * 1000;
+    try {
+        const sleepStart = new Date(gapStartIso).getTime();
+        const sleepEnd = new Date(gapEndIso).getTime();
+        if (!isFinite(sleepStart) || !isFinite(sleepEnd) || sleepEnd <= sleepStart) return [];
+        const windowStart = new Date(sleepStart - 48 * 60 * 60 * 1000).toISOString();
+
+        const logs = db.prepare(`SELECT timestamp, duration_ms FROM logs WHERE timestamp >= ? ORDER BY timestamp ASC`).all(windowStart);
+        const externals = db.prepare(`SELECT started_at, ended_at FROM external_sessions WHERE ended_at IS NOT NULL AND started_at >= ?`).all(windowStart);
+
+        const intervals = [];
+        for (const log of logs) {
+            const start = new Date(log.timestamp).getTime();
+            const end = start + Math.max((log.duration_ms || 0), 1000);
+            intervals.push({ start, end });
+        }
+        for (const es of externals) {
+            const start = new Date(es.started_at).getTime();
+            const end = new Date(es.ended_at).getTime();
+            if (end > start) intervals.push({ start, end });
+        }
+
+        intervals.sort((a, b) => a.start - b.start);
+        const merged = [];
+        for (const iv of intervals) {
+            if (merged.length === 0 || iv.start > merged[merged.length - 1].end) {
+                merged.push({ start: iv.start, end: iv.end });
+            } else {
+                merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, iv.end);
+            }
+        }
+
+        const adjacent = [];
+        const addPortion = (s, e, relation) => {
+            if (e - s < MIN_GAP_MS) return;
+            adjacent.push({
+                start: new Date(s).toISOString(),
+                end: new Date(e).toISOString(),
+                durationSeconds: Math.floor((e - s) / 1000),
+                relation,
+            });
+        };
+
+        // Only the merged gap that overlaps the sleep window qualifies — the sleep
+        // window itself is excluded (the sleep session will cover it).
+        for (const g of merged) {
+            if (g.start < sleepEnd && g.end > sleepStart) {
+                if (g.start < sleepStart) addPortion(g.start, sleepStart, 'before');
+                if (g.end > sleepEnd) addPortion(sleepEnd, g.end, 'after');
+                break;
+            }
+        }
+        return adjacent;
+    } catch (err) {
+        console.error('[DeskFlow] detectAdjacentSleepGaps error:', err);
+        return [];
+    }
+}
+
 electron_1.ipcMain.handle('check-sleep-detection', (event) => {
     try {
         const detPath = path_1.default.join(userDataPath, 'deskflow-sleep-detection.json');
@@ -20699,6 +22117,7 @@ electron_1.ipcMain.handle('check-sleep-detection', (event) => {
                     gapMinutes: data.gapMinutes,
                     suggestedBedtime: deviceOff.toISOString(),
                     suggestedWakeTime: deviceOn.toISOString(),
+                    adjacentGaps: detectAdjacentSleepGaps(data.gapStart, data.gapEnd),
                 };
             }
         }
@@ -21490,9 +22909,11 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
         };
         
         // Group by the stationary sleep day used by the popup/search-by-date.
-        // 00:00-05:59 belongs to the NEXT calendar day (not the previous day).
-        // 06:00 and later stays on its own calendar day.
-        // Sleep date = wake date (not bedtime date). went to bed at 2:30 AM on 21st, woke 1 PM 21st → "21st's sleep"
+        // Bedtime past midnight (before 12:00) belongs to the PREVIOUS calendar day
+        // (the evening it belongs to): 3:03 AM on the 12th = "Aug 11's sleep".
+        // 12:00 and later stays on its own calendar day.
+        // The next-day date applies ONLY to the bedtime/wake-up labels, never the
+        // date the sleep belongs to.
         const toLocalDateStr = (iso: string) => {
             const d = new Date(iso);
             return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -21500,11 +22921,10 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
         const getSleepGroupDate = (startedAt: string, endedAt: string) => {
             const startD = new Date(startedAt);
             const startH = startD.getHours();
-            // If bedtime is after midnight before 6 AM, it belongs to the NEXT day
-            // e.g., 2:30 AM on the 21st = "21st's sleep" (same day as wake-up)
-            if (startH >= 0 && startH < 6) {
+            // Bedtime past midnight (before noon) belongs to the previous evening's sleep.
+            if (startH >= 0 && startH < 12) {
                 const d = new Date(startD);
-                d.setDate(d.getDate() + 1);
+                d.setDate(d.getDate() - 1);
                 return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             }
             return toLocalDateStr(startedAt);
@@ -21516,8 +22936,8 @@ electron_1.ipcMain.handle('get-sleep-trends', (event, period = 'week', dateOffse
             const endD = new Date(s.ended_at);
             const startDate = toLocalDateStr(s.started_at);
             const endDate = toLocalDateStr(s.ended_at);
-            // was_shifted = bedtime was after midnight before 6 AM and belongs to previous day
-            const wasShifted = startD.getHours() < 6;
+            // was_shifted = bedtime was past midnight (before 12) and belongs to the previous day
+            const wasShifted = startD.getHours() < 12;
             const date = getSleepGroupDate(s.started_at, s.ended_at);
             if (!byDate[date]) {
                 byDate[date] = { sleep_seconds: 0, bedtime_count: 0, bedtime_sum: 0, waketime_sum: 0, pre_sleep_sum: 0, post_wake_sum: 0, was_shifted: false };
@@ -27704,6 +29124,19 @@ electron_1.ipcMain.handle('finance:create-transaction', async (_event, data: any
     logAuditEvent('transaction_created', 'transaction', newId, `${data.type} $${Math.abs(data.amount)}: ${data.description || 'no description'}`,
       Object.assign({}, data, { safe_amount: safeAmount, actual_created_at: actualCreatedAt, transaction_id: newId })
     );
+
+    // Capture finance episode into context brain
+    try {
+      const catRow = db.prepare('SELECT name FROM finance_categories WHERE id = ?').get(resolvedCategoryId) as any;
+      episodeWriters.writeFinanceEpisode('transaction', {
+        id: newId,
+        description: data.description,
+        category: catRow?.name || 'uncategorized',
+        amount: Math.abs(data.amount),
+        currency: data.currency || 'IDR',
+        type: data.type,
+      }, 'created');
+    } catch {}
 
     return { id: newId, ...data };
   } catch (error: any) {

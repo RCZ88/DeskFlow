@@ -1,1 +1,1 @@
-# vision providers package
+"""Vision providers."""

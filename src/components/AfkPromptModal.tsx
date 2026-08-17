@@ -51,6 +51,7 @@ export default function AfkPromptModal({
   onDismiss,
   onNotAfk,
   defaultNotAfk,
+  children,
 }: {
   allActivities: ExternalActivity[];
   totalDurationSeconds: number;
@@ -63,6 +64,7 @@ export default function AfkPromptModal({
   onDismiss: () => void;
   onNotAfk: () => void;
   defaultNotAfk?: boolean;
+  children?: React.ReactNode;
 }) {
   const visibleActivities = allActivities;
   const [showSegmentEditor, setShowSegmentEditor] = useState(!defaultNotAfk);
@@ -443,6 +445,8 @@ export default function AfkPromptModal({
               <span>Actually, I did something — log it</span>
             </button>
           )}
+
+          {children}
 
           {/* ── Action Bar ── */}
           <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">

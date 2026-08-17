@@ -20,8 +20,8 @@ export function useStudio() {
 const INITIAL_STATE: StudioState = {
   sessions: [], activeSessionId: null, activeStage: 'dashboard',
   selection: null, playback: INITIAL_PLAYBACK, bridge: INITIAL_BRIDGE,
-  async: { sessions: { state: 'idle' }, transcript: { state: 'idle' }, cutPlan: { state: 'idle' }, scenePlan: { state: 'idle' }, export: { state: 'idle' } },
-  ui: { sidebarCollapsed: false, inspectorCollapsed: false, showSafeZones: false, timelineHeight: 180 },
+  async: { sessions: { state: 'idle' }, transcript: { state: 'idle' }, cutPlan: { state: 'idle' }, scenePlan: { state: 'idle' }, export: { state: 'idle' }, visualAnalysis: { state: 'idle' } },
+  ui: { sidebarCollapsed: false, inspectorCollapsed: false, showSafeZones: false, showProtectedRegions: true, showFaceRegions: true, showTextRegions: true, showObjectRegions: true, timelineHeight: 180 },
 }
 
 export function StudioProvider({ children, handleImport }: { children: ReactNode; handleImport: () => void }) {

@@ -54,4 +54,19 @@
   let last = location.href;
   new MutationObserver(() => { if (location.href !== last) { last = location.href; hideOverlay(); ping(); } })
     .observe(document, { subtree: true, childList: true });
+
+  // --- AI Context Relay (MAIN world → content script world → background) ---
+  // The ai-context-content.js runs in page context (MAIN world) and uses
+  // window.postMessage. We listen here (default content script world) and
+  // relay to the background service worker via chrome.runtime.sendMessage.
+  window.addEventListener('message', (event) => {
+    if (event.source !== window) return;
+    if (event.data?.type !== 'DESKFLOW_AI_CONTEXT') return;
+    try {
+      chrome.runtime.sendMessage({
+        type: 'AI_CONTEXT_CAPTURED',
+        captures: event.data.data,
+      });
+    } catch (e) {}
+  });
 })();

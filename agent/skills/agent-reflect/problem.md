@@ -130,7 +130,15 @@ When a user report includes a "gap", "missing days", or "no data after X" claim 
 
 Every user request ("can we have X", "apply skill Y to Z", "the ability to...") gets a FEATURE_TRACKER.md / PROBLEMS.md entry the moment it is made (or at minimum before the first build). Requests that live only in chat are lost; the user asking "where was my request?" means the rule was violated. Answer such questions FROM the trackers and own the miss.
 
-## 22. UI visibility requires a three-gate check
+## 23. ALWAYS use existing RESULT.md + code.tsx specs first
+
+When a feature has `agent/docs/generate-prompt-docs/<name>/RESULT.md` and `code.tsx`, those ARE the implementation. Read them FIRST. Do NOT implement from scratch. The code.tsx IS the spec — copy it, adapt exports/imports to the project, then add missing pieces. Writing from scratch when a complete implementation exists in the folder is a critical failure.
+
+## 24. Combine duplicate subtabs into one
+
+When multiple subtabs serve the same purpose (e.g., Architecture Map + Page Context + Feature Logic all showing page context), combine them into ONE subtab with the Generate button. Don't create 3 separate tabs for the same functionality.
+
+## 25. UI visibility requires a three-gate check
 
 For every renderer feature, do not treat source code, a fresh bundle, or a successful build as proof that the user can see or use it. Verify all three independently:
 

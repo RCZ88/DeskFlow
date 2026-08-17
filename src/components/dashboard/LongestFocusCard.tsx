@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, Clock, Monitor } from 'lucide-react';
 import { NumberTicker } from '../ui/number-ticker';
-import { BorderBeam } from '../ui/border-beam';
 
 interface FocusSession {
   apps: string[];
@@ -60,9 +59,6 @@ export function LongestFocusCard({ data, loading }: LongestFocusCardProps) {
 
   return (
     <div className="relative rounded-xl h-full bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/60 overflow-hidden flex flex-col">
-      {topSession && topSession.durationSeconds >= 600 && (
-        <BorderBeam size={120} duration={8} colorFrom={color} colorTo="#06b6d4" borderWidth={1.5} />
-      )}
 
       <div className="p-4 sm:p-5 h-full flex flex-col relative z-10">
         {/* Header */}

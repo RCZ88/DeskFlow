@@ -1,4 +1,5 @@
 import type { Overlay, DirectorCut } from '../../types/overlayStudio'
+import type { VisualDigest, DetectedObject, FaceRegion, TextRegion, ShotBoundary } from '../vision/types/vision'
 
 export type StudioStage = 'dashboard' | 'source' | 'transcript' | 'visual-evidence' | 'bridge' | 'cut-plan' | 'scene-plan' | 'visualizer' | 'export'
 
@@ -9,12 +10,13 @@ export interface StudioSession {
   durationSec?: number; transcriptPath?: string; cutPlanPath?: string; scenePlanPath?: string; exportPlanPath?: string
   transcript?: any; cutPlan?: any; scenePlan?: DirectorCut; status: SessionStatus; missingSource: boolean
   createdAt: string; updatedAt: string
+  digest?: VisualDigest; objects?: DetectedObject[]; faces?: FaceRegion[]; textRegions?: TextRegion[]; shots?: ShotBoundary[]
 }
 
 export interface PlaybackState { currentTime: number; duration: number; isPlaying: boolean; playbackRate: number; muted: boolean }
 
 export interface ManualBridgeState {
-  mode: 'cut-plan' | 'scene-dsl'; step: 'prompt' | 'paste' | 'validate'
+  mode: 'cut-plan' | 'scene-dsl' | 'visual-digest'; step: 'prompt' | 'paste' | 'validate'
   prompt: string; rawResponse: string; parsedJson: unknown | null
   validationChecks: Array<{ rule: string; message: string; passed: boolean }>
   isParsing: boolean; lastError: string | null
@@ -27,8 +29,8 @@ export interface AsyncStatus { state: 'idle' | 'loading' | 'success' | 'error'; 
 export interface StudioState {
   sessions: StudioSession[]; activeSessionId: string | null; activeStage: StudioStage
   selection: StudioSelection | null; playback: PlaybackState; bridge: ManualBridgeState
-  async: { sessions: AsyncStatus; transcript: AsyncStatus; cutPlan: AsyncStatus; scenePlan: AsyncStatus; export: AsyncStatus }
-  ui: { sidebarCollapsed: boolean; inspectorCollapsed: boolean; showSafeZones: boolean; timelineHeight: number }
+  async: { sessions: AsyncStatus; transcript: AsyncStatus; cutPlan: AsyncStatus; scenePlan: AsyncStatus; export: AsyncStatus; visualAnalysis: AsyncStatus }
+  ui: { sidebarCollapsed: boolean; inspectorCollapsed: boolean; showSafeZones: boolean; showProtectedRegions: boolean; showFaceRegions: boolean; showTextRegions: boolean; showObjectRegions: boolean; timelineHeight: number }
 }
 
 export const INITIAL_PLAYBACK: PlaybackState = { currentTime: 0, duration: 0, isPlaying: false, playbackRate: 1, muted: true }

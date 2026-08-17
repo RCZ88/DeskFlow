@@ -196,14 +196,28 @@ export function useVoiceInput({
 
   const handleEngineError = useCallback((code: VoiceError) => {
     const c = ctxRef.current;
-    if (c) { c.setError(code); c.stopSession(); }
-    else {
+    const errSession = sessionRef.current; // capture current session
+    if (c) {
+      // Set error first, then stop engines — do NOT call stopSession() which clears error immediately
+      c.setError(code);
+      clearTimers();
+      if (engineStopRef.current) { try { engineStopRef.current(); } catch {} engineStopRef.current = null; }
+      // Defer session stop until after error is visible, but only if no new session started
+      setTimeout(() => {
+        if (sessionRef.current === errSession) c.stopSession();
+      }, 1200);
+    } else {
       setLocalState('error');
       setLocalError(code);
-      setTimeout(() => { setLocalState('idle'); setLocalError(undefined); }, 1200);
+      clearTimers();
+      if (engineStopRef.current) { try { engineStopRef.current(); } catch {} engineStopRef.current = null; }
+      setTimeout(() => {
+        if (sessionRef.current === errSession) {
+          setLocalState('idle');
+          setLocalError(undefined);
+        }
+      }, 1200);
     }
-    clearTimers();
-    if (engineStopRef.current) { try { engineStopRef.current(); } catch {} engineStopRef.current = null; }
   }, [clearTimers]);
 
   const resetSilenceTimerEngine = useCallback((endAfterSilence: boolean) => {

@@ -205,6 +205,36 @@ export async function assembleContext(projectPath: string, config: ContextConfig
     } catch {}
   }
 
+  // ── LAYER 2.6: USER CONTEXT PROFILE ──
+  try {
+    const dapi2 = (window as any).deskflowAPI;
+    const profile = await dapi2?.contextGetProfile?.();
+    if (profile) {
+      const traitKeys = Object.keys(profile.traits || {})
+      const interestKeys = Object.keys(profile.interests || {})
+      const commKeys = Object.keys(profile.communicationStyle || {})
+      if (traitKeys.length > 0 || interestKeys.length > 0 || profile.summary) {
+        let profileOutput = '[LAYER 2.6 — USER PROFILE (auto-derived)]\n';
+        if (profile.summary) profileOutput += 'Summary: ' + profile.summary + '\n';
+        if (traitKeys.length > 0) profileOutput += 'Traits: ' + traitKeys.map((k: string) => profile.traits[k].content).join(', ') + '\n';
+        if (interestKeys.length > 0) profileOutput += 'Interests: ' + interestKeys.map((k: string) => profile.interests[k].content).join(', ') + '\n';
+        if (commKeys.length > 0) profileOutput += 'Communication: ' + commKeys.map((k: string) => profile.communicationStyle[k].content).join(', ') + '\n';
+        if (profile.activityPattern?.primary_work_window) profileOutput += 'Most active: ' + profile.activityPattern.primary_work_window + '\n';
+        if (profile.activityPattern?.focus_pattern) profileOutput += 'Focus pattern: ' + profile.activityPattern.focus_pattern + '\n';
+        // Memory highlights (top corrections/rules for agent guardrails)
+        const highlights = profile.memoryHighlights || [];
+        if (highlights.length > 0) {
+          const corrections = highlights.filter((h: any) => h.source === 'signal' && h.importance > 0.5);
+          if (corrections.length > 0) {
+            profileOutput += 'Important rules/corrections:\n';
+            for (const h of corrections.slice(0, 5)) profileOutput += `  - ${h.content}\n`;
+          }
+        }
+        forceAdd(profileOutput);
+      }
+    }
+  } catch {}
+
   // ── LAYER 3: TASK CONTEXT — Problem-Aware Injection ──
   let layer3Content = '';
   if (opts?.problemId && opts?.problemId !== 'none') {

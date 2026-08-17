@@ -1454,6 +1454,34 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         console.error('[InstructionSend] Session save exception:', err);
       }
 
+      // ── 4b. Brain + memory context assembly ────────────────────
+      // Retrieve context Brain memories about the topic before sending the prompt
+      let assembledContextSnippet = '';
+      if (selectedProject && topic.length > 1) {
+        try {
+          const assembled = await (window.deskflowAPI as any).assembleContext?.({
+            projectId: selectedProject,
+            sessionId: sessionPayload.id,
+            topic,
+            tokenBudget: 2000,
+          });
+          if (assembled && typeof assembled === 'string' && assembled.trim()) {
+            assembledContextSnippet = `\r\n${assembled}\r\n`;
+          }
+        } catch (e) {
+          console.warn('[InstructionSend] Context assembly failed (non-fatal):', e);
+        }
+      }
+
+      // Write context to terminal before prompt so agent sees it
+      if (assembledContextSnippet) {
+        try {
+          await (window.deskflowAPI as any).terminalWriteRaw?.(resolvedTargetId, assembledContextSnippet);
+        } catch (e) {
+          console.warn('[InstructionSend] Context write failed (non-fatal):', e);
+        }
+      }
+
       // ── 5. Send prompt to agent ────────────────────────────
       try {
         const sendResult = await window.deskflowAPI?.agentSend?.(resolvedTargetId, config.prompt, config.agent || existingSession?.agent || 'claude');
@@ -4054,8 +4082,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'context', icon: Settings2, label: 'Context' },
                 { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
                 { key: 'context-map', icon: Network, label: 'Architecture Map' },
-                { key: 'page-context', icon: FileText, label: 'Page Context' },
-                { key: 'feature-logic', icon: GitBranch, label: 'Feature Logic' },
               ]} storageKey="context" render={(sub) => {
                 switch (sub) {
                   case 'context': return (
@@ -4078,16 +4104,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   case 'context-map': return (
                     <GroupPanel accent="cyan">
                        <CodeArchitectureMap projectPath={propProjectPath || ''} />
-                    </GroupPanel>
-                  );
-                  case 'page-context': return (
-                    <GroupPanel accent="blue">
-                      <PageContextPanel projectPath={propProjectPath} />
-                    </GroupPanel>
-                  );
-                  case 'feature-logic': return (
-                    <GroupPanel accent="emerald">
-                      <FeatureLogicPanel />
                     </GroupPanel>
                   );
                   default: return null;
@@ -4142,6 +4158,26 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     initContent += `\n## Context: Requests\n${ctx}\n`;
                   }
                 }
+                // ═══ BRAIN + MEMORY CONTEXT ASSEMBLY ═══
+                // Append context Brain + memory retrieval to init content before agent launch
+                if (!config.resumeId && selectedProject && sessionName.length > 1) {
+                  try {
+                    const assembled = await (window.deskflowAPI as any).assembleContext?.({
+                      projectId: selectedProject,
+                      sessionId: config.id,
+                      topic: sessionName,
+                      problemIds: config.problemIds,
+                      requestIds: config.requestIds,
+                      tokenBudget: 2000,
+                    });
+                    if (assembled && typeof assembled === 'string' && assembled.trim()) {
+                      initContent += `\n\n${assembled}`;
+                    }
+                  } catch (e) {
+                    console.warn('[NewSession] Context assembly failed (non-fatal):', e);
+                  }
+                }
+
                 const systemPrompt = config.customSystemPrompt || undefined;
 
                 // ═══ DETERMINE TERMINAL ═══

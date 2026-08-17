@@ -249,3 +249,10 @@ Preload: `window.deskflowAPI.lifePhase*` (8 methods, typed in `src/types/deskflo
 ---
 
 **Last Updated:** 2026-06-18
+
+---
+
+## Content Engine (2026-08-17) — src/services/contentEngine/index.ts
+**Tables:** content_ideas (title, hook, format_type, status raw/refined/approved/used, priority 1-5, series, niche, frames JSON, synthesized_from JSON, gates JSON), content_episodes (title, idea_id, theme_id, status draft/scripted/gated/filming/published, niche, script JSON, seo JSON, gates JSON, gate_override), themes (name, description, accent_color, icon, status), content_frameworks (name, description, rules JSON, version, is_builtin, history JSON), content_videos (episode_id, platform, url, title, views, likes, saves, shares, comments, completion_pct, retention_curve JSON, audience JSON, dropoffs JSON, published_at, fetched_at), content_lessons (video_id, episode_id, lesson, evidence JSON, status active/applied/dismissed).
+**IPC (33 channels, all via window.deskflowAPI.contentEngine):** content:ideas:list/save/delete; content:episodes:list/get/save/delete; content:script:generate {episodeId,ideaId} returns {frames, gates}; content:script:regenerate-line {episodeId,frameIndex,instruction}; content:validate-script-evidence {episodeId}; content:validate-gates {ideaId,episodeId}; content:gate-override {episodeId,override}; content:inject-seo {episodeId,niche}; ideas:synthesize {note,count}; content:brainstorm:classify {thought} -> content_idea|general_thought; content:brainstorm:summary; themes:create/generate/get-all/apply/delete; content:analytics:get/upsert-video/delete-video/insight; content:lessons:list/save/delete/extract {videoId}; content:frameworks:list/save/rollback {id,version}.
+**AI wiring:** all calls via buildChain(pState,'contentEngine') + runWithFallback (provider chain), feature id added to router.ts:34 union. Script frame retention contract: {criteria[], mechanism, evidence, score}, <0.6 rejected. Gates: scroll_stop/hard_cut/asset_ready with overall pass/fail. Registered in main.ts initializeStorage after Learn block (~L3891).

@@ -57,6 +57,26 @@
 - NOT the SubscriptionsTab inside `/finance` — that's a compact overview with "View all" link.
 - Sidebar entry: `CalendarClock` icon, "Subscriptions" label.
 
+### "content engine" / "Content Engine"
+- MEANS: the full content-creation pipeline workspace (brainstorm → ideas → episodes/scripts with
+  per-frame RETENTION EVIDENCE → themes → analytics → lessons → frameworks) — the ENTIRE scripting,
+  planning, post-publish social analytics (retention times, likes, saves, audience age/country,
+  % watch-to-end), and learning-from-mistakes loop. NOT just an editing tool.
+- UI LOCATION: mounted INSIDE the Overlay Studio page (`src/features/overlay-studio/OverlayStudioPage.tsx`)
+  via a header mode toggle ("Overlay Studio" | "Content Engine"). UI components: `src/features/content-engine/`
+  (7 views: Brainstorm, Ideas, Episodes, Themes, Analytics, Lessons, Frameworks).
+- BACKEND: `src/services/contentEngine/` — rubric.ts (RETENTION_RUBRIC v1.0.0, 7 criteria, threshold 0.6),
+  prompts.ts (template registry), responseParser.ts (JSON retry parser),
+  index.ts `registerContentEngineHandlers(db, aiCall)` (tables: content_ideas, content_episodes, themes,
+  content_frameworks, content_videos, content_lessons). Registered from main.ts (~L3891, after Learn block)
+  with provider-chain feature id 'contentEngine' (router.ts:34 union).
+- IPC: all channels via `window.deskflowAPI.contentEngine` (content:ideas:*, content:episodes:*,
+  content:script:generate, content:script:regenerate-line, content:validate-script-evidence,
+  content:validate-gates, content:gate-override, content:inject-seo, ideas:synthesize,
+  content:brainstorm:classify/summary, themes:*, content:analytics:*, content:lessons:*, content:frameworks:*).
+- "script frame" = one bullet of the script with `retention: {criteria, mechanism, evidence, score}`;
+  score < 0.6 = REJECTED. "gates" = 3 pre-production checks (scroll stop, hard cut, asset ready).
+
 ## 🗺️ App page map (route → page → where features live)
 | You say… | Route | Page component | Notable sub-areas |
 |---|---|---|---|
@@ -89,6 +109,17 @@
 ---
 
 ## Key Terms & Meanings (legacy definitions — kept for reference)
+
+### Living Substrate (Cross-App Ambient Background)
+- **Current Location:** Life page river view (`src/features/warmth/LifePage.tsx` line 587) at z-0 behind Vital Thread (z-[1]). Previously inside CoreSample — moved out in the Living Art overhaul.
+- **Target Location:** Global — `src/components/AppBackground.tsx` (replaces particles, sits at z-[0] behind all content)
+- **What it is:** A Gray-Scott reaction-diffusion ambient background — slow-moving organic coral patterns rendered via R3F with two ping-pong WebGLRenderTargets (256x256, 384 on high-DPI). Each page gets a color-tinted version derived from its `--page-accent`.
+- **Current state:** Hardcoded amber (#f59e0b) display ramp. Zero props. Only renders on Life page.
+- **Target state:** Props: `accent`, `speed`, `resolution`, `maxAlpha`, `enabled`. Shader reads `uniform vec3 accentColor` and computes ramp from it. Global mounting in AppBackground.
+- **Files:** `src/components/life-river/LivingSubstrate.tsx`, `src/shaders/rd-simulation.glsl`, `src/shaders/rd-display.glsl`, `src/shaders/glsl.d.ts`
+- **Behavior:** pauses on `document.hidden`, unmounts on `prefers-reduced-motion`, error-boundary fallback = null (never black screen)
+- **Design spec:** `agent/docs/design-specs/cross-app-living-substrate.md`
+- **Generate-prompt:** `agent/docs/generate-prompt-docs/cross-app-living-substrate/`
 
 ### Tracking Browser
 - **Setting Location:** Settings → Browser Activity page
@@ -297,3 +328,93 @@
 - **Design Sources tab:** The main library card grid + taste knobs + style references + color picker. Shows all 10 library sources.
 - **Motion Explorer tab:** Sub-tab of Design Workspace showing motion presets (kinetic typography code snippets) and easing curve browser with SVG cubic-bezier visualization.
 - **Registry Browser tab:** Sub-tab of Design Workspace showing Cult UI component registry with search, category filters, and npx shadcn@latest command builder.
+
+---
+
+## 🧠 Context Systems & Retrieval Infrastructure — THE MAP (do NOT search again)
+
+> User-mandated (2026-08-17): this is the definitive location map for the project's
+> context/Brain/RAG/retrieval infrastructure. If a question asks "where is X in the
+> context system", answer from HERE — never grep the repo again.
+
+### Context Brain (knowledge graph + keyword + vector retrieval) — THE BRAIN
+- **Engine:** `src/main/ai/contextBrain.ts` — bitemporal knowledge graph. Exports:
+  `retrieve(query, strategies=['keyword','graph'])` (line 283 — the retrieval router),
+  `keywordSearch` (208), `traverseFromEntity(entityId, depth=2)` (241), `logEpisode` (25),
+  `upsertEntity` (68), `addFact` (120), `getAllCurrentFacts` (156), `storeEmbedding` (174),
+  `exportContextBundle` (331), `getBrainStats` (370), job/extraction management (499-576).
+- **Wiring in main.ts:** `require('./main/ai/contextBrain')` at **main.ts:13490**,
+  `setBrainDb(db)` at 13554, IPC handlers `brain:search/get-entity/get-entity-history/
+  log-episode/stats/export/get-episodes/get-entities/get-facts/get-entity-related/
+  get-jobs/retry-job/create-episode/mcp-status/reindex-embeddings` at **main.ts:13619-13694**.
+- **Preload bridges:** `brainSearch` … `brainReindexEmbeddings` at **preload.ts:1542-1556**.
+- **DB tables:** `context_episodes`, `context_entities`, `context_facts` (bitemporal valid_from/valid_to),
+  `context_embeddings` (Float32Array BLOB), `context_extraction_jobs`. DDLs in `src/main.ts` (~2980-3090).
+- **Live data:** %APPDATA%\RHEO\deskflow-data.db — ~23 episodes, 16 entities, 25 facts, 23 embeddings.
+
+### Context Brain MCP server (exposes the brain to AI tools over MCP)
+- **File:** `src/main/ai/contextBrainMCP.ts` — HTTP MCP server, **port 54322**, optional token
+  `DESKFLOW_MCP_TOKEN`, rate limit 60 req/min, MCP protocol 2026-07-28.
+- **Tools:** search_context, get_entity, get_entity_history, log_episode, get_stats,
+  get_user_profile_summary, get_active_facts, get_recent_signals.
+- **Start:** `startMcpServer()` wired at main.ts:13556; status via IPC `brain:mcp-status`.
+
+### User Profile & Signals (auto-context)
+- **Files:** `src/main/ai/userContextService.ts` (profile + signals), `embeddingService.ts`
+  (embedding generation; reached via brain's db), `entityExtraction.ts`, `episodeWriters.ts`
+  (writeAiContextEpisode — AI Context Capture + other sources feed the brain).
+- **Tables:** `user_context_profile` (1 row), `user_context_signals` (15 rows).
+- **Injected into:** `assemble-context` handler (main.ts:15073) via `userContextService.getProfile()`
+  (main.ts:15130-15132).
+
+### Memory store (agent memories)
+- **Files:** `src/main/ai/memoryStore.ts`, `memoryCapture.ts`, `memoryCompaction.ts`,
+  `memoryExtractor.ts`, `memoryRetrieval.ts`.
+- **Tables:** `agent_memories` (currently 0 rows — never populated), `ai_chat_memories` (17 rows).
+
+### Backfill & Scheduler
+- **Files:** `src/main/ai/contextBackfill.ts` (`runContextBackfill`), `contextScheduler.ts`
+  (`startSchedulers`).
+- **Wiring:** main.ts:13534 (`startSchedulers`), main.ts:13539 (`runContextBackfill`),
+  main.ts:13714 (`runNow`).
+
+### AI Context Capture (browser extension → brain pipeline)
+- **Content scripts:** extension `ai-context-content.js` (MAIN world, fetch interception) on
+  ChatGPT/Claude/Perplexity/You/Gemini → relay via `focusOverlay.js` → background.js →
+  `POST http://localhost:54321/ai-context` → table `ai_context_captures` (CREATE at main.ts:2428,
+  insert handler ~19956, IPC `ai-context:list/stats/delete/clear/get-brain-links/topics` ~7626-7646).
+- **Renderer viewer:** AI Context Viewer panel in AiPage (provider filters, conversation cards,
+  message bubbles, brain integration display).
+
+### Knowledge Base (R5, BM25)
+- **File:** `src/main/services/knowledge-store.ts` + `deskflow-kb.json`; IPC `get-rag-stats`
+  (preload.ts:567). Separate from the brain.
+
+### Context assembly for terminal agents
+- **IPC:** `assemble-context` (main.ts:15073; preload.ts:876-877, preload2.ts:691-692;
+  renderer `src/services/ContextService.ts:149` + `ContextAssemblyService.ts:68`).
+- ⚠ **KNOWN GAP (2026-08-17):** assemble-context injects ONLY workspace_problems /
+  workspace_requests / terminal_sessions / backup protocol / compact user profile. It does
+  NOT call `contextBrain.retrieve()` — topic-based memory restoration ("if I say X it should
+  know about X") is NOT wired into agent sessions. This is the gap the Architect prompt
+  `agent/docs/generate-prompt-docs/context-retrieval-memory-restore-17082026/PROMPT.md` targets.
+
+### The 6 knowledge systems (Setup toggles; digests injected per system)
+- **Graphify:** `graphify-out/graph.json` + `GRAPH_REPORT.md` (rebuild via
+  `python agent/skills/maintain-context/graphify_maintain.py rebuild`; use `python` = 3.12,
+  NOT `py` = 3.14). `.graphifyignore` at repo root keeps scans fast (~40s). Skill:
+  `agent/skills/graphify/SKILL.md` (missing in-project; global at
+  `C:\Users\cleme\.config\opencode\skills\graphify\SKILL.md`).
+- **LLM Wiki:** all `agent/*.md` files.
+- **Obsidian Skills:** `agent/skills/<name>/SKILL.md` (YAML frontmatter).
+- **PARA:** `CZVault/` (00_Projects, 01_Areas, 02_Resources, 03_Archives — currently empty
+  scaffolding; PARA sync never completed). ⚠ `graphify_maintain.py sync/full/para` block on
+  interactive `input()` in non-tty shells — pass vault path as arg or patch the script.
+- **QMD:** `agent/templates/session.qmd`, `problem.qmd` — display-only, listed via
+  `src/services/ContextService.ts`, surfaced in `ContextSidebar.tsx` + `WorkspaceSettingsDialog.tsx`.
+- **Automations:** `agent/automations/automations.json` (declarative only; file currently missing).
+
+### Renderer Brain UI (Life page "self" tab)
+- ProfileTab ("Identity & Profile"), ContextGraphView ("Knowledge Graph"),
+  BrainManagementView ("Memory & Brain") — all stacked inside the `self` tab of LifePage
+  (max-w-5xl space-y-10, uppercase section headers). Never re-split into separate tabs.
