@@ -224,4 +224,36 @@ input:focus, textarea:focus, select:focus, [contenteditable]:focus {
 
 @media (prefers-reduced-motion: reduce) {
   .df-animate-mesh { animation: none; }
+  .glass-card:hover { transform: none; }
+}
+
+/* =========================================
+   GLASS STANDARD
+   ========================================= */
+.glass-card {
+  background: rgb(24 24 27 / 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgb(39 39 42 / 0.5);
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+.glass-card:hover {
+  transform: translateY(-2px);
+  border-color: rgb(63 63 70 / 0.5);
+}
+
+/* =========================================
+   TYPOGRAPHY ACCENT
+   ========================================= */
+.page-title {
+  font-family: 'Merriweather', 'Playfair Display', ui-serif, Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--page-accent), color-mix(in srgb, var(--page-accent) 60%, white));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 1.5rem;
 }

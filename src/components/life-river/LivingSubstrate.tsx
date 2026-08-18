@@ -261,11 +261,12 @@ export function LivingSubstrate({
   const showWebGL = enabled && motionEnabled
 
   if (!showWebGL) {
-    // Static fallback for reduced motion or disabled
+    // Static fallback — brighter to ensure visibility
     return (
       <div className="absolute inset-0 z-0 pointer-events-none" aria-hidden="true">
-        <div className="absolute inset-0 opacity-30" style={{
-          background: `radial-gradient(ellipse at 50% 40%, ${accent}26, ${accent}13 50%, transparent 80%)`,
+        <div className="absolute inset-0" style={{
+          opacity: 0.5,
+          background: `radial-gradient(ellipse at 50% 40%, ${accent}40, ${accent}20 50%, transparent 80%)`,
         }} />
       </div>
     )

@@ -13,6 +13,21 @@ export function AmbientGlow({ className }: { className?: string }) {
   )
 }
 
+// Layer 4A: Dot Pattern (Data/Structured pages)
+export function DotPattern({ opacity = 0.04 }: { opacity?: number }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="absolute inset-0 pointer-events-none transition-opacity duration-1000"
+      style={{
+        opacity,
+        backgroundImage: `radial-gradient(var(--page-accent) 1px, transparent 1px)`,
+        backgroundSize: "24px 24px",
+      }}
+    />
+  )
+}
+
 // Layer 4B: Gradient Wash (Clean/Minimal pages)
 export function GradientWash({ className }: { className?: string }) {
   return (

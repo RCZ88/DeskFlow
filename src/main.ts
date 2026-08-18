@@ -5990,7 +5990,7 @@ except Exception as e:
         const pyPath = path_1.default.join(userDataPath, 'overlay-studio-transcribe.py');
         fs_1.default.writeFileSync(pyPath, pyScript, 'utf-8');
         const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
-        const result = child_process_1.default.spawnSync(pythonCmd, [pyPath], {
+        const result = child_process_1.spawnSync(pythonCmd, [pyPath], {
             timeout: 120000, // 2 min timeout
             windowsHide: true,
             encoding: 'utf-8',
@@ -6033,7 +6033,7 @@ electron_1.ipcMain.handle('stt:native-start', (event, lang) => {
         const scriptPath = path_1.default.join(userDataPath, 'stt-native.ps1');
         try { fs_1.default.writeFileSync(scriptPath, STT_NATIVE_SCRIPT, 'utf-8'); } catch (err) { /* ignore */ }
         sttNativeSender = event.sender;
-        sttNativeChild = child_process_1.default.spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, lang || 'en-US'], { windowsHide: true });
+        sttNativeChild = child_process_1.spawn('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, lang || 'en-US'], { windowsHide: true });
         sttNativeChild.stdout.setEncoding('utf8');
         sttNativeChild.stdout.on('data', (chunk) => {
             const sender = sttNativeSender;
