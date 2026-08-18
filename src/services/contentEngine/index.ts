@@ -461,13 +461,26 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
   // ── Themes ────────────────────────────────────────────────
   ipcMain.handle('themes:create', async (_, theme: any) => {
     const info = db
-      .prepare('INSERT INTO themes (name, description, accent_color, icon, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)')
+      .prepare('INSERT INTO themes (name, description, accent_color, icon, status, font_display, font_body, font_accent, color_bg, color_text, color_accent, color_accent2, color_accent3, headline_case, headline_size, category, use_case, is_builtin, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .run(
         theme.name,
         theme.description || '',
-        theme.accent_color || '#f5c518',
+        theme.accent_color || theme.color_accent || '#f5c518',
         theme.icon || 'Palette',
         theme.status || 'active',
+        theme.font_display || null,
+        theme.font_body || null,
+        theme.font_accent || null,
+        theme.color_bg || null,
+        theme.color_text || null,
+        theme.color_accent || null,
+        theme.color_accent2 || null,
+        theme.color_accent3 || null,
+        theme.headline_case || 'uppercase',
+        theme.headline_size || '27px',
+        theme.category || 'general',
+        theme.use_case || null,
+        theme.is_builtin ? 1 : 0,
         now(),
         now()
       );
@@ -957,6 +970,162 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
     return items;
   });
 
+  // ── takes + segments (Phase 3) ─────────────────────────────
+  ipcMain.handle('content:takes:list', async (_, { episodeId }: any) => {
+    const rows = db.prepare('SELECT * FROM content_takes WHERE episode_id=? ORDER BY take_number ASC').all(episodeId);
+    return rows.map((r: any) => ({ ...r, file_path: r.file_path || null }));
+  });
+  ipcMain.handle('content:takes:save', async (_, take: any) => {
+    if (take.id) {
+      db.prepare('UPDATE content_takes SET notes=?, status=?, duration_seconds=?, file_path=? WHERE id=?').run(
+        take.notes || null, take.status || 'recorded', take.duration_seconds || null, take.file_path || null, take.id
+      );
+      return { ok: true, id: take.id };
+    }
+    const maxNum = (db.prepare('SELECT COALESCE(MAX(take_number),0) m FROM content_takes WHERE episode_id=?').get(take.episode_id) as any).m;
+    const info = db.prepare('INSERT INTO content_takes (episode_id, take_number, file_path, duration_seconds, status, notes, created_at) VALUES (?,?,?,?,?,?,?)').run(
+      take.episode_id, (maxNum || 0) + 1, take.file_path || null, take.duration_seconds || null, take.status || 'recorded', take.notes || null, now()
+    );
+    return { ok: true, id: info.lastInsertRowid };
+  });
+  ipcMain.handle('content:takes:delete', async (_, id: number) => {
+    db.prepare('DELETE FROM take_segments WHERE take_id=?').run(id);
+    db.prepare('DELETE FROM take_evaluations WHERE take_id=?').run(id);
+    db.prepare('DELETE FROM content_takes WHERE id=?').run(id);
+    return { ok: true };
+  });
+  ipcMain.handle('content:takes:import', async (_, { episodeId, filePath, duration }: any) => {
+    const maxNum = (db.prepare('SELECT COALESCE(MAX(take_number),0) m FROM content_takes WHERE episode_id=?').get(episodeId) as any).m;
+    const info = db.prepare('INSERT INTO content_takes (episode_id, take_number, file_path, duration_seconds, status, created_at) VALUES (?,?,?,?,?,?)').run(
+      episodeId, (maxNum || 0) + 1, filePath, duration || null, 'recorded', now()
+    );
+    logEvent(episodeId, 'take_imported', `Take #${(maxNum || 0) + 1} imported`, { file_path: filePath });
+    return { ok: true, id: info.lastInsertRowid, take_number: (maxNum || 0) + 1 };
+  });
+  ipcMain.handle('content:takes:transcribe', async (_, { takeId }: any) => {
+    const take = db.prepare('SELECT * FROM content_takes WHERE id=?').get(takeId) as any;
+    if (!take) return { ok: false, error: 'Take not found' };
+    if (!take.file_path) return { ok: false, error: 'No file path — import a take first' };
+    db.prepare('UPDATE content_takes SET status=? WHERE id=?').run('transcribing', takeId);
+    logEvent(take.episode_id, 'transcription_started', `Transcribing Take #${take.take_number}`);
+    // Transcription is handled by the renderer via child_process (Whisper) or API
+    // This handler just marks status — the actual transcription posts segments via content:takes:save-segments
+    return { ok: true, status: 'transcribing' };
+  });
+  ipcMain.handle('content:takes:save-segments', async (_, { takeId, segments }: any) => {
+    if (!Array.isArray(segments)) return { ok: false, error: 'segments must be an array' };
+    db.prepare('DELETE FROM take_segments WHERE take_id=?').run(takeId);
+    const ins = db.prepare('INSERT INTO take_segments (take_id, seg_index, start_s, end_s, text, seg_type, keep, created_at) VALUES (?,?,?,?,?,?,?,?)');
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      ins.run(takeId, i, s.start_s ?? s.start ?? 0, s.end_s ?? s.end ?? 0, s.text || '', s.seg_type || 'beat', s.keep ?? null, now());
+    }
+    db.prepare('UPDATE content_takes SET status=? WHERE id=?').run('transcribed', takeId);
+    const take = db.prepare('SELECT * FROM content_takes WHERE id=?').get(takeId) as any;
+    if (take) logEvent(take.episode_id, 'transcription_complete', `Take #${take.take_number} transcribed — ${segments.length} segments`);
+    return { ok: true, count: segments.length };
+  });
+  ipcMain.handle('content:takes:segments', async (_, { takeId }: any) => {
+    return db.prepare('SELECT * FROM take_segments WHERE take_id=? ORDER BY seg_index ASC').all(takeId);
+  });
+  ipcMain.handle('content:takes:select', async (_, { takeId, segments }: any) => {
+    if (!Array.isArray(segments)) return { ok: false, error: 'segments must be an array' };
+    const upd = db.prepare('UPDATE take_segments SET keep=? WHERE id=?');
+    for (const s of segments) upd.run(s.keep ? 1 : 0, s.id);
+    db.prepare('UPDATE content_takes SET status=? WHERE id=?').run('selected', takeId);
+    const take = db.prepare('SELECT * FROM content_takes WHERE id=?').get(takeId) as any;
+    if (take) logEvent(take.episode_id, 'take_selected', `Take #${take.take_number} segments selected`);
+    return { ok: true };
+  });
+  ipcMain.handle('content:takes:evaluate', async (_, { takeId }: any) => {
+    const take = db.prepare('SELECT * FROM content_takes WHERE id=?').get(takeId) as any;
+    if (!take) return { ok: false, error: 'Take not found' };
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(take.episode_id) as any;
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const script = safeJson(ep.script, []);
+    const segs = db.prepare('SELECT * FROM take_segments WHERE take_id=? ORDER BY seg_index ASC').all(takeId) as any[];
+    const transcript = segs.map((s: any) => s.text).join(' ');
+    const res = await parseAiJson<any>(
+      `You are evaluating a video take against its blueprint script. Compare the actual transcript against the planned script frames and identify deviations.\n\nBlueprint script: ${JSON.stringify(script.map((f: any) => ({ text: f.text, visual: f.visual, frame_type: f.frame_type })))}\n\nActual transcript: ${transcript}\n\nReturn JSON: { "match_score": 0-1, "deviations": [{ "frame_index": number, "expected": "what was planned", "actual": "what was said", "action": "keep|modify|replace|drop" }], "verdict": "good_match|needs_edit|reshoot" }`,
+      { required: ['match_score', 'deviations', 'verdict'] },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Evaluation failed: ${res.error}` };
+    db.prepare('INSERT INTO take_evaluations (take_id, episode_id, match_score, deviations, verdict, created_at) VALUES (?,?,?,?,?,?)').run(
+      takeId, take.episode_id, res.data.match_score, JSON.stringify(res.data.deviations), res.data.verdict, now()
+    );
+    db.prepare('UPDATE content_takes SET status=? WHERE id=?').run('evaluated', takeId);
+    logEvent(take.episode_id, 'take_evaluated', `Take #${take.take_number} — score ${Math.round((res.data.match_score || 0) * 100)}%`, { verdict: res.data.verdict });
+    return { ok: true, evaluation: res.data };
+  });
+
+  // ── edit/cutlist + overlay plan (Phase 4) ──────────────────
+  ipcMain.handle('content:edit:cutlist', async (_, { episodeId, takeId }: any) => {
+    const segs = db.prepare('SELECT * FROM take_segments WHERE take_id=? AND keep=1 ORDER BY seg_index ASC').all(takeId) as any[];
+    if (!segs.length) return { ok: false, error: 'No kept segments — select segments in Capture phase first' };
+    const cutlist = segs.map((s: any, i: number) => ({
+      index: i,
+      start_s: s.start_s,
+      end_s: s.end_s,
+      duration_s: s.end_s - s.start_s,
+      text: s.text,
+      seg_type: s.seg_type,
+      source_seg_id: s.id,
+    }));
+    return { ok: true, cutlist, total_duration: cutlist.reduce((a: number, c: any) => a + c.duration_s, 0) };
+  });
+  ipcMain.handle('content:edit:overlay-plan', async (_, { episodeId }: any) => {
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId) as any;
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const script = safeJson(ep.script, []);
+    const take = db.prepare('SELECT * FROM content_takes WHERE episode_id=? AND status IN (?,?) ORDER BY take_number DESC LIMIT 1').get(episodeId, 'selected', 'evaluated') as any;
+    let transcript = '';
+    if (take) {
+      const segs = db.prepare('SELECT * FROM take_segments WHERE take_id=? AND keep=1 ORDER BY seg_index ASC').all(take.id) as any[];
+      transcript = segs.map((s: any) => s.text).join(' ');
+    }
+    const theme = ep.theme_id ? db.prepare('SELECT * FROM themes WHERE id=?').get(ep.theme_id) as any : null;
+    const res = await parseAiJson<any>(
+      `You are generating an overlay plan for a short-form video. Based on the script frames and actual transcript, determine overlay placements.\n\nScript frames: ${JSON.stringify(script.map((f: any) => ({ text: f.text, visual: f.visual, duration_seconds: f.duration_seconds })))}\n\nActual transcript: ${transcript || 'No transcript yet — use script only'}\n\nTheme: ${theme ? JSON.stringify({ name: theme.name, font_display: theme.font_display, color_accent: theme.color_accent }) : 'None'}\n\nSafe zones: right 320px + bottom 400px = no text.\n\nReturn JSON: { "overlays": [{ "start_s": number, "end_s": number, "text": "string", "position": "top-left|top-center|top-right|bottom-left|bottom-center|bottom-right", "style": "hook|value|transition|cta", "font_size": "sm|md|lg|xl" }], "total_overlays": number, "notes": "string" }`,
+      { required: ['overlays'] },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Overlay plan failed: ${res.error}` };
+    logEvent(episodeId, 'overlay_planned', `${res.data.overlays.length} overlays planned`);
+    return { ok: true, plan: res.data };
+  });
+
+  // ── analytics correlate (Phase 5) ──────────────────────────
+  ipcMain.handle('content:analytics:correlate', async () => {
+    const videos = db.prepare('SELECT v.*, e.script FROM content_videos v LEFT JOIN content_episodes e ON v.episode_id=e.id WHERE v.views > 0 ORDER BY v.published_at DESC').all() as any[];
+    if (videos.length < 3) return { ok: true, correlations: [], message: 'Need at least 3 published videos for correlation' };
+    const data = videos.map((v: any) => {
+      const script = safeJson(v.script, []);
+      const vars = safeJson(v.variables, {});
+      return {
+        title: v.title,
+        views: v.views,
+        likes: v.likes,
+        saves: v.saves,
+        completion_pct: v.completion_pct,
+        variables: {
+          hook_type: vars.hook_type || script[0]?.frame_type || 'unknown',
+          length_s: v.duration_seconds || script.reduce((a: number, f: any) => a + (f.duration_seconds || 0), 0),
+          script_frames: script.length,
+          retention_score: script.length ? script.reduce((a: number, f: any) => a + (f.retention?.score || 0), 0) / script.length : null,
+          ...vars,
+        },
+      };
+    });
+    const res = await parseAiJson<any>(
+      `You are analyzing video performance to find which variables drive results. Compare high-performing vs low-performing videos.\n\nVideo data: ${JSON.stringify(data)}\n\nReturn JSON: { "correlations": [{ "variable": "string", "insight": "string", "impact": "high|medium|low", "direction": "positive|negative" }], "best_performer": { "title": "string", "why": "string" }, "worst_performer": { "title": "string", "why": "string" }, "recommendations": ["string"] }`,
+      { required: ['correlations'] },
+      (p, s) => aiCall(p, s, 2000)
+    );
+    if (!res.ok) return { ok: false, error: `Correlation failed: ${res.error}` };
+    return { ok: true, ...res.data };
+  });
+
   // ── helpers ──────────────────────────────────────────────
   async function callAnalytics(episodeId?: number) {
     const videos = episodeId
@@ -1007,6 +1176,19 @@ function ensureTables(db: any) {
       accent_color TEXT DEFAULT '#f5c518',
       icon TEXT DEFAULT 'Palette',
       status TEXT DEFAULT 'active',
+      font_display TEXT,
+      font_body TEXT,
+      font_accent TEXT,
+      color_bg TEXT,
+      color_text TEXT,
+      color_accent TEXT,
+      color_accent2 TEXT,
+      color_accent3 TEXT,
+      headline_case TEXT DEFAULT 'uppercase',
+      headline_size TEXT DEFAULT '27px',
+      category TEXT DEFAULT 'general',
+      use_case TEXT,
+      is_builtin INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
@@ -1099,6 +1281,45 @@ function ensureTables(db: any) {
     CREATE INDEX IF NOT EXISTS idx_lessons_video ON content_lessons(video_id);
     CREATE INDEX IF NOT EXISTS idx_timeline_episode ON process_timeline(episode_id);
     CREATE INDEX IF NOT EXISTS idx_reflections_episode ON video_reflections(episode_id);
+    CREATE TABLE IF NOT EXISTS content_takes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      episode_id INTEGER NOT NULL,
+      take_number INTEGER DEFAULT 1,
+      file_path TEXT,
+      duration_seconds REAL,
+      status TEXT DEFAULT 'recorded'
+        CHECK (status IN ('recorded','transcribing','transcribed','evaluated','selected','discarded')),
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (episode_id) REFERENCES content_episodes(id)
+    );
+    CREATE TABLE IF NOT EXISTS take_segments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      take_id INTEGER NOT NULL,
+      seg_index INTEGER NOT NULL,
+      start_s REAL NOT NULL,
+      end_s REAL NOT NULL,
+      text TEXT NOT NULL,
+      seg_type TEXT DEFAULT 'beat'
+        CHECK (seg_type IN ('hook','beat','transition','cta','silence','filler')),
+      keep BOOLEAN DEFAULT NULL,
+      retention_note TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (take_id) REFERENCES content_takes(id)
+    );
+    CREATE TABLE IF NOT EXISTS take_evaluations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      take_id INTEGER NOT NULL,
+      episode_id INTEGER NOT NULL,
+      match_score REAL,
+      deviations JSON,
+      verdict TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (take_id) REFERENCES content_takes(id),
+      FOREIGN KEY (episode_id) REFERENCES content_episodes(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_takes_episode ON content_takes(episode_id);
+    CREATE INDEX IF NOT EXISTS idx_segments_take ON take_segments(take_id);
   `);
   const cols: Record<string, string[]> = {};
   for (const t of ['content_lessons', 'content_frameworks', 'content_episodes']) {
@@ -1110,6 +1331,25 @@ function ensureTables(db: any) {
   if (!cols.content_episodes.includes('scheme_id')) db.exec(`ALTER TABLE content_episodes ADD COLUMN scheme_id TEXT DEFAULT 'audience_builder'`);
   if (!cols.content_episodes.includes('published_at')) db.exec(`ALTER TABLE content_episodes ADD COLUMN published_at DATETIME`);
   if (!cols.content_episodes.includes('process')) db.exec(`ALTER TABLE content_episodes ADD COLUMN process JSON`);
+  if (!cols.content_episodes.includes('phase')) db.exec(`ALTER TABLE content_episodes ADD COLUMN phase TEXT DEFAULT 'idea'`);
+
+  const vidCols = (db.prepare(`PRAGMA table_info(content_videos)`).all() as any[]).map((c) => c.name);
+  if (!vidCols.includes('variables')) db.exec(`ALTER TABLE content_videos ADD COLUMN variables JSON`);
+
+  const themeCols = (db.prepare(`PRAGMA table_info(themes)`).all() as any[]).map((c) => c.name);
+  if (!themeCols.includes('font_display')) db.exec(`ALTER TABLE themes ADD COLUMN font_display TEXT`);
+  if (!themeCols.includes('font_body')) db.exec(`ALTER TABLE themes ADD COLUMN font_body TEXT`);
+  if (!themeCols.includes('font_accent')) db.exec(`ALTER TABLE themes ADD COLUMN font_accent TEXT`);
+  if (!themeCols.includes('color_bg')) db.exec(`ALTER TABLE themes ADD COLUMN color_bg TEXT`);
+  if (!themeCols.includes('color_text')) db.exec(`ALTER TABLE themes ADD COLUMN color_text TEXT`);
+  if (!themeCols.includes('color_accent')) db.exec(`ALTER TABLE themes ADD COLUMN color_accent TEXT`);
+  if (!themeCols.includes('color_accent2')) db.exec(`ALTER TABLE themes ADD COLUMN color_accent2 TEXT`);
+  if (!themeCols.includes('color_accent3')) db.exec(`ALTER TABLE themes ADD COLUMN color_accent3 TEXT`);
+  if (!themeCols.includes('headline_case')) db.exec(`ALTER TABLE themes ADD COLUMN headline_case TEXT DEFAULT 'uppercase'`);
+  if (!themeCols.includes('headline_size')) db.exec(`ALTER TABLE themes ADD COLUMN headline_size TEXT DEFAULT '27px'`);
+  if (!themeCols.includes('category')) db.exec(`ALTER TABLE themes ADD COLUMN category TEXT DEFAULT 'general'`);
+  if (!themeCols.includes('use_case')) db.exec(`ALTER TABLE themes ADD COLUMN use_case TEXT`);
+  if (!themeCols.includes('is_builtin')) db.exec(`ALTER TABLE themes ADD COLUMN is_builtin INTEGER DEFAULT 0`);
 }
 
 // ── built-in frameworks (v3.0 spec) ────────────────────────
@@ -1156,6 +1396,28 @@ function seedBuiltins(db: any) {
     }
     console.log(`[ContentEngine] seeded ${SCORING_SCHEMES.length} scoring schemes`);
   }
+
+  const themeCount = (db.prepare('SELECT COUNT(*) c FROM themes WHERE is_builtin=1').get() as any).c;
+  if (themeCount === 0) {
+    const tInsert = db.prepare(`INSERT INTO themes (name, description, accent_color, font_display, font_body, font_accent, color_bg, color_text, color_accent, color_accent2, color_accent3, headline_case, headline_size, category, use_case, is_builtin, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+    const ts = now();
+    const themes = [
+      { name: 'Iron Headline', desc: 'Maximum-impact hook text. Built for the 0.5-2s window before someone scrolls past.', cat: 'catchy', use: 'Hook openers, hype cuts, scroll-stopping titles', display: 'Anton', body: 'Inter', accent: 'Space Mono', bg: '#0D0221', text: '#FFFFFF', a1: '#FF00E4', a2: '#00F0FF', a3: '#FFF200', hc: 'uppercase', hs: '27px' },
+      { name: 'Soft Standard', desc: 'Clean, legible, does not fight the footage. Default choice for straight captioning.', cat: 'general', use: 'Straight captioning, voiceover subtitles, general text overlays', display: 'Poppins', body: 'Poppins', accent: 'Caveat', bg: '#FFFFFF', text: '#111111', a1: '#2D5BFF', a2: '#6E6E6E', a3: '#E5E5E5', hc: 'none', hs: '23px' },
+      { name: 'Editorial Calm', desc: 'Serif elegance for slower, reflective voiceover — walkthroughs, lessons learned.', cat: 'general', use: 'Reflective voiceover, walkthroughs, lessons learned', display: 'Playfair Display', body: 'Lora', accent: 'DM Sans', bg: '#FAF7F2', text: '#1C1C1C', a1: '#A88B5B', a2: '#B0342D', a3: '#7A7A7A', hc: 'none', hs: '25px' },
+      { name: 'Cartoon Pop', desc: 'Loud and bouncy. Comedic beats, reactions, big reveals.', cat: 'catchy', use: 'Comedic hooks, reaction cuts, big reveals', display: 'Bangers', body: 'Baloo 2', accent: 'Fredoka', bg: '#FFFFFF', text: '#2B2B2B', a1: '#FF6FB5', a2: '#4ADEDE', a3: '#FFD23F', hc: 'uppercase', hs: '26px' },
+      { name: 'Street Grit', desc: 'Condensed and punchy. Streetwear / hype-cut energy for openers.', cat: 'catchy', use: 'Hype cuts, streetwear energy, tech/gaming edits', display: 'Bebas Neue', body: 'Space Grotesk', accent: 'Archivo Black', bg: '#1A1A2E', text: '#FFFFFF', a1: '#FF003C', a2: '#00FFA3', a3: '#FFEA00', hc: 'uppercase', hs: '30px' },
+      { name: 'Minimal Luxe', desc: 'Quiet and expensive-looking. Slow-paced, aesthetic-forward content.', cat: 'general', use: 'Aesthetic content, slow-paced, luxury feel', display: 'Cormorant Garamond', body: 'Montserrat', accent: 'Cormorant Garamond', bg: '#FAF7F2', text: '#1C1C1C', a1: '#A88B5B', a2: '#B0342D', a3: '#7A7A7A', hc: 'none', hs: '26px' },
+      { name: 'Bubble Y2K', desc: 'Rounded, nostalgic, high-energy. Good for playful hook lines.', cat: 'catchy', use: 'Playful hooks, nostalgic energy, kids/bright content', display: 'Titan One', body: 'Baloo 2', accent: 'Chewy', bg: '#FFF7FA', text: '#3A3A3A', a1: '#FF7FB0', a2: '#5AA9D9', a3: '#54B892', hc: 'none', hs: '24px' },
+      { name: 'Build in Public', desc: 'Dev-log captions, data call-outs, code-demo UI text.', cat: 'general', use: 'Dev-log, code demos, data call-outs, deskflow build content', display: 'Manrope', body: 'Inter', accent: 'IBM Plex Mono', bg: '#F4F4F5', text: '#18181B', a1: '#3B82F6', a2: '#71717A', a3: '#DC2626', hc: 'none', hs: '23px' },
+      { name: 'Handwritten Note', desc: 'Personal, diary-style, warm. Behind-the-scenes or story segments.', cat: 'general', use: 'Behind-the-scenes, personal stories, diary-style beats', display: 'Permanent Marker', body: 'Nunito Sans', accent: 'Kalam', bg: '#EFE3D0', text: '#3F3F3F', a1: '#5C4033', a2: '#A47551', a3: '#D9A566', hc: 'none', hs: '23px' },
+      { name: 'Techno Future', desc: 'Sharp, futuristic. Tech-forward hooks, AI/product-reveal moments.', cat: 'catchy', use: 'Tech hooks, AI reveals, product launches, futuristic feel', display: 'Unbounded', body: 'Space Grotesk', accent: 'JetBrains Mono', bg: '#0D0221', text: '#FFFFFF', a1: '#FF00E4', a2: '#00F0FF', a3: '#FFF200', hc: 'none', hs: '22px' },
+    ];
+    for (const t of themes) {
+      tInsert.run(t.name, t.desc, t.a1, t.display, t.body, t.accent, t.bg, t.text, t.a1, t.a2, t.a3, t.hc, t.hs, t.cat, t.use, 1, 'active', ts, ts);
+    }
+    console.log(`[ContentEngine] seeded ${themes.length} built-in overlay themes`);
+  }
 }
 
 // ── mappers ────────────────────────────────────────────────
@@ -1163,10 +1425,25 @@ function mapIdea(r: any) {
   return { ...r, frames: safeJson(r.frames), synthesized_from: safeJson(r.synthesized_from), gates: safeJson(r.gates) };
 }
 function mapEpisode(r: any) {
-  return { ...r, script: safeJson(r.script), seo: safeJson(r.seo), gates: safeJson(r.gates), gate_override: !!r.gate_override, process: safeJson(r.process, {}) };
+  return { ...r, script: safeJson(r.script), seo: safeJson(r.seo), gates: safeJson(r.gates), gate_override: !!r.gate_override, process: safeJson(r.process, {}), phase: r.phase || 'idea' };
 }
 function mapTheme(r: any) {
-  return { ...r };
+  return {
+    ...r,
+    is_builtin: !!r.is_builtin,
+    font_display: r.font_display || null,
+    font_body: r.font_body || null,
+    font_accent: r.font_accent || null,
+    color_bg: r.color_bg || null,
+    color_text: r.color_text || null,
+    color_accent: r.color_accent || r.accent_color || null,
+    color_accent2: r.color_accent2 || null,
+    color_accent3: r.color_accent3 || null,
+    headline_case: r.headline_case || 'uppercase',
+    headline_size: r.headline_size || '27px',
+    category: r.category || 'general',
+    use_case: r.use_case || null,
+  };
 }
 function mapVideo(r: any) {
   return {

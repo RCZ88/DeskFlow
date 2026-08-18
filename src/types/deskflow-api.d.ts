@@ -805,6 +805,18 @@ export interface ContentEngineApi {
   processLog: (payload: { episodeId: number; eventType: string; label?: string; detail?: any }) => Promise<{ ok: boolean; error?: string }>;
   processSummary: (payload: { episodeId: number }) => Promise<{ ok: boolean; summary?: { title: string; narrative: string }; events?: ProcessEvent[]; error?: string }>;
   processGallery: () => Promise<ProcessGalleryItem[]>;
+  takesList: (payload: { episodeId: number }) => Promise<any[]>;
+  takeSave: (take: any) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  takeDelete: (id: number) => Promise<{ ok: boolean }>;
+  takeImport: (payload: { episodeId: number; filePath: string; duration?: number }) => Promise<{ ok: boolean; id?: number; take_number?: number; error?: string }>;
+  takeTranscribe: (payload: { takeId: number }) => Promise<{ ok: boolean; status?: string; error?: string }>;
+  takeSaveSegments: (payload: { takeId: number; segments: Array<{ start_s: number; end_s: number; text: string; seg_type?: string; keep?: boolean | null }> }) => Promise<{ ok: boolean; count?: number; error?: string }>;
+  takeSegments: (payload: { takeId: number }) => Promise<any[]>;
+  takeSelect: (payload: { takeId: number; segments: Array<{ id: number; keep: boolean }> }) => Promise<{ ok: boolean; error?: string }>;
+  takeEvaluate: (payload: { takeId: number }) => Promise<{ ok: boolean; evaluation?: any; error?: string }>;
+  editCutlist: (payload: { episodeId: number; takeId: number }) => Promise<{ ok: boolean; cutlist?: any[]; total_duration?: number; error?: string }>;
+  editOverlayPlan: (payload: { episodeId: number }) => Promise<{ ok: boolean; plan?: any; error?: string }>;
+  analyticsCorrelate: () => Promise<{ ok: boolean; correlations?: any[]; best_performer?: any; worst_performer?: any; recommendations?: string[]; message?: string; error?: string }>;
 }
 
 declare global {

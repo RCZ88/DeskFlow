@@ -303,6 +303,18 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     processLog: (payload: any) => ipcRenderer.invoke('content:process:log', payload),
     processSummary: (payload: any) => ipcRenderer.invoke('content:process:summary', payload),
     processGallery: () => ipcRenderer.invoke('content:process:gallery'),
+    takesList: (payload: any) => ipcRenderer.invoke('content:takes:list', payload),
+    takeSave: (payload: any) => ipcRenderer.invoke('content:takes:save', payload),
+    takeDelete: (id: number) => ipcRenderer.invoke('content:takes:delete', id),
+    takeImport: (payload: any) => ipcRenderer.invoke('content:takes:import', payload),
+    takeTranscribe: (payload: any) => ipcRenderer.invoke('content:takes:transcribe', payload),
+    takeSaveSegments: (payload: any) => ipcRenderer.invoke('content:takes:save-segments', payload),
+    takeSegments: (payload: any) => ipcRenderer.invoke('content:takes:segments', payload),
+    takeSelect: (payload: any) => ipcRenderer.invoke('content:takes:select', payload),
+    takeEvaluate: (payload: any) => ipcRenderer.invoke('content:takes:evaluate', payload),
+    editCutlist: (payload: any) => ipcRenderer.invoke('content:edit:cutlist', payload),
+    editOverlayPlan: (payload: any) => ipcRenderer.invoke('content:edit:overlay-plan', payload),
+    analyticsCorrelate: () => ipcRenderer.invoke('content:analytics:correlate'),
   },
 
   // File operations

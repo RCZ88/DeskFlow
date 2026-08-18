@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Moon, Bed, Sunrise, Clock, CheckCircle2, Sparkles, Sunset } from 'lucide-react';
+import { Moon, Bed, Sunrise, Clock, CheckCircle2, Sparkles, Sunset, LoaderCircle } from 'lucide-react';
 import { DurationPicker } from './DurationPicker';
+import { fillGapWithSegments, createId, type Gap, type GapSegment } from '@/lib/external/gaps';
 
 interface TimeState {
   hours: number;
@@ -44,8 +46,9 @@ export default function SleepDetectionModal({
   onDismiss,
   adjacentGaps = [],
   step = 'sleep',
-  onOpenGapFill,
   onDone,
+  activities = [],
+  sessions = [],
 }: {
   data: { gapMinutes: number; suggestedBedtime: string; suggestedWakeTime: string };
   customBedtime: TimeState;
@@ -60,13 +63,61 @@ export default function SleepDetectionModal({
   onDismiss: () => void;
   adjacentGaps?: AdjacentSleepGap[];
   step?: 'sleep' | 'gaps';
-  onOpenGapFill?: () => void;
   onDone?: () => void;
+  activities?: Array<{ id: string | number; name: string; category?: string }>;
+  sessions?: Array<{ app?: string; activity?: string; [k: string]: unknown }>;
 }) {
-  console.log('%c[SleepDetectionModal] v1.1 adjacent-gaps loaded', 'color: #fbbf24; font-weight: bold');
+  console.log('%c[SleepDetectionModal] v1.2 auto-fill inline', 'color: #fbbf24; font-weight: bold');
+
+  const [autoFilling, setAutoFilling] = useState(false);
+  const [fillProgress, setFillProgress] = useState<{ done: number; total: number } | null>(null);
+  const [fillResults, setFillResults] = useState<{ gap: AdjacentSleepGap; filled: number; total: number }[]>([]);
+  const [fillError, setFillError] = useState<string | null>(null);
 
   const handleDone = onDone || onDismiss;
-  const handleOpenGapFill = onOpenGapFill || (() => {});
+
+  const handleAutoFill = async () => {
+    if (adjacentGaps.length === 0 || autoFilling) return;
+    setAutoFilling(true);
+    setFillError(null);
+    setFillResults([]);
+    const results: { gap: AdjacentSleepGap; filled: number; total: number }[] = [];
+
+    for (let i = 0; i < adjacentGaps.length; i++) {
+      const g = adjacentGaps[i];
+      setFillProgress({ done: i, total: adjacentGaps.length });
+      try {
+        const pred = await (window as any).deskflowAPI?.predictGapFill?.(g.start, g.end, 'combined');
+        const slots = pred?.gaps?.[0]?.slots || [];
+        let filledCount = 0;
+        let cursor = new Date(g.start).getTime();
+        const segs: GapSegment[] = [];
+        for (const slot of slots) {
+          const top = slot.predictions?.[0];
+          const act = top ? activities.find(a => a.name === top.app) : null;
+          const segEnd = cursor + (slot.durationSeconds || 0) * 1000;
+          if (act) {
+            filledCount++;
+            await (window as any).deskflowAPI?.addExternalTime?.(
+              act.id, Math.round((slot.durationSeconds || 0) / 60),
+              new Date(cursor).toISOString(), new Date(segEnd).toISOString()
+            );
+          }
+          cursor = segEnd;
+        }
+        results.push({ gap: g, filled: filledCount, total: slots.length });
+      } catch {
+        results.push({ gap: g, filled: 0, total: 0 });
+      }
+    }
+
+    setFillProgress({ done: adjacentGaps.length, total: adjacentGaps.length });
+    setFillResults(results);
+    const anyFilled = results.some(r => r.filled > 0);
+    if (!anyFilled) setFillError('Could not predict activities for these gaps');
+    window.dispatchEvent(new CustomEvent('external-data-changed'));
+    setAutoFilling(false);
+  };
 
   if (step === 'gaps') {
     return (
