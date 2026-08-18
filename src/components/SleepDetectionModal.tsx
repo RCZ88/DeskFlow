@@ -232,12 +232,6 @@ export default function SleepDetectionModal({
 
             {/* ── Action buttons ── */}
             <div className="flex gap-3">
-              <button
-                onClick={handleDone}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-700/30 transition-colors"
-              >
-                {fillResults.length > 0 ? 'Done' : 'Skip'}
-              </button>
               {fillResults.length === 0 && (
                 <button
                   onClick={handleAutoFill}
@@ -321,7 +315,6 @@ export default function SleepDetectionModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={onDismiss}
     >
       <motion.div
         initial={{ scale: 0.92, opacity: 0, y: 10 }}
@@ -329,7 +322,6 @@ export default function SleepDetectionModal({
         exit={{ scale: 0.92, opacity: 0, y: 10 }}
         transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
         className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-lg max-h-[min(680px,90vh)] overflow-y-auto shadow-2xl"
-        onClick={e => e.stopPropagation()}
       >
         {/* Decorative bar */}
         <div className="h-1 bg-gradient-to-r from-indigo-500/40 via-violet-500/40 to-indigo-500/40" />

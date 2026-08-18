@@ -372,7 +372,13 @@ function NoteCard({ note, onClick }: { note: Note; onClick: (n: Note) => void })
     : typeof note.tags === 'string' && note.tags ? (() => { try { return JSON.parse(note.tags) } catch { return [] } })()
     : []
   return (
-    <button onClick={() => onClick(note)} className="group relative flex flex-col gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 text-left backdrop-blur-xl transition-all hover:border-zinc-700 hover:bg-zinc-900/50 w-full">
+    <button
+      onClick={() => onClick(note)}
+      draggable
+      onDragStart={(e) => { e.dataTransfer.setData('text/plain', note.id); onDragStart?.(note.id) }}
+      onDragEnd={onDragEnd}
+      className="group relative flex flex-col gap-3 rounded-xl border border-zinc-800/60 bg-zinc-900/30 p-5 text-left backdrop-blur-xl transition-all hover:border-zinc-700 hover:bg-zinc-900/50 w-full cursor-grab active:cursor-grabbing"
+    >
       <div className="flex items-start justify-between gap-3">
         <h4 className="font-medium text-zinc-100 line-clamp-1 flex-1">{note.title || 'Untitled'}</h4>
         {note.is_draft && <FileClock className="w-4 h-4 text-zinc-500" />}
@@ -409,6 +415,8 @@ export function NotesTab() {
   const [editingNote, setEditingNote] = useState<Note | null>(null)
   const [selectedNote, setSelectedNote] = useState<Note | null>(null)
   const [loading, setLoading] = useState(true)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [draggedNote, setDraggedNote] = useState<string | null>(null)
 
   const loadNotes = useCallback(async () => {
     setLoading(true)
@@ -433,6 +441,20 @@ export function NotesTab() {
   const handleCreate = async (data: any) => { await (window as any).deskflowAPI.notesCreate(data); loadNotes(); loadGroups() }
   const handleUpdate = async (data: any) => { await (window as any).deskflowAPI.notesUpdate(data); loadNotes(); loadGroups() }
   const handleDelete = async (id: string) => { await (window as any).deskflowAPI.notesDelete(id); setSelectedNote(null); loadNotes() }
+
+  // Group management
+  const createGroup = async () => {
+    const name = newGroupName.trim()
+    if (!name || groups.includes(name)) return
+    setGroups(prev => [...prev, name])
+    setNewGroupName('')
+  }
+
+  const moveNoteToGroup = async (noteId: string, groupName: string) => {
+    const note = notes.find(n => n.id === noteId)
+    if (!note) return
+    await handleUpdate({ id: noteId, group_name: groupName })
+  }
 
   const drafts = notes.filter(n => n.is_draft)
   const activeNotes = notes.filter(n => !n.is_draft)
@@ -485,13 +507,16 @@ export function NotesTab() {
         {search && <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"><X size={13} /></button>}
       </div>
 
-      {/* Filter chips */}
-      {(allTags.length > 0 || groups.length > 0) && (
-        <div className="flex flex-wrap gap-1.5">
-          {groups.map(g => <button key={g} onClick={() => setFilterGroup(filterGroup === g ? null : g)} className={cn('px-2 py-1 rounded-full text-[11px] font-medium border transition-colors', filterGroup === g ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-zinc-700/50 bg-zinc-800/40 text-zinc-400 hover:text-zinc-300')}><span className="inline-block w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getGroupColor(g) }} />{g}</button>)}
-          {allTags.slice(0, 8).map(t => <button key={t} onClick={() => setFilterTag(filterTag === t ? null : t)} className={cn('px-2 py-1 rounded-full text-[11px] border transition-colors', filterTag === t ? 'border-zinc-500 bg-zinc-700/50 text-zinc-200' : 'border-zinc-700/50 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300')}>#{t}</button>)}
+      {/* Filter chips + Create Group */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {groups.map(g => <button key={g} onClick={() => setFilterGroup(filterGroup === g ? null : g)} className={cn('px-2 py-1 rounded-full text-[11px] font-medium border transition-colors', filterGroup === g ? 'border-amber-500/40 bg-amber-500/10 text-amber-300' : 'border-zinc-700/50 bg-zinc-800/40 text-zinc-400 hover:text-zinc-300')}><span className="inline-block w-1.5 h-1.5 rounded-full mr-1" style={{ backgroundColor: getGroupColor(g) }} />{g}</button>)}
+        {allTags.slice(0, 8).map(t => <button key={t} onClick={() => setFilterTag(filterTag === t ? null : t)} className={cn('px-2 py-1 rounded-full text-[11px] border transition-colors', filterTag === t ? 'border-zinc-500 bg-zinc-700/50 text-zinc-200' : 'border-zinc-700/50 bg-zinc-800/40 text-zinc-500 hover:text-zinc-300')}>#{t}</button>)}
+        {/* Create new group */}
+        <div className="flex items-center gap-1 ml-1">
+          <Input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') createGroup() }} placeholder="New group..." className="w-24 h-7 text-[11px] px-2" />
+          {newGroupName.trim() && <button onClick={createGroup} className="h-7 px-2 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 text-[11px] hover:bg-amber-500/25 transition-colors">Create</button>}
         </div>
-      )}
+      </div>
 
       {/* Drafts */}
       {drafts.length > 0 && (
@@ -510,14 +535,19 @@ export function NotesTab() {
         <div className="space-y-6">
           {groupedNotes.map(([groupName, groupNotes]) => (
             <section key={groupName}>
-              <div className="flex items-center gap-2 mb-3">
+              <div
+                className={`flex items-center gap-2 mb-3 p-2 rounded-lg transition-colors ${draggedNote ? 'border-2 border-dashed border-amber-500/40 bg-amber-500/5' : ''}`}
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('bg-amber-500/10') }}
+                onDragLeave={(e) => e.currentTarget.classList.remove('bg-amber-500/10')}
+                onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('bg-amber-500/10'); const noteId = e.dataTransfer.getData('text/plain'); if (noteId) moveNoteToGroup(noteId, groupName) }}
+              >
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getGroupColor(groupName) }} />
                 <h3 className="text-[13px] font-medium text-zinc-300">{groupName}</h3>
                 <span className="text-[11px] text-zinc-600">{groupNotes.length}</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <AnimatePresence mode="popLayout">
-                  {groupNotes.map(note => <NoteCard key={note.id} note={note} onClick={setSelectedNote} />)}
+                  {groupNotes.map(note => <NoteCard key={note.id} note={note} onClick={setSelectedNote} onDragStart={setDraggedNote} onDragEnd={() => setDraggedNote(null)} />)}
                 </AnimatePresence>
               </div>
             </section>

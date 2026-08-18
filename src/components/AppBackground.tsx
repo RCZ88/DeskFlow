@@ -27,7 +27,7 @@ export function AppBackground({ pathname = '/' }: { pathname?: string }) {
       <LivingSubstrate
         accent={accent}
         speed={isHero ? 2 : 1}
-        maxAlpha={isHero ? 0.35 : 0.20}
+        maxAlpha={isHero ? 0.6 : 0.4}
       />
       <Particles quantity={30} color="#10b981" opacity={0.3} />
       <Particles quantity={20} color="#3b82f6" opacity={0.25} />
