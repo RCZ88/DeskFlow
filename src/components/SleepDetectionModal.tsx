@@ -131,7 +131,6 @@ export default function SleepDetectionModal({
           exit={{ scale: 0.92, opacity: 0, y: 10 }}
           transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
           className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-lg max-h-[min(680px,90vh)] overflow-y-auto shadow-2xl"
-          onClick={e => e.stopPropagation()}
         >
           {/* Decorative bar */}
           <div className="h-1 bg-gradient-to-r from-emerald-500/40 via-teal-500/40 to-emerald-500/40" />
