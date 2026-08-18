@@ -23,8 +23,6 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import SleepDetectionModal, { type AdjacentSleepGap } from './components/SleepDetectionModal';
-import { GapFillModal } from './components/external/GapFillModal';
-import { createId, fillGapWithSegments, type Gap } from './lib/external/gaps';
 import { format as dateFormat } from 'date-fns';
 import SettingsPage from './pages/SettingsPage';
 import StatsPage from './pages/StatsPage';
@@ -921,7 +919,6 @@ function App() {
     adjacentGaps?: AdjacentSleepGap[];
   } | null>(null);
   const [sleepModalStep, setSleepModalStep] = useState<'sleep' | 'gaps'>('sleep');
-  const [sleepGapFill, setSleepGapFill] = useState<Gap[] | null>(null);
   const [sleepFillActivities, setSleepFillActivities] = useState<any[] | null>(null);
   const [sleepFillSessions, setSleepFillSessions] = useState<any[] | null>(null);
   const [sleepDetectCustomBedtime, setSleepDetectCustomBedtime] = useState({ hours: 22, minutes: 0 });
@@ -1007,7 +1004,6 @@ function App() {
     setSleepModalStep('sleep');
     setShowSleepDetection(false);
     setSleepDetectionData(null);
-    setSleepGapFill(null);
     setSleepFillActivities(null);
     setSleepFillSessions(null);
     try {
@@ -1089,6 +1085,15 @@ function App() {
           const gaps = sleepDetectionData.adjacentGaps || [];
           if (gaps.length > 0) {
             sleepActiveRef.current = false;
+            // Load activities/sessions for auto-fill in the gaps step
+            try {
+              const [acts, sess] = await Promise.all([
+                window.deskflowAPI?.getExternalActivities?.(),
+                window.deskflowAPI?.getExternalSessions?.('all'),
+              ]);
+              setSleepFillActivities(acts || []);
+              setSleepFillSessions(sess || []);
+            } catch { /* non-fatal */ }
             setSleepModalStep('gaps');
             return;
           }
@@ -1099,25 +1104,6 @@ function App() {
     }
     sleepActiveRef.current = false;
     dismissSleepDetection();
-  };
-
-  // Open the gap-fill modal for the untracked time around a confirmed sleep
-  const handleOpenSleepGapFill = async () => {
-    try {
-      const activities = await window.deskflowAPI?.getExternalActivities?.();
-      const sessions = await window.deskflowAPI?.getExternalSessions?.('all');
-      setSleepFillActivities(activities || []);
-      setSleepFillSessions(sessions || []);
-      const gaps = (sleepDetectionData?.adjacentGaps || []).map((g) => ({
-        id: createId('gap'),
-        start: new Date(g.start),
-        end: new Date(g.end),
-        duration_seconds: g.durationSeconds,
-      }));
-      setSleepGapFill(gaps);
-    } catch (err) {
-      console.error('[App] Failed to load sleep gap fill data:', err);
-    }
   };
 
   useEffect(() => {
@@ -3090,7 +3076,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
           {/* -- Sleep Detection Modal -- */}
           <AnimatePresence>
             {showSleepDetection && sleepDetectionData && (
-              <SleepDetectionModal
+               <SleepDetectionModal
                 data={sleepDetectionData}
                 customBedtime={sleepDetectCustomBedtime}
                 customWaketime={sleepDetectCustomWaketime}
@@ -3104,32 +3090,13 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 onDismiss={dismissSleepDetection}
                 adjacentGaps={sleepDetectionData.adjacentGaps || []}
                 step={sleepModalStep}
-                onOpenGapFill={handleOpenSleepGapFill}
+                activities={sleepFillActivities || []}
+                sessions={sleepFillSessions || []}
                 onDone={dismissSleepDetection}
               />
             )}
           </AnimatePresence>
 
-          {/* -- Sleep gap fill (untracked time before/after sleep) -- */}
-          <GapFillModal
-            open={!!sleepGapFill && sleepGapFill.length > 0}
-            gap={null}
-            multiGaps={sleepGapFill || []}
-            activities={sleepFillActivities || []}
-            sessions={sleepFillSessions || []}
-            zClass="z-[10000]"
-            onClose={dismissSleepDetection}
-            onFillGap={async (gap, segments) => {
-              try {
-                await fillGapWithSegments(gap, segments, async (activityId, minutes, startedAt, endedAt) => {
-                  await window.deskflowAPI?.addExternalTime?.(activityId, minutes, startedAt, endedAt);
-                });
-                window.dispatchEvent(new CustomEvent('external-data-changed'));
-              } catch (err) {
-                console.error('[App] Sleep gap fill failed:', err);
-              }
-            }}
-          />
 
           {/* Confirm Export Modal */}
           <AnimatePresence>

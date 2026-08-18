@@ -7,6 +7,11 @@ import { RetentionCurveChart } from './SvgRetentionChart'
 import { AnalyticsBody } from './AnalyticsView'
 import { ScriptProofCard } from './ScriptProofCard'
 import { EpisodeScoreSummary } from './EpisodeScoreSummary'
+import { PhaseStepper } from './PhaseStepper'
+import { GreenLightPanel } from './GreenLightPanel'
+import { CaptureView } from './CaptureView'
+import { AssembleView } from './AssembleView'
+import { LearnView } from './LearnView'
 import { cn } from '@/lib/utils'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
@@ -179,6 +184,11 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
   const [savingOverride, setSavingOverride] = useState(false)
   const [title, setTitle] = useState(ep.title || '')
 
+  // Phase pipeline state
+  const [currentPhase, setCurrentPhase] = useState<string>(ep.phase || ep.status || 'draft')
+  const [takeCount, setTakeCount] = useState(0)
+  const [evaluatedCount, setEvaluatedCount] = useState(0)
+
   // Scoring state
   const [scoringScheme, setScoringScheme] = useState<ScoringSchemeInfo | null>(null)
   const [scoringBreakdown, setScoringBreakdown] = useState<FrameScoreBreakdown[]>([])
@@ -197,6 +207,28 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
     }
     loadThemes()
   }, [])
+
+  // Load take count for phase stepper
+  useEffect(() => {
+    const loadTakes = async () => {
+      try {
+        const list = await api()?.takesList({ episodeId: ep.id })
+        const arr = Array.isArray(list) ? list : []
+        setTakeCount(arr.length)
+        setEvaluatedCount(arr.filter((t: any) => t.status === 'evaluated').length)
+      } catch { /* optional */ }
+    }
+    loadTakes()
+  }, [ep.id])
+
+  const handlePhaseChange = (phase: string) => {
+    setCurrentPhase(phase)
+    onChanged()
+  }
+
+  const handlePhaseClick = (phase: string) => {
+    setCurrentPhase(phase)
+  }
 
   // Load scoring data when frames change
   useEffect(() => {
@@ -340,15 +372,62 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
           {ep.niche && <div className="mt-0.5 px-1 text-[11px] text-zinc-500">Niche · {ep.niche}</div>}
         </div>
         <div className="flex items-center gap-2">
-          <SelectInput className="w-44" value={themeId} onChange={(e) => setThemeId(e.target.value)}>
+          <SelectInput className="w-56" value={themeId} onChange={(e) => setThemeId(e.target.value)}>
             <option value="">Theme (optional)</option>
-            {themes.map((t) => <option key={t.id ?? t.name} value={t.id}>{t.name}</option>)}
+            {themes.some((t: any) => t.is_builtin) && (
+              <optgroup label="Built-in Themes">
+                {themes.filter((t: any) => t.is_builtin).map((t: any) => (
+                  <option key={t.id ?? t.name} value={t.id}>
+                    {t.name} — {t.font_display || t.accent_color || ''}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {themes.some((t: any) => !t.is_builtin) && (
+              <optgroup label="Custom Themes">
+                {themes.filter((t: any) => !t.is_builtin).map((t: any) => (
+                  <option key={t.id ?? t.name} value={t.id}>{t.name}</option>
+                ))}
+              </optgroup>
+            )}
           </SelectInput>
           <GhostButton onClick={applyTheme} disabled={!themeId}>
             <Sparkles size={13} /> Apply
           </GhostButton>
         </div>
       </div>
+
+      <PhaseStepper
+        currentPhase={currentPhase}
+        onPhaseClick={handlePhaseClick}
+        episodeStatus={ep.status}
+        gates={gates}
+        takeCount={takeCount}
+        evaluatedCount={evaluatedCount}
+      />
+
+      {/* Phase panels — shown when navigating via stepper */}
+      {currentPhase === 'idea' && (
+        <GreenLightPanel
+          episodeId={ep.id}
+          gates={gates}
+          onPhaseChange={handlePhaseChange}
+          validating={validating}
+          onValidate={validateBatch}
+        />
+      )}
+
+      {currentPhase === 'capture' && (
+        <CaptureView episodeId={ep.id} onPhaseChange={handlePhaseChange} />
+      )}
+
+      {currentPhase === 'assemble' && (
+        <AssembleView episodeId={ep.id} onPhaseChange={handlePhaseChange} />
+      )}
+
+      {currentPhase === 'learn' && (
+        <LearnView episodeId={ep.id} onPhaseChange={handlePhaseChange} />
+      )}
 
       <div className="flex items-center gap-1 border-b border-white/[0.06] pb-2">
         {TABS.map(({ id, label, Icon }) => (

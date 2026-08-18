@@ -4286,15 +4286,15 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
         )}
       </AnimatePresence>
 
-      {/* Terminal Workspace Modal */}
-        {workspaceProject && (
+      {/* Terminal Workspace Modal — only in DOM when open to avoid blocking sidebar/nav */}
+      <AnimatePresence>
+        {workspaceProject && isWorkspaceOpen && (
           <motion.div
-            initial={false}
-            animate={{
-              opacity: isWorkspaceOpen ? 1 : 0,
-              pointerEvents: isWorkspaceOpen ? 'auto' : 'none' as any,
-              transition: { duration: 0.2 },
-            }}
+            key="workspace-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
             className="fixed inset-0 bg-black z-[200] flex flex-col"
           >
             {/* Workspace Header */}
@@ -4383,6 +4383,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
           </motion.div>
         )}
+      </AnimatePresence>
     </PageShell>
   );
 }

@@ -38,7 +38,6 @@ interface AssembleViewProps {
 }
 
 export function AssembleView({ episodeId, onPhaseChange }: AssembleViewProps) {
-  console.log('%c[ContentEngine] Phase45 v1.0 loaded', 'color:#f5c518;font-weight:bold')
 
   const [cuts, setCuts] = useState<CutEntry[]>([])
   const [overlays, setOverlays] = useState<OverlayEntry[]>([])

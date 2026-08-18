@@ -308,3 +308,22 @@ Evidence: {{evidence}}
 Existing frameworks:
 {{frameworks}}
 ${JSON_ONLY}`;
+
+// ── Variable correlation (Phase 5) ──
+export const PROMPT_VARIABLE_CORRELATION = `You are a data analyst for short-form video content. Analyze which video variables drive performance metrics.
+
+For each variable, determine its correlation with views, saves, and completion rate. Compare high-performing vs low-performing videos.
+
+Return:
+{
+  "correlations": [
+    { "variable": "variable name", "insight": "what the data shows", "impact": "high|medium|low", "direction": "positive|negative" }
+  ],
+  "best_performer": { "title": "video title", "why": "what made it work" },
+  "worst_performer": { "title": "video title", "why": "what held it back" },
+  "recommendations": ["actionable recommendation 1", "actionable recommendation 2"]
+}
+
+Video data:
+{{videos}}
+${JSON_ONLY}`;

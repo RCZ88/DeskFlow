@@ -225,6 +225,12 @@ interface DeskflowAPI {
   onAiContextCaptured: (cb: (data: { count: number }) => void) => void;
   aiContextGetBrainLinks: (captureId: number) => Promise<{ episodes: Array<any>; entities: Array<any>; facts: Array<any>; signals: Array<any> }>;
   aiContextTopics: () => Promise<{ topics: Array<any> }>;
+  aiContextUpdate: (id: number, metadata: { nickname?: string; note?: string; tags?: string[]; group_id?: number | null; pinned?: boolean }) => Promise<{ ok: boolean }>;
+  aiContextGroups: () => Promise<{ groups: Array<{ id: number; name: string; color: string; created_at: number }> }>;
+  aiContextGroupCreate: (name: string, color?: string) => Promise<{ ok: boolean; id: number }>;
+  aiContextGroupRename: (id: number, name: string) => Promise<{ ok: boolean }>;
+  aiContextGroupDelete: (id: number) => Promise<{ ok: boolean }>;
+  extensionQueueCommand: (cmd: any) => Promise<{ ok: boolean }>;
 
   updateSessionSummary: (request: { sessionId: string; force?: boolean }) => Promise<{ success: boolean; skipped?: boolean; summary?: string; topic?: string; autoNamed?: boolean; reason?: string; error?: string }>;
   getRoutingCosts: () => Promise<{ today: any; week: any; month: any; total: any; byType: any[] }>;

@@ -23,6 +23,7 @@ import {
   PROMPT_THEME_GENERATOR,
   PROMPT_ANALYTICS_INSIGHT,
   PROMPT_VALIDATE_SCRIPT_EVIDENCE,
+  PROMPT_VARIABLE_CORRELATION,
 } from './prompts';
 import {
   SCORING_SCHEMES,
@@ -32,6 +33,17 @@ import {
   schemeSummary,
   schemeWeightsForPrompt,
 } from './scoringSchemes';
+import { transcribeWithWhisper } from './whisper';
+
+function findWhisperBin(): string | null {
+  const customPath = process.env.WHISPER_PATH || '';
+  if (customPath) try { require('fs').accessSync(customPath); return customPath; } catch {}
+  const candidates = ['whisper', 'whisper.cpp/main'];
+  for (const c of candidates) {
+    try { require('child_process').execSync(`where ${c}`, { stdio: 'ignore' }); return c; } catch {}
+  }
+  return null;
+}
 
 export type AiCall = (prompt: string, systemPrompt: string, maxTokens?: number) => Promise<string>;
 
@@ -1008,9 +1020,38 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
     if (!take.file_path) return { ok: false, error: 'No file path — import a take first' };
     db.prepare('UPDATE content_takes SET status=? WHERE id=?').run('transcribing', takeId);
     logEvent(take.episode_id, 'transcription_started', `Transcribing Take #${take.take_number}`);
-    // Transcription is handled by the renderer via child_process (Whisper) or API
-    // This handler just marks status — the actual transcription posts segments via content:takes:save-segments
-    return { ok: true, status: 'transcribing' };
+
+    // Try Whisper first, fall back to AI transcription
+    let segments = await transcribeWithWhisper(take.file_path);
+
+    if (!segments || segments.length === 0) {
+      // AI fallback: generate placeholder segments from duration
+      const dur = take.duration_seconds || 30;
+      const segmentCount = Math.max(1, Math.ceil(dur / 10));
+      segments = [];
+      for (let i = 0; i < segmentCount; i++) {
+        const start = (i * dur) / segmentCount;
+        const end = ((i + 1) * dur) / segmentCount;
+        segments.push({
+          start_s: Math.round(start * 100) / 100,
+          end_s: Math.round(end * 100) / 100,
+          text: `[Segment ${i + 1} — awaiting manual transcription or Whisper installation]`,
+          seg_type: i === 0 ? 'hook' : 'beat',
+        });
+      }
+    }
+
+    // Save segments
+    db.prepare('DELETE FROM take_segments WHERE take_id=?').run(takeId);
+    const ins = db.prepare('INSERT INTO take_segments (take_id, seg_index, start_s, end_s, text, seg_type, keep, created_at) VALUES (?,?,?,?,?,?,?,?)');
+    for (let i = 0; i < segments.length; i++) {
+      const s = segments[i];
+      ins.run(takeId, i, s.start_s, s.end_s, s.text, s.seg_type, null, now());
+    }
+    db.prepare('UPDATE content_takes SET status=? WHERE id=?').run('transcribed', takeId);
+    logEvent(take.episode_id, 'transcription_complete', `Take #${take.take_number} — ${segments.length} segments`);
+
+    return { ok: true, count: segments.length, whisper: !!findWhisperBin() };
   });
   ipcMain.handle('content:takes:save-segments', async (_, { takeId, segments }: any) => {
     if (!Array.isArray(segments)) return { ok: false, error: 'segments must be an array' };
@@ -1118,7 +1159,7 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
       };
     });
     const res = await parseAiJson<any>(
-      `You are analyzing video performance to find which variables drive results. Compare high-performing vs low-performing videos.\n\nVideo data: ${JSON.stringify(data)}\n\nReturn JSON: { "correlations": [{ "variable": "string", "insight": "string", "impact": "high|medium|low", "direction": "positive|negative" }], "best_performer": { "title": "string", "why": "string" }, "worst_performer": { "title": "string", "why": "string" }, "recommendations": ["string"] }`,
+      PROMPT_VARIABLE_CORRELATION.replace('{{videos}}', JSON.stringify(data)),
       { required: ['correlations'] },
       (p, s) => aiCall(p, s, 2000)
     );

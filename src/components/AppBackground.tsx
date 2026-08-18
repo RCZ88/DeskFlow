@@ -3,21 +3,22 @@ import { useLocation } from "react-router-dom";
 import { LivingSubstrate } from "./life-river/LivingSubstrate";
 import { LightRays } from "./ui/light-rays";
 import { AmbientGlow, DotPattern, GradientWash, MeshGradient, Vignette } from "./ui/ambient-patterns";
+import { PAGE_ORGANISM, type Organism } from "../lib/rd-presets";
 
 type Tier = "hero" | "standard" | "minimal";
-type AmbientType = "rd" | "dot" | "wash" | "mesh" | "none";
+type AmbientType = "dot" | "wash" | "mesh" | "none";
 
 const PAGE_CONFIG: Record<string, { tier: Tier; ambient: AmbientType }> = {
-  "/":         { tier: "hero",     ambient: "rd" },
+  "/":         { tier: "hero",     ambient: "none" },
   "/activity": { tier: "standard", ambient: "dot" },
-  "/ide":      { tier: "standard", ambient: "rd" },
-  "/life":     { tier: "hero",     ambient: "rd" },
+  "/ide":      { tier: "standard", ambient: "none" },
+  "/life":     { tier: "hero",     ambient: "none" },
   "/finance":  { tier: "standard", ambient: "wash" },
   "/external": { tier: "standard", ambient: "dot" },
   "/terminal": { tier: "minimal",  ambient: "none" },
   "/ai":       { tier: "standard", ambient: "mesh" },
   "/learn":    { tier: "standard", ambient: "wash" },
-  "/settings": { tier: "minimal",  ambient: "wash" },
+  "/settings": { tier: "minimal",  ambient: "none" },
   "/database": { tier: "minimal",  ambient: "dot" },
   "/reports":  { tier: "standard", ambient: "dot" },
   "/resume":   { tier: "standard", ambient: "wash" },
@@ -47,7 +48,8 @@ const PAGE_ACCENTS: Record<string, string> = {
 
 export function AppBackground({ pathname = "/" }: { pathname?: string }) {
   const [accent, setAccent] = useState(PAGE_ACCENTS[pathname] || "#fbbf24");
-  const config = PAGE_CONFIG[pathname] || { tier: "standard" as Tier, ambient: "wash" as AmbientType };
+  const config = PAGE_CONFIG[pathname] || { tier: "standard" as Tier, ambient: "none" as AmbientType };
+  const organism: Organism = PAGE_ORGANISM[pathname] ?? "coral";
 
   useEffect(() => {
     setAccent(PAGE_ACCENTS[pathname] || "#fbbf24");
@@ -60,29 +62,32 @@ export function AppBackground({ pathname = "/" }: { pathname?: string }) {
     return () => window.removeEventListener("substrate:accent", on);
   }, [pathname]);
 
-  const showSubstrate = config.ambient === "rd";
   const showRays = config.tier !== "minimal";
 
   return (
     <div className="fixed inset-0 z-[0] pointer-events-none overflow-hidden bg-[#09090b]">
-      {showSubstrate && (
-        <LivingSubstrate
-          accent={accent}
-          speed={TIER_CFG[config.tier].speed}
-          resolution={TIER_CFG[config.tier].resolution}
-          maxAlpha={TIER_CFG[config.tier].maxAlpha}
-        />
-      )}
+      {/* Layer 1: Living Substrate — ALWAYS present, tier scales effort/alpha */}
+      <LivingSubstrate
+        accent={accent}
+        organism={organism}
+        speed={TIER_CFG[config.tier].speed}
+        resolution={TIER_CFG[config.tier].resolution}
+        maxAlpha={TIER_CFG[config.tier].maxAlpha}
+      />
 
+      {/* Layer 2 */}
       <AmbientGlow />
 
+      {/* Layer 3 */}
       {showRays && <LightRays count={config.tier === "hero" ? 6 : 4} speed={config.tier === "hero" ? 18 : 12} />}
 
+      {/* Layer 4: additive texture overlays, never a replacement */}
       {config.ambient === "dot" && <DotPattern opacity={config.tier === "minimal" ? 0.02 : 0.04} />}
       {config.ambient === "wash" && <GradientWash />}
       {config.ambient === "mesh" && <MeshGradient />}
       {pathname === "/" && <DotPattern opacity={0.03} />}
 
+      {/* Layer 5 */}
       <Vignette />
     </div>
   );

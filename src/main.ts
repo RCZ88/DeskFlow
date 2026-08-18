@@ -2443,6 +2443,24 @@ function initializeStorage() {
         // Safe migration for existing databases
         try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN dedup_key TEXT`); } catch (_e) {}
 
+        // --- AI Context Groups & Metadata Migration ---
+        try {
+          db.exec(`CREATE TABLE IF NOT EXISTS ai_context_groups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            color TEXT DEFAULT '#71717a',
+            created_at INTEGER DEFAULT (unixepoch() * 1000)
+          );`);
+          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN nickname TEXT;`);
+          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN note TEXT;`);
+          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN tags TEXT;`);
+          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN group_id INTEGER;`);
+          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN pinned INTEGER DEFAULT 0;`);
+          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN is_manual INTEGER DEFAULT 0;`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_group ON ai_context_captures(group_id);`);
+          db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_pinned ON ai_context_captures(pinned DESC);`);
+        } catch (e) { console.warn('[DeskFlow] DB Migration partial/already applied:', e); }
+
         // Memory retrieval cache (per-thread recent context)
         db.exec(`
             CREATE TABLE IF NOT EXISTS ai_memory_context (
@@ -4807,6 +4825,8 @@ async function pollForeground() {
 let mainWindow = null;
 let tray = null;
 let startMinimized = false;
+// --- Extension Command Queue for Two-Way Loop ---
+let pendingExtensionCommands: any[] = [];
 function ensureWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) {
         createWindow();
@@ -7641,14 +7661,17 @@ electron_1.ipcMain.handle('get-browser-category-stats', (event, period = 'week',
 // ========== AI Context Captures (external AI conversations) ==========
 electron_1.ipcMain.handle('ai-context:list', (_event, opts: any = {}) => {
     try {
-        const { provider, search, limit = 50, offset = 0 } = opts || {};
+        const { provider, search, limit = 50, offset = 0, group_id, pinned, tag } = opts || {};
         let where = '1=1';
         const params: any[] = [];
         if (provider) { where += ' AND provider = ?'; params.push(provider); }
-        if (search) { where += ' AND (provider LIKE ? OR url LIKE ? OR title LIKE ? OR messages LIKE ?)'; const s = `%${search}%`; params.push(s, s, s, s); }
-        const rows = db.prepare(`SELECT * FROM ai_context_captures WHERE ${where} ORDER BY captured_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
+        if (group_id !== undefined) { where += ' AND group_id = ?'; params.push(group_id); }
+        if (pinned !== undefined) { where += ' AND pinned = ?'; params.push(pinned ? 1 : 0); }
+        if (tag) { where += ' AND tags LIKE ?'; params.push(`%${tag}%`); }
+        if (search) { where += ' AND (provider LIKE ? OR url LIKE ? OR title LIKE ? OR messages LIKE ? OR nickname LIKE ? OR note LIKE ? OR tags LIKE ?)'; const s = `%${search}%`; params.push(s, s, s, s, s, s, s); }
+        const rows = db.prepare(`SELECT * FROM ai_context_captures WHERE ${where} ORDER BY pinned DESC, captured_at DESC LIMIT ? OFFSET ?`).all(...params, limit, offset);
         const { total } = db.prepare(`SELECT COUNT(*) as total FROM ai_context_captures WHERE ${where}`).get(...params) as any;
-        return { captures: rows.map((r: any) => ({ ...r, messages: JSON.parse(r.messages || '[]') })), total };
+        return { captures: rows.map((r: any) => ({ ...r, messages: JSON.parse(r.messages || '[]'), tags: r.tags ? JSON.parse(r.tags) : [] })), total };
     } catch (err: any) {
         return { captures: [], total: 0 };
     }
@@ -7705,6 +7728,60 @@ electron_1.ipcMain.handle('ai-context:topics', () => {
         const topics = db.prepare("SELECT id, type, name, aliases, created_at FROM context_entities ORDER BY created_at DESC LIMIT 50").all();
         return { topics };
     } catch (err: any) { return { topics: [] }; }
+});
+
+// --- AI Context Organizer: update metadata ---
+electron_1.ipcMain.handle('ai-context:update', (_event, id: number, fields: any) => {
+    try {
+        const allowed = ['nickname', 'note', 'tags', 'group_id', 'pinned'];
+        const sets: string[] = [];
+        const vals: any[] = [];
+        for (const k of allowed) {
+            if (fields[k] !== undefined) {
+                sets.push(`${k} = ?`);
+                vals.push(k === 'tags' ? JSON.stringify(fields[k]) : fields[k]);
+            }
+        }
+        if (!sets.length) return { ok: false, error: 'No fields to update' };
+        vals.push(id);
+        db.prepare(`UPDATE ai_context_captures SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+        return { ok: true };
+    } catch (err: any) { return { ok: false, error: err?.message }; }
+});
+
+// --- AI Context Groups CRUD ---
+electron_1.ipcMain.handle('ai-context:groups', () => {
+    try {
+        const groups = db.prepare('SELECT * FROM ai_context_groups ORDER BY name').all();
+        return { groups };
+    } catch (err: any) { return { groups: [] }; }
+});
+electron_1.ipcMain.handle('ai-context:group-create', (_event, name: string, color?: string) => {
+    try {
+        const info = db.prepare('INSERT INTO ai_context_groups (name, color) VALUES (?, ?)').run(name, color || '#71717a');
+        return { ok: true, id: Number(info.lastInsertRowid) };
+    } catch (err: any) { return { ok: false, error: err?.message }; }
+});
+electron_1.ipcMain.handle('ai-context:group-rename', (_event, id: number, name: string) => {
+    try {
+        db.prepare('UPDATE ai_context_groups SET name = ? WHERE id = ?').run(name, id);
+        return { ok: true };
+    } catch (err: any) { return { ok: false, error: err?.message }; }
+});
+electron_1.ipcMain.handle('ai-context:group-delete', (_event, id: number) => {
+    try {
+        db.prepare('UPDATE ai_context_captures SET group_id = NULL WHERE group_id = ?').run(id);
+        db.prepare('DELETE FROM ai_context_groups WHERE id = ?').run(id);
+        return { ok: true };
+    } catch (err: any) { return { ok: false, error: err?.message }; }
+});
+
+// --- Extension Command Queue (two-way loop) ---
+electron_1.ipcMain.handle('extension:queue-command', (_event, command: any) => {
+    try {
+        pendingExtensionCommands.push({ ...command, queued_at: Date.now() });
+        return { ok: true };
+    } catch (err: any) { return { ok: false, error: err?.message }; }
 });
 
 electron_1.ipcMain.handle('get-available-browsers', async () => {
@@ -20230,8 +20307,8 @@ function startBrowserTrackingServer() {
                         return;
                     }
                     const stmt = db.prepare(`
-                        INSERT OR IGNORE INTO ai_context_captures (provider, messages, url, title, source, timestamp, dedup_key, captured_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT OR IGNORE INTO ai_context_captures (provider, messages, url, title, source, timestamp, dedup_key, captured_at, is_manual)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `);
                     let accepted = 0;
                     for (const cap of captures) {
@@ -20241,6 +20318,7 @@ function startBrowserTrackingServer() {
                             const dedupKey = cap.captureKey || `${cap.provider}:${cap.url}:${(cap.messages || []).length}`;
                             const existing = db.prepare('SELECT id FROM ai_context_captures WHERE dedup_key = ?').get(dedupKey);
                             if (existing) continue;
+                            const isManual = cap.source === 'manual' ? 1 : 0;
                             const info = stmt.run(
                                 cap.provider || 'unknown',
                                 messagesJson,
@@ -20249,7 +20327,8 @@ function startBrowserTrackingServer() {
                                 cap.source || 'fetch-intercept',
                                 cap.timestamp || new Date().toISOString(),
                                 dedupKey,
-                                Date.now()
+                                Date.now(),
+                                isManual
                             );
                             if (!info.changes) continue;
                             accepted++;
@@ -20280,6 +20359,11 @@ function startBrowserTrackingServer() {
                     res.end(JSON.stringify({ status: 'error', message: 'Invalid payload' }));
                 }
             });
+        }
+        else if (req.method === 'GET' && req.url === '/extension/poll') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(pendingExtensionCommands));
+            pendingExtensionCommands = [];
         }
         else if (req.method === 'GET' && req.url === '/health') {
             // Health check endpoint

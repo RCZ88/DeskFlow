@@ -701,6 +701,27 @@ async function flushAiContext() {
 }
 
 // ========================================
+// --- Two-Way Context Loop: Polling for Commands from Desktop App ---
+// ========================================
+
+setInterval(async () => {
+  try {
+    const r = await fetch(`${DESKFLOW_SERVER}/extension/poll`);
+    if (r.ok) {
+      const cmds = await r.json();
+      for (const cmd of cmds) {
+        if (cmd.type === 'INSERT_INTO_CHAT') {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab) {
+            chrome.tabs.sendMessage(tab.id, { type: 'DESKFLOW_INSERT_CONTEXT', text: cmd.text });
+          }
+        }
+      }
+    }
+  } catch (e) { /* Ignore polling errors if server is offline */ }
+}, 2000);
+
+// ========================================
 // --- Cleanup on service worker shutdown ---
 // ========================================
 

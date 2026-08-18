@@ -6,23 +6,25 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import simFragment from '../../shaders/rd-simulation.glsl?raw'
 import displayFragment from '../../shaders/rd-display.glsl?raw'
+import { RD_PRESETS, type Organism } from '../../lib/rd-presets'
 
-console.log('%c[LivingSubstrate] v2.0 loaded', 'color: #fbbf24; font-weight: bold')
+console.log('%c[LivingSubstrate] v3.0 loaded — organisms + morphing', 'color: #fbbf24; font-weight: bold')
 
 const SIM_VERTEX = /* glsl */ `
 varying vec2 v_uvs[9];
 uniform vec2 resolution;
 void main() {
-  vec2 texel = 1.0 / resolution;
-  v_uvs[0] = uv;
-  v_uvs[1] = uv + vec2(0.0, texel.y);
-  v_uvs[2] = uv + vec2(texel.x, 0.0);
-  v_uvs[3] = uv - vec2(0.0, texel.y);
-  v_uvs[4] = uv - vec2(texel.x, 0.0);
-  v_uvs[5] = uv + texel;
-  v_uvs[6] = uv + vec2(texel.x, -texel.y);
-  v_uvs[7] = uv - texel;
-  v_uvs[8] = uv + vec2(-texel.x, texel.y);
+  vec2 uv = position.xy * 0.5 + 0.5;
+  vec2 t = 1.0 / resolution;
+  v_uvs[0] = uv;                                   // center
+  v_uvs[1] = uv + vec2(0.0, -t.y);                 // top
+  v_uvs[2] = uv + vec2(t.x, 0.0);                  // right
+  v_uvs[3] = uv + vec2(0.0, t.y);                  // bottom
+  v_uvs[4] = uv + vec2(-t.x, 0.0);                 // left
+  v_uvs[5] = uv + vec2(t.x, -t.y);                 // top-right
+  v_uvs[6] = uv + vec2(t.x, t.y);                  // bottom-right
+  v_uvs[7] = uv + vec2(-t.x, t.y);                 // bottom-left
+  v_uvs[8] = uv + vec2(-t.x, -t.y);                // top-left
   gl_Position = vec4(position.xy, 0.0, 1.0);
 }
 `
@@ -95,22 +97,31 @@ function hexToRgb(hex: string): [number, number, number] {
 
 interface SubstrateSceneProps {
   accent: string
+  organism: Organism
   bufferSize: number
   simPasses: number
   maxAlpha: number
 }
 
-function SubstrateScene({ accent, bufferSize, simPasses, maxAlpha }: SubstrateSceneProps) {
+function SubstrateScene({ accent, organism, bufferSize, simPasses, maxAlpha }: SubstrateSceneProps) {
   const gl = useThree(s => s.gl)
   const viewport = useThree(s => s.viewport)
   const accentRgb = useMemo(() => hexToRgb(accent), [accent])
+  const targetRef = useRef(RD_PRESETS[organism])
+  const prevTime = useRef(0)
+
+  // Update target organism when prop changes (collapse-safe morph)
+  useEffect(() => {
+    targetRef.current = RD_PRESETS[organism]
+  }, [organism])
 
   const { simMaterial, displayMaterial, seedTexture, rtA, rtB, simScene, simMesh, simCamera } = useMemo(() => {
+    const init = RD_PRESETS[organism]
     const simMaterial = new THREE.ShaderMaterial({
       uniforms: {
         previousIterationTexture: { value: null as THREE.Texture | null },
-        f: { value: 0.058 },
-        k: { value: 0.065 },
+        f: { value: init.f },
+        k: { value: init.k },
         dA: { value: 1.0 },
         dB: { value: 0.5 },
         timestep: { value: 1.0 },
@@ -179,7 +190,7 @@ function SubstrateScene({ accent, bufferSize, simPasses, maxAlpha }: SubstrateSc
     }
   }, [rtA, rtB, seedTexture, simMaterial, displayMaterial, simMesh])
 
-  useFrame(() => {
+  useFrame(({ clock }) => {
     if (document.hidden) return
 
     if (!seeded.current) {
@@ -188,6 +199,14 @@ function SubstrateScene({ accent, bufferSize, simPasses, maxAlpha }: SubstrateSc
       gl.render(simScene, simCamera)
       seeded.current = true
     }
+
+    // Collapse-safe organism morphing — walk f/k, never teleport
+    const now = clock.getElapsedTime()
+    const dt = prevTime.current === 0 ? 0.016 : Math.min(now - prevTime.current, 0.1)
+    prevTime.current = now
+    const damp = 1 - Math.exp(-dt * 0.9) // ~3s walk between organisms
+    simMaterial.uniforms.f.value += (targetRef.current.f - simMaterial.uniforms.f.value) * damp
+    simMaterial.uniforms.k.value += (targetRef.current.k - simMaterial.uniforms.k.value) * damp
 
     // Ping-pong simulation passes
     for (let i = 0; i < simPasses; i++) {
@@ -228,6 +247,8 @@ function SubstrateCanvas(props: SubstrateSceneProps) {
 export interface LivingSubstrateProps {
   /** Accent hex color (e.g. '#8b5cf6'). Default '#fbbf24' (amber). */
   accent?: string
+  /** Organism preset name. Default 'coral'. */
+  organism?: Organism
   /** Simulation passes per frame. 1=calmer, 2=smoother. Default 1. */
   speed?: number
   /** Buffer resolution. 256 or 384. Default auto (384 on high-DPI). */
@@ -240,6 +261,7 @@ export interface LivingSubstrateProps {
 
 export function LivingSubstrate({
   accent = '#fbbf24',
+  organism = 'coral',
   speed = 1,
   resolution,
   maxAlpha = 0.20,
@@ -275,7 +297,7 @@ export function LivingSubstrate({
   return (
     <div className="absolute inset-0 z-0 pointer-events-none" aria-hidden="true">
       <SubstrateErrorBoundary>
-        <SubstrateCanvas accent={accent} bufferSize={bufferSize} simPasses={simPasses} maxAlpha={maxAlpha} />
+        <SubstrateCanvas accent={accent} organism={organism} bufferSize={bufferSize} simPasses={simPasses} maxAlpha={maxAlpha} />
       </SubstrateErrorBoundary>
     </div>
   )

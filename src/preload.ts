@@ -136,6 +136,12 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   onAiContextCaptured: (cb: (data: { count: number }) => void) => { ipcRenderer.on('ai-context-captured', (_e, data) => cb(data)); },
   aiContextGetBrainLinks: (captureId: number) => ipcRenderer.invoke('ai-context:get-brain-links', captureId),
   aiContextTopics: () => ipcRenderer.invoke('ai-context:topics'),
+  aiContextUpdate: (id: number, metadata: any) => ipcRenderer.invoke('ai-context:update', id, metadata),
+  aiContextGroups: () => ipcRenderer.invoke('ai-context:groups'),
+  aiContextGroupCreate: (name: string, color?: string) => ipcRenderer.invoke('ai-context:group-create', name, color),
+  aiContextGroupRename: (id: number, name: string) => ipcRenderer.invoke('ai-context:group-rename', id, name),
+  aiContextGroupDelete: (id: number) => ipcRenderer.invoke('ai-context:group-delete', id),
+  extensionQueueCommand: (cmd: any) => ipcRenderer.invoke('extension:queue-command', cmd),
 
   // Game detection - rescan Steam library
   rescanGames: () => ipcRenderer.invoke('rescan-games'),

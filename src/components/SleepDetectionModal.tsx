@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Moon, Bed, Sunrise, Clock, CheckCircle2, Sparkles, Sunset, LoaderCircle } from 'lucide-react';
 import { DurationPicker } from './DurationPicker';
-import { fillGapWithSegments, createId, type Gap, type GapSegment } from '@/lib/external/gaps';
 
 interface TimeState {
   hours: number;
@@ -91,7 +90,6 @@ export default function SleepDetectionModal({
         const slots = pred?.gaps?.[0]?.slots || [];
         let filledCount = 0;
         let cursor = new Date(g.start).getTime();
-        const segs: GapSegment[] = [];
         for (const slot of slots) {
           const top = slot.predictions?.[0];
           const act = top ? activities.find(a => a.name === top.app) : null;
@@ -126,7 +124,6 @@ export default function SleepDetectionModal({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-        onClick={handleDone}
       >
         <motion.div
           initial={{ scale: 0.92, opacity: 0, y: 10 }}
@@ -149,7 +146,9 @@ export default function SleepDetectionModal({
                 <div>
                   <h3 className="text-base font-semibold text-zinc-100">Sleep saved</h3>
                   <p className="text-xs text-zinc-500 mt-0.5">
-                    Untracked time around it can be filled
+                    {fillResults.length > 0
+                      ? 'Gaps filled with tracked activities'
+                      : 'Untracked time around it can be filled'}
                   </p>
                 </div>
               </div>
@@ -158,16 +157,54 @@ export default function SleepDetectionModal({
               </button>
             </div>
 
-            <p className="text-xs text-zinc-400 mb-4 leading-relaxed">
-              We noticed some untracked time before you fell asleep and after you woke up.
-              Want to fill it with external activities so your day looks complete?
-            </p>
+            {/* ── Fill progress ── */}
+            {autoFilling && fillProgress && (
+              <div className="mb-4 flex items-center gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-4 py-3">
+                <LoaderCircle className="h-4 w-4 animate-spin text-indigo-400 shrink-0" />
+                <span className="text-xs text-indigo-200">
+                  Filling gap {fillProgress.done + 1} of {fillProgress.total}…
+                </span>
+              </div>
+            )}
+
+            {/* ── Fill results ── */}
+            {fillResults.length > 0 && !autoFilling && (
+              <div className="mb-4 space-y-2">
+                {fillResults.map((r, i) => (
+                  <div key={i} className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-xs ${
+                    r.filled > 0
+                      ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
+                      : 'border border-amber-500/20 bg-amber-500/10 text-amber-200'
+                  }`}>
+                    {r.filled > 0 ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                    ) : (
+                      <Sparkles className="h-4 w-4 shrink-0 text-amber-400" />
+                    )}
+                    <span>
+                      {r.gap.relation === 'before' ? 'Before sleep' : 'After wake'}: {
+                        r.filled > 0
+                          ? `${r.filled} of ${r.total} slots filled`
+                          : 'No prediction available — fill manually from External page'
+                      }
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── Error ── */}
+            {fillError && (
+              <div className="mb-4 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">
+                {fillError}
+              </div>
+            )}
 
             {adjacentGaps.length === 0 ? (
               <div className="p-4 rounded-xl bg-zinc-800/40 border border-zinc-700/30 text-center text-sm text-zinc-400">
                 No untracked gaps found around this sleep period.
               </div>
-            ) : (
+            ) : fillResults.length === 0 && !autoFilling ? (
               <div className="flex flex-col gap-2 mb-5">
                 {adjacentGaps.map((g) => (
                   <div key={g.start} className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/40 border border-zinc-700/30">
@@ -192,7 +229,7 @@ export default function SleepDetectionModal({
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
 
             {/* ── Action buttons ── */}
             <div className="flex gap-3">
@@ -200,15 +237,22 @@ export default function SleepDetectionModal({
                 onClick={handleDone}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm text-zinc-400 hover:text-zinc-200 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-700/30 transition-colors"
               >
-                Done
+                {fillResults.length > 0 ? 'Done' : 'Skip'}
               </button>
-              <button
-                onClick={handleOpenGapFill}
-                disabled={adjacentGaps.length === 0}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20"
-              >
-                Fill gaps
-              </button>
+              {fillResults.length === 0 && (
+                <button
+                  onClick={handleAutoFill}
+                  disabled={adjacentGaps.length === 0 || autoFilling}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20"
+                >
+                  {autoFilling ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" />
+                  )}
+                  {autoFilling ? 'Filling…' : 'Fill gaps'}
+                </button>
+              )}
             </div>
           </div>
         </motion.div>
