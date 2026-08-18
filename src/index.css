@@ -191,23 +191,18 @@ input:focus, textarea:focus, select:focus, [contenteditable]:focus {
   );
 }
 
-/* ===== Cross-App Design System — Glass Standard ===== */
-.glass-card {
+/* ===== Cross-App Design System — Glass Standard (df-prefixed) ===== */
+.df-glass {
   background: rgb(24 24 27 / 0.75);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   border: 1px solid rgb(39 39 42 / 0.5);
   border-radius: 0.75rem;
   padding: 1.25rem;
-  transition: transform 0.2s ease, border-color 0.2s ease;
-}
-.glass-card:hover {
-  transform: translateY(-2px);
-  border-color: rgb(63 63 70 / 0.5);
 }
 
 /* ===== Cross-App Design System — Typography Accent ===== */
-.page-title {
+.df-page-title {
   font-family: var(--font-serif);
   font-size: 1.5rem;
   font-weight: 700;
@@ -219,16 +214,14 @@ input:focus, textarea:focus, select:focus, [contenteditable]:focus {
 }
 
 /* ===== Cross-App Design System — Mesh Animation ===== */
-@keyframes mesh-shift {
+@keyframes df-mesh-shift {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
 }
-.animate-mesh-shift {
-  animation: mesh-shift 20s ease infinite;
+.df-animate-mesh {
+  animation: df-mesh-shift 20s ease infinite;
 }
 
-/* ===== Cross-App Design System — Reduced Motion ===== */
 @media (prefers-reduced-motion: reduce) {
-  .glass-card:hover { transform: none; }
-  .animate-mesh-shift { animation: none; }
+  .df-animate-mesh { animation: none; }
 }
