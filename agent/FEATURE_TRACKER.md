@@ -2,7 +2,31 @@
 
 **Purpose:** Complete inventory of every page and feature in DeskFlow app.
 
-**Last Updated:** 2026-08-18
+**Last Updated:** 2026-08-22
+
+## 2026-08-22 — Context System Full Fix (PLANNED)
+- **User demand:** Context system is completely broken. Every subsystem has identifiable bugs.
+- **Spec:** gent/docs/generate-prompt-docs/context-system-fix-22082026/PROMPT.md
+- **Bugs found:** memoryRetrieval empty threadDate, agent_memories 0 rows, entity extraction 46/47 failed, budget starvation, ContextService.ts dead code, state.md not injected, episode writers skip extraction, brain retrieval returns nothing for generic topics
+- **Being built:** 8 tasks (A-H) fixing all broken subsystems
+- **Status:** PLANNED
+
+## 2026-08-22 — Cross-Session Context Awareness (PLANNED)
+- **User demand:** Sessions blind to each other. /sync manual. No auto-injection. No real-time activity stream.
+- **Spec:** gent/docs/generate-prompt-docs/cross-session-context-22082026/PROMPT.md
+- **What exists:** /sync command, context-changed events, file conflict detection, touched files, crossSessionSyncEnabled toggle
+- **Being built:** Auto-injection in assemble-context, real-time activity stream, auto-sync on session start, SessionActivityFeed UI, message history sharing, ContextSidebar toggle
+- **Status:** PLANNED
+
+## 2026-08-22 — Per-Page Context System (IMPLEMENTED)
+- **Spec:** gent/docs/generate-prompt-docs/page-context-system-22082026/PROMPT.md
+- **Built:** pageContextRegistry.ts, assemble-context page block, get-page-context + notify-page-change IPC, App.tsx page detection, TerminalPage listener, ContextSidebar page tab, system prompt extension
+- **Status:** IMPLEMENTED — all builds pass
+
+## 2026-08-22 — Auto-Assign Session Routing (ALREADY EXISTS)
+- **Status:** FULLY IMPLEMENTED in codebase (route-prompt, RoutingToast, RoutingDisambiguationDialog, Configs tab)
+
+## 2026-08-18 — AI Chat Organizer & Context Loop via extension (PENDING)
 
 ## 2026-08-18 â€” AI Chat Organizer & Context Loop via extension (opencode-term-1-aivault, PENDING external AI RESULT.md)
 - **User demand (verbatim transcript, voice):** many AI tools, messy; "can't modify AI tools internally" â†’ build the organization layer in the extension instead; auto-capture has limits â†’ manual capture (paste link / save current chat); sessions taggable by roles/groups with notes/nicknames so chats are findable without memorizing titles/links or scrolling huge prompts; want to see contents (current title-only viewer insufficient); context management + visualization; two-way context transfer: app â†” extension â†” external AI â€” copy captured content back INTO the AI chat itself (e.g. "remember this" / context injection into the chat input)

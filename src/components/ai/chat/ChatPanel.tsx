@@ -20,6 +20,7 @@ export interface ChatPanelProps {
   messages: ChatMessage[]
   streaming?: boolean
   thinking?: boolean
+  connecting?: boolean
   agentSteps?: AgentStep[]
   agentStatus?: string
   suggestions?: ChatSuggestion[]
@@ -53,6 +54,7 @@ export function ChatPanel({
   messages,
   streaming,
   thinking,
+  connecting,
   agentSteps,
   agentStatus,
   suggestions,
@@ -99,7 +101,18 @@ export function ChatPanel({
   useEffect(() => {
     const el = scrollRef.current
     if (el && pinnedRef.current) el.scrollTop = el.scrollHeight
-  }, [messages, thinking, streaming])
+  }, [messages, thinking, streaming, connecting])
+
+  // Auto-scroll during TypewriterText growth (MutationObserver)
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const observer = new MutationObserver(() => {
+      if (pinnedRef.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(el, { childList: true, subtree: true, characterData: true })
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div className="dk-chat-inner">
@@ -176,7 +189,7 @@ export function ChatPanel({
             />
           ))
         )}
-        {thinking ? <ThinkingIndicator /> : null}
+        {thinking ? <ThinkingIndicator variant="thinking" /> : connecting ? <ThinkingIndicator variant="connecting" /> : null}
       </div>
 
       {/* Memory Chips (NEW) */}

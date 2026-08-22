@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook, BarChart3, DatabaseBackup } from 'lucide-react';
+import { Plus, X, Monitor, Play, Trash2, Clock, FolderOpen, Zap, Settings, Settings2, PanelLeftClose, PanelLeft, GripVertical, Info, PieChart, AlertCircle, FileText, Send, Folder, Link, Terminal as TerminalIcon, Bug, Sparkles, Search, Eye, MoreHorizontal, RefreshCw, CheckCircle2, ChevronLeft, Database, Palette, ListChecks, BookOpen, DollarSign, Loader2, Edit, AlertTriangle, Lock, Save, MessageSquare, Smartphone, Cpu, ChevronDown, Activity, Bot, GitBranch, Shield, Coins, Network, SwatchBook, BarChart3, DatabaseBackup, Brain } from 'lucide-react';
 import { AnomalyBadge } from '../components/AnomalyBadge';
 import type { PaneNode } from '../components/TerminalWindow';
 import { TerminalLayout, insertIntoLayout, getLeafIds, getGroupTrees, updateGroupTree } from '../components/TerminalWindow';
@@ -17,6 +17,7 @@ import { BugReportPanel } from '../components/BugReportPanel';
 import InitializeProgressModal from '../components/InitializeProgressModal';
 import ContextSidebar from '../components/ContextSidebar';
 import { CodeArchitectureMap } from '../components/workspace/CodeArchitectureMap';
+import { BrainManagementView } from '../features/warmth/context-brain/BrainManagementView';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { DEFAULT_SYSTEM_PROMPT, getDefaultAgent } from '../lib/defaults';
 import { stripAnsi } from '../lib/stripAnsi';
@@ -4080,6 +4081,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             {activeGroup === 'context' && (
               <WorkspaceShell accent="amber" tabs={[
                 { key: 'context', icon: Settings2, label: 'Context' },
+                { key: 'context-brain', icon: Brain, label: 'Brain' },
                 { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
                 { key: 'context-map', icon: Network, label: 'Architecture Map' },
               ]} storageKey="context" render={(sub) => {
@@ -4090,6 +4092,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                         projectId={selectedProject || propProjectId || undefined}
                         projectPath={propProjectPath}
                       />
+                    </GroupPanel>
+                  );
+                  case 'context-brain': return (
+                    <GroupPanel accent="violet">
+                      <BrainManagementView />
                     </GroupPanel>
                   );
                   case 'context-maintenance': return (
@@ -4117,6 +4124,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               mode={newSessionMode}
               defaultName={openCodeSessionName || undefined}
               projectId={propProjectId || selectedProject || undefined}
+              projectPath={propProjectPath || projects.find(p => p.id === selectedProject)?.path || ''}
+              terminalTabs={terminalTabs}
+              defaultAgent={newSessionAgent || 'claude'}
+              initialTerminalMode={newSessionTerminalMode}
+              initialSelectedTerminal={newSessionSelectedTerminal || undefined}
               onClose={() => { setShowNewSessionDialog(false); setNewSessionSelectedTerminal(''); }}
               onCreate={async (config: SessionConfig) => {
                 const proj = projects.find(p => p.id === selectedProject);
@@ -4158,8 +4170,20 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                     initContent += `\n## Context: Requests\n${ctx}\n`;
                   }
                 }
-                // ═══ BRAIN + MEMORY CONTEXT ASSEMBLY ═══
-                // Append context Brain + memory retrieval to init content before agent launch
+                // ═══ CONTEXT ASSEMBLY ═══
+                // 1. Renderer-side context (state.md, MEMORY.md, knowledge systems)
+                if (!config.resumeId && selectedProject && sessionName.length > 1) {
+                  try {
+                    const { assembleContext: rendererAssemble } = await import('../services/ContextService');
+                    const rendererContext = await rendererAssemble(selectedProject, {} as any, { topic: sessionName, tokenBudget: 2000 });
+                    if (rendererContext && rendererContext.trim().length > 0) {
+                      initContent += `\n\n${rendererContext}`;
+                    }
+                  } catch (e) {
+                    console.warn('[NewSession] ContextService assembly failed (non-fatal):', e);
+                  }
+                }
+                // 2. Backend context (brain, memory, problems, requests, page, cross-session)
                 if (!config.resumeId && selectedProject && sessionName.length > 1) {
                   try {
                     const assembled = await (window.deskflowAPI as any).assembleContext?.({
@@ -4168,13 +4192,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                       topic: sessionName,
                       problemIds: config.problemIds,
                       requestIds: config.requestIds,
-                      tokenBudget: 2000,
+                      tokenBudget: 4000,
                     });
                     if (assembled && typeof assembled === 'string' && assembled.trim()) {
                       initContent += `\n\n${assembled}`;
                     }
                   } catch (e) {
-                    console.warn('[NewSession] Context assembly failed (non-fatal):', e);
+                    console.warn('[NewSession] Backend context assembly failed (non-fatal):', e);
                   }
                 }
 
@@ -4284,9 +4308,6 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
               }}
               problems={allProblems}
               requests={allRequests}
-              projectPath={propProjectPath || ''}
-              terminalTabs={terminalTabs}
-              defaultAgent={localStorage.getItem('terminal-defaultAgent') || 'claude'}
             />
 
             {showImportSessionsDialog && (

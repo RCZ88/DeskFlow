@@ -56,6 +56,19 @@ Whenever the user says "create a prompt" or "write a prompt", you MUST load the 
 - `agent/state.md` — Update version, recent changes, known issues
 - `agent/data.md` — Update if IPC endpoints or DB schemas changed
 
+## CRITICAL RULE: Design System Context (MANDATORY for all UI work)
+
+**Before writing ANY UI code**, load the backandfourth collaboration package at `agent/docs/backandfourth-docs/tugo-signature-motion/`. This contains:
+- INITIAL_PROMPT.md — the design brief with embedded source code
+- CONTEXT_BUNDLE.md — full codebase reference (AppBackground, ambient patterns, LivingSubstrate, tokens)
+- The 10 motion mechanics visual vocabulary (Morphogen, Adjacent, Overpass, Nearside, Freeboard, Headway, Foreshock, Quorum, Harmonic, Deident) in `agent/docs/motion_site_mechanics_10/`
+
+**The motion mechanics are a vocabulary with semantic meaning** — read the HTML files directly for algorithm details, canvas sizes, and physics parameters.
+
+**Design rule:** Every visual mechanic MUST map to the page's information type. Never use a mechanic just because it looks cool.
+
+**This project is called RHEO — never TURGO.**
+
 ## CRITICAL RULE: Avoid Subagent Fragmentation
 
 **NEVER use subagents/task agents** to search for information that already exists in `agent/*.md` files (especially `FEATURE_TRACKER.md`, `dictionary.md`, `data.md`, `state.md`, `context.md`). These files are the canonical reference. Using subagents for file search wastes tokens and causes context fragmentation. Read the markdown files directly.
@@ -143,4 +156,4 @@ The `vscode-extension/` folder at the repo root is the DeskFlow Activity Tracker
 3. `npm run compile`
 4. Press **F5** in VS Code to test, or package with `npx @vscode/vsce package` and install the `.vsix` (Extensions ? ... ? Install from VSIX...).
 
-The capture server runs even when browser tracking is disabled � only website (`/browser-data`) ingestion is gated by the browser-tracking pref.
+The capture server runs even when browser tracking is disabled � only website (`/browser-data`) ingestion is gated by the browser-tracking pref.

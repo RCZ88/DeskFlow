@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OVERPASS — Orbital Ground Track</title>
+<style>
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#0B0B0C;color:#fff;font-family:Arial,sans-serif}nav{height:62px;border-bottom:1px solid #2a2a2c;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font:11px monospace;letter-spacing:.08em;text-transform:uppercase;position:relative;z-index:4}.links{display:flex;gap:25px}
+.hero{height:100vh;position:relative;overflow:hidden;border-bottom:1px solid #2a2a2c}.copy{position:absolute;left:6vw;top:18vh;z-index:2;width:440px}.kicker{font:10px monospace;letter-spacing:.1em;color:#aaa;margin-bottom:24px}h1{font:clamp(45px,6vw,88px)/.92 Arial,sans-serif;font-stretch:condensed;letter-spacing:-.06em;margin:0 0 24px}.sub{font-size:15px;line-height:1.55;color:#ccc}.cta{display:flex;gap:28px;margin-top:30px;font:11px monospace;text-transform:uppercase}.cta a{color:#fff;text-decoration:underline;text-underline-offset:5px}.hero canvas{position:absolute;inset:0;width:100%;height:100%}.telemetry{position:absolute;bottom:20px;left:6vw;font:10px monospace;color:#aaa;z-index:2}
+.section{min-height:80vh;border-bottom:1px solid #2a2a2c;padding:70px 6vw;position:relative}.section h2{font:11px monospace;letter-spacing:.12em;text-transform:uppercase;color:#aaa;margin:0 0 38px}.section h3{font:40px Arial;font-weight:400;letter-spacing:-.04em;margin:0 0 25px}.stats{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid #444}.stat{padding:25px 18px;border-right:1px solid #444}.stat:last-child{border:0}.stat strong{font:55px Georgia,serif}.stat span{display:block;color:#aaa;font:12px monospace;margin-top:10px}.steps{max-width:800px}.step{display:grid;grid-template-columns:70px 1fr;padding:20px 0;border-bottom:1px solid #333;font-family:monospace}.pricing{width:100%;border-collapse:collapse}.pricing td{padding:17px 8px;border-bottom:1px solid #333;font:13px monospace}.pricing td:nth-child(2){text-align:right}.faq{max-width:800px}.faq button{width:100%;background:none;color:#fff;border:0;border-bottom:1px solid #333;padding:20px 0;text-align:left;font:14px Arial;cursor:pointer}.answer{display:none;color:#aaa;padding:0 0 18px;line-height:1.5}.minimap{position:fixed;right:25px;top:110px;width:120px;height:120px;border:1px solid #444;z-index:5;opacity:0;pointer-events:none}.minimap canvas{width:100%;height:100%}
+footer{min-height:30vh;padding:50px 6vw;display:flex;justify-content:space-between;font:10px monospace;color:#aaa}
+@media(max-width:800px){.copy{left:7vw;top:14vh;width:75vw}.stats{grid-template-columns:1fr}.stat{border-right:0;border-bottom:1px solid #444}.links{display:none}}
+</style>
+</head>
+<body>
+<nav><strong>OVERPASS</strong><div class="links"><span>Coverage</span><span>Latency</span><span>Docs</span><span>Pricing</span></div><span>Request a pass</span></nav>
+<div class="minimap"><canvas id="mini"></canvas></div>
+<section class="hero"><canvas id="globe"></canvas><div class="copy"><div class="kicker">4 SATELLITES IN PLANE — NEXT PASS IN 00:41:12</div><h1>NOTHING ON EARTH GOES UNOBSERVED FOR LONG</h1><p class="sub">Sub-metre imagery of any coordinate on a published overpass schedule. Query by latitude and longitude, not by archive.</p><div class="cta"><a>Request a pass</a><a>Read the docs</a></div></div><div class="telemetry">ORBIT 04 · ALT 525 KM · GSD 0.9M · TASKING ONLINE</div></section>
+<section class="section" id="coverage"><h2>Coverage</h2><h3>Revisit, not luck.</h3><div class="stats"><div class="stat"><strong>11</strong><span>revisits/day at mid-latitudes</span></div><div class="stat"><strong>0.9m</strong><span>native GSD</span></div><div class="stat"><strong>6 min</strong><span>tasking confirmation</span></div></div><p style="max-width:700px;color:#aaa;line-height:1.6">Most providers sell you their archive and hope your date is in it. We sell you a future pass.</p></section>
+<section class="section"><h2>How it works</h2><div class="steps"><div class="step"><b>01</b><span>POST a coordinate and a window.</span></div><div class="step"><b>02</b><span>We schedule against the ephemeris.</span></div><div class="step"><b>03</b><span>Imagery lands in your bucket, georeferenced.</span></div></div></section>
+<section class="section"><h2>Pricing</h2><table class="pricing"><tr><td>SCOUT</td><td>$0</td><td>10 archive pulls/month, no tasking</td></tr><tr><td>OPERATOR</td><td>$2,400/mo</td><td>200 tasked passes, 6-hour delivery</td></tr><tr><td>CONSTELLATION</td><td>CUSTOM</td><td>Dedicated capacity, priority in-plane tasking</td></tr></table><p style="color:#777;font:11px monospace">No credit for cloud cover above 40%. We don't charge for pictures of weather.</p></section>
+<section class="section"><h2>FAQ</h2><div class="faq"><button>Can you image a moving target? +</button><div class="answer">Tasking depends on revisit geometry and target motion.</div><button>What happens if the pass is clouded out? +</button><div class="answer">The task can be rescheduled under the applicable coverage policy.</div><button>Do you own the satellites? +</button><div class="answer">Yes. Four of them.</div><button>Who is not allowed to buy this? +</button><div class="answer">Restricted use cases are screened before tasking.</div></div></section>
+<footer><span>Office: 42.3601° N, 71.0589° W</span><span>EST. 2023 · LICENSED REMOTE SENSING OPERATOR</span></footer>
+<script>
+const c=document.getElementById('globe'),x=c.getContext('2d'),mini=document.getElementById('mini'),mx=mini.getContext('2d');let tracks=[],orbit=0,started=performance.now();
+function resize(){c.width=innerWidth;c.height=innerHeight;mini.width=120;mini.height=120}addEventListener('resize',resize);resize();
+function project(lat,lon,R,cx,cy){let la=lat*Math.PI/180,lo=lon*Math.PI/180;let X=R*Math.cos(la)*Math.sin(lo),Y=R*Math.sin(la),Z=R*Math.cos(la)*Math.cos(lo);return [cx+X,cy-Y,Z]}
+function drawGlobe(ctx,w,h,small=false){
+ctx.clearRect(0,0,w,h);let cx=w/2+(small?0:w*.12),cy=h/2,R=Math.min(w,h)*.31;
+ctx.strokeStyle='#2A2A2C';ctx.lineWidth=small?.45:.5;
+for(let lat=-75;lat<=75;lat+=15){ctx.beginPath();for(let lon=-180;lon<=180;lon+=4){let p=project(lat,lon,R,cx,cy);if(p[2]>0)ctx.lineTo(p[0],p[1]);else ctx.moveTo(p[0],p[1])}ctx.stroke()}
+for(let lon=-180;lon<180;lon+=15){ctx.beginPath();for(let lat=-90;lat<=90;lat+=3){let p=project(lat,lon,R,cx,cy);if(p[2]>0)ctx.lineTo(p[0],p[1]);else ctx.moveTo(p[0],p[1])}ctx.stroke()}
+ctx.strokeStyle='#fff';ctx.lineWidth=small?1:1.5;
+for(let k=0;k<tracks.length;k++){ctx.globalAlpha=k===0?1:.2;ctx.beginPath();for(let t=0;t<=360;t+=2){let lat=35*Math.sin((t+tracks[k])/180*Math.PI),lon=(t+tracks[k])*2-180;let p=project(lat,lon,R,cx,cy);if(p[2]>0)ctx.lineTo(p[0],p[1])}ctx.stroke()}ctx.globalAlpha=1;
+let lat=35*Math.sin(orbit),lon=(orbit*180/Math.PI*2)%360-180,p=project(lat,lon,R,cx,cy);ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(p[0],p[1],small?1.5:3,0,Math.PI*2);ctx.fill()
+}
+function loop(t){if(t-started>18000){tracks.unshift(orbit*180/Math.PI*2);tracks=tracks.slice(0,5);started=t}orbit=(t%18000)/18000*Math.PI*2;drawGlobe(x,c.width,c.height);drawGlobe(mx,120,120,true);requestAnimationFrame(loop)}requestAnimationFrame(loop);
+const mm=document.querySelector('.minimap');addEventListener('scroll',()=>{let y=scrollY;mm.style.opacity=y>innerHeight*.75&&y<innerHeight*3.5?'1':'0'});document.querySelectorAll('.faq button').forEach(b=>b.onclick=()=>{let a=b.nextElementSibling;a.style.display=a.style.display==='block'?'none':'block'});
+</script>
+</body></html>

@@ -24,7 +24,11 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	const [ftPersons, setFtPersons] = useState<{ id: number; name: string; email?: string | null; phone?: string | null }[]>(props.ftPersons ?? [])
 	const [fee, setFee] = useState('')
 	const [merchant, setMerchant] = useState('')
+	const [merchantId, setMerchantId] = useState<number | null>(null)
+	const [merchants, setMerchants] = useState<{id: number; name: string; account_id?: number | null}[]>([])
 	const [isAdjustment, setIsAdjustment] = useState(false)
+
+	useEffect(() => { (window as any).deskflowAPI?.financeGetMerchants?.().then((m: any[]) => setMerchants(m || [])).catch(() => {}) }, [])
 	const [usePersonBalance, setUsePersonBalance] = useState(false)
 
 	useEffect(() => {
@@ -44,7 +48,7 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
 	}, [categoriesForType, categoryId])
 
 	const reset = useCallback(() => {
-		setAmount(''); setDescription(''); setNote(''); setShowAdvanced(false); setFee(''); setMerchant(''); setFtPersonId(null); setIsAdjustment(false)
+		setAmount(''); setDescription(''); setNote(''); setShowAdvanced(false); setFee(''); setMerchant(''); setMerchantId(null); setFtPersonId(null); setIsAdjustment(false)
 	}, [])
 
 	const persistPrefs = useCallback(() => {
@@ -64,6 +68,7 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
     amount: type === 'expense' ? -numericAmount : numericAmount,
     description: description.trim(),
     merchant: merchant.trim() || undefined,
+    merchant_id: merchantId,
     date,
     note: note.trim() || undefined,
     on_behalf_of: onBehalfOf ? 1 : 0,
@@ -73,11 +78,11 @@ export function useTransactionForm(props: TxModalProps, allowedTypes: TxType[]) 
     fee: numericFee,
     is_adjustment: isAdjustment ? 1 : 0,
     ...extra,
-  }), [props.wallet, categoryId, type, numericAmount, description, merchant, date, note, onBehalfOf, ftPersonId, ftLabel, numericFee, isAdjustment])
+  }), [props.wallet, categoryId, type, numericAmount, description, merchant, merchantId, date, note, onBehalfOf, ftPersonId, ftLabel, numericFee, isAdjustment])
 
 	return {
 		type, setType, amount, setAmount, numericAmount,
-		description, setDescription, merchant, setMerchant, categoryId, setCategoryId,
+		description, setDescription, 		merchant, setMerchant, merchantId, setMerchantId, merchants, categoryId, setCategoryId,
 		date, setDate, note, setNote, showAdvanced, setShowAdvanced,
 		onBehalfOf, setOnBehalfOf, ftPersonId, setFtPersonId, ftPersons, setFtPersons,
 		fee, setFee, numericFee,

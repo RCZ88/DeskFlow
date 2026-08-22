@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DEIDENT</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#fff;color:#111;font-family:Arial,sans-serif}nav{height:60px;border-bottom:1px solid;padding:0 28px;display:flex;justify-content:space-between;align-items:center;font:11px monospace}.hero{min-height:100vh;display:grid;grid-template-columns:40% 60%;position:relative}.copy{padding:15vh 5vw}.copy h1{font:clamp(45px,6vw,80px)/.9 Arial;font-weight:700;letter-spacing:-.06em;margin:25px 0}.copy p{line-height:1.5}.doc{padding:12vh 5vw;border-left:1px solid;position:relative;font:13px/1.5 Georgia,serif}.doc p{margin:0 0 14px}.redact{position:absolute;background:#111;height:18px;transform-origin:left center;animation:bar .18s linear forwards}.section{min-height:70vh;padding:70px 6vw;border-top:1px solid}.box{border:1px solid;padding:30px;max-width:800px}.faq button{display:block;width:100%;padding:18px 0;background:none;border:0;border-bottom:1px solid;text-align:left}.ans{display:none;padding-bottom:18px}footer{height:25vh;padding:60px;border-top:1px}@keyframes bar{from{transform:scaleX(0)}to{transform:scaleX(1)}}@media(max-width:800px){.hero{grid-template-columns:1fr}.doc{border-left:0;border-top:1px solid}}
+</style></head><body>
+<nav><b>DEIDENT</b><span>Detection / Deployment / Compliance / Pricing</span><span>Scan a sample</span></nav>
+<section class="hero"><div class="copy"><div style="font:10px monospace">RUNS IN YOUR VPC. WE NEVER SEE YOUR DATA.</div><h1>The safest dataset is the one nobody can be identified in.</h1><p>Names, dates, MRNs and free-text tells masked inside your own network.</p></div><div class="doc" id="doc">
+<p>Patient record 18472 was reviewed by Maria Santos on 12/03/2026. The MRN is 00482191. Follow-up at 14:30 with the cardiology team.</p>
+<p>Customer: Daniel Wong. Date of birth: 17/08/1989. Account number 771402. Notes indicate a transfer from Bandung.</p>
+<p>Contact Alice Chen if the document requires additional review. The appointment date is 22/09/2026.</p>
+</div></section>
+<section class="section"><h2>Detection</h2><div class="box">[NAME] · [DOB] · [MRN] · [LOCATION] · [DATE]</div></section>
+<section class="section"><h2>Deployment</h2><div class="box">YOUR VPC<br><br>Docker · Kubernetes · Static binary</div></section>
+<section class="section"><h2>Compliance</h2><p>HIPAA Safe Harbor · GDPR pseudonymisation · signed attestation.</p></section>
+<section class="section"><h2>FAQ</h2><div class="faq"><button>Can masked data be re-identified? +</button><div class="ans">Read the attack paper and failure modes.</div></div></section><footer>SECURITY CONTACT · PGP FINGERPRINT</footer>
+<script>
+const doc=document.getElementById('doc'),phrases=[...doc.querySelectorAll('p')];function addBar(){let p=phrases[Math.floor(Math.random()*phrases.length)],r=document.createRange();let text=p.firstChild;if(!text||!text.length)return;let start=Math.floor(Math.random()*Math.max(1,text.length-8)),len=Math.min(14,text.length-start);r.setStart(text,start);r.setEnd(text,start+len);let q=r.getBoundingClientRect(),d=doc.getBoundingClientRect(),b=document.createElement('i');b.className='redact';b.style.left=(q.left-d.left)+'px';b.style.top=(q.top-d.top)+'px';b.style.width=q.width+'px';doc.appendChild(b);setTimeout(()=>b.remove(),7000)}setInterval(addBar,700);
+document.querySelectorAll('.faq button').forEach(b=>b.onclick=()=>{let a=b.nextElementSibling;a.style.display=a.style.display==='block'?'none':'block'});
+</script></body></html>

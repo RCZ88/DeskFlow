@@ -103,6 +103,59 @@ function GenerationProgress({ phase }: { phase: number }) {
   );
 }
 
+function PriorKnowledgePreview({ topic }: { topic: string }) {
+  const [entries, setEntries] = useState<{ statement: string; level?: string; topic?: string }[]>([]);
+  const api = (window as any).deskflowAPI;
+
+  useEffect(() => {
+    if (!topic || topic.length < 10) { setEntries([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.learnGetProfile({ key: 'lyceum.learnerProfile.v1' });
+        if (res?.ok && res.value) {
+          const profile = JSON.parse(res.value);
+          const kb = profile.knowledgeBase ?? [];
+          const tokens = topic.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+          const matched = kb.filter((e: any) => {
+            const text = `${e.statement} ${e.topic || ''} ${(e.keywords || []).join(' ')}`.toLowerCase();
+            return tokens.some((t: string) => text.includes(t));
+          }).slice(0, 5);
+          if (!cancelled) setEntries(matched);
+        }
+      } catch { if (!cancelled) setEntries([]); }
+    })();
+    return () => { cancelled = true; };
+  }, [topic]);
+
+  if (topic.length < 10) return null;
+
+  return (
+    <div className="rounded-xl border border-zinc-800/50 bg-zinc-800/20 p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">Prior Knowledge</span>
+        {entries.length > 0 && (
+          <span className="text-[10px] text-emerald-400/80">{entries.length} related {entries.length === 1 ? 'entry' : 'entries'} in your knowledge base</span>
+        )}
+      </div>
+      {entries.length > 0 ? (
+        <div className="space-y-1.5">
+          {entries.map((e, i) => (
+            <div key={i} className="flex items-start gap-2 text-[11px]">
+              <span className="text-zinc-500 shrink-0">•</span>
+              <span className="text-zinc-300 flex-1">{e.statement}</span>
+              {e.level && <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/40 text-zinc-500 shrink-0">{e.level}</span>}
+            </div>
+          ))}
+          <p className="text-[10px] text-zinc-600 mt-1">These will be used to tailor the lesson to your level.</p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-zinc-500">No related knowledge found. The lesson will be generated from scratch. Add knowledge entries in your Profile to get personalized lessons.</p>
+      )}
+    </div>
+  );
+}
+
 export interface LessonSeed {
   part: number;
   title: string;
@@ -436,6 +489,24 @@ export function CreateLessonDialog({
         const summary = await fetchLessonSummary(result.data.lessonId);
         if (summary) setCreatedLesson(summary);
         setStep('result');
+
+        // Save clarification Q&A as tagged notes on the first node
+        const qaPairs = clarificationQuestions
+          .map((q, i) => ({ q, a: clarificationAnswers[i]?.trim() }))
+          .filter((pair) => pair.a);
+        if (qaPairs.length > 0 && result.data?.nodes?.length) {
+          const firstNodeId = result.data.nodes[0].id;
+          try {
+            for (const pair of qaPairs) {
+              await api.learnAddNote({
+                nodeId: firstNodeId,
+                text: `**Q:** ${pair.q}\n\n**A:** ${pair.a}`,
+                tags: ['clarification'],
+                blockRef: 'clarification',
+              });
+            }
+          } catch { /* non-critical */ }
+        }
       } else {
         setGenStatus('error');
         setGenError(result.error || 'Generation failed');
@@ -575,6 +646,11 @@ export function CreateLessonDialog({
                       <p className="text-xs text-amber-500/80 mt-1.5">Please enter at least 10 characters</p>
                     )}
                   </div>
+
+                  {/* Prior Knowledge check */}
+                  {userInput.trim().length >= 10 && (
+                    <PriorKnowledgePreview topic={userInput.trim()} />
+                  )}
 
                   {/* Reference material */}
                   <div>

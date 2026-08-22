@@ -36,6 +36,7 @@ interface CanvasContainerProps {
   onStop: () => void
   streaming: boolean
   thinking?: boolean
+  connecting?: boolean
   focusedCardId?: string | null
   autoFocus?: boolean
   onToggleAutoFocus?: () => void
@@ -59,7 +60,7 @@ interface CanvasContainerProps {
 export function CanvasContainer({
   cards, onMoveCard, onDismissCard, onArrangeCards, onPinCard, onResizeCard, onCardClick, onUpdateCard,
   groups, onUpdateGroup, onUngroup, onRemoveFromGroup,
-  saveStatus, onSaveCanvas, onSend, onStop, streaming, thinking, focusedCardId, autoFocus, onToggleAutoFocus,
+  saveStatus, onSaveCanvas, onSend, onStop, streaming, thinking, connecting, focusedCardId, autoFocus, onToggleAutoFocus,
   onOpenPalette, onGroupCards,   canvasList, activeCanvasId, onLoadCanvas, onRenameCanvas, onDeleteCanvas, onSaveAs,
   onSetPanZoom, onNewCanvas, onAddCard, onUndo, onRedo, canUndo, canRedo,
 }: CanvasContainerProps) {
@@ -465,7 +466,7 @@ export function CanvasContainer({
       )}
 
       <div data-tutorial="ai.input">
-        <CanvasInput onSend={onSend} onStop={onStop} streaming={streaming} thinking={thinking} onOpenPalette={onOpenPalette} />
+        <CanvasInput onSend={onSend} onStop={onStop} streaming={streaming} thinking={thinking} connecting={connecting} onOpenPalette={onOpenPalette} />
       </div>
 
       <CardDrawer

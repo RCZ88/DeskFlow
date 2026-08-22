@@ -44,6 +44,7 @@ import ConductorPage from './pages/ConductorPage';
 import { AiPage } from './pages/AiPage';
 import { FeatureStudioPage } from './features/overlay-studio/OverlayStudioPage';
 import { AppBackground } from './components/AppBackground';
+import { RheoCurrent } from './components/rheo-current';
 
 import InsightsPage from './pages/InsightsPage';
 import { FinancePage } from './pages/FinancePage';
@@ -925,6 +926,10 @@ function App() {
   const [sleepDetectCustomWaketime, setSleepDetectCustomWaketime] = useState({ hours: 7, minutes: 0 });
   const [sleepDetectFellAsleepAt, setSleepDetectFellAsleepAt] = useState({ hours: 22, minutes: 15 });
   const [sleepDetectWakeUpAt, setSleepDetectWakeUpAt] = useState({ hours: 6, minutes: 55 });
+  const [sleepDetectDate, setSleepDetectDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
 
   // On mount, check if there's a pending sleep detection
   useEffect(() => {
@@ -934,13 +939,15 @@ function App() {
           const data = await window.deskflowAPI.checkSleepDetection();
           if (data?.detected) {
             setSleepDetectionData(data);
-            // Pre-fill custom times
             const bed = new Date(data.suggestedBedtime);
             const wake = new Date(data.suggestedWakeTime);
             setSleepDetectCustomBedtime({ hours: bed.getHours(), minutes: bed.getMinutes() });
             setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
             setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
             setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
+            const bd = new Date(bed);
+            if (bd.getHours() < 12) bd.setDate(bd.getDate() - 1);
+            setSleepDetectDate(`${bd.getFullYear()}-${String(bd.getMonth() + 1).padStart(2, '0')}-${String(bd.getDate()).padStart(2, '0')}`);
             setSleepModalStep('sleep');
             setShowSleepDetection(true);
           }
@@ -990,6 +997,9 @@ function App() {
             setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
             setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
             setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
+            const bd = new Date(bed);
+            if (bd.getHours() < 12) bd.setDate(bd.getDate() - 1);
+            setSleepDetectDate(`${bd.getFullYear()}-${String(bd.getMonth() + 1).padStart(2, '0')}-${String(bd.getDate()).padStart(2, '0')}`);
             setSleepModalStep('sleep');
             setShowSleepDetection(true);
           }
@@ -1032,28 +1042,23 @@ function App() {
   const confirmSleepDetection = async () => {
     if (!sleepDetectionData) return;
     try {
-      const now = new Date();
-      const deviceOff = new Date(now);
+      const sleepDay = new Date(sleepDetectDate + 'T00:00:00');
+
+      const deviceOff = new Date(sleepDay);
       deviceOff.setHours(sleepDetectCustomBedtime.hours, sleepDetectCustomBedtime.minutes, 0, 0);
+      if (sleepDetectCustomBedtime.hours < 12) deviceOff.setDate(deviceOff.getDate() + 1);
 
-      // If bedtime is before 6 AM, it belongs to the previous day
-      // e.g., bedtime 1 AM on the 21st = 1 AM on the 20th
-      if (sleepDetectCustomBedtime.hours < 6) {
-        deviceOff.setDate(deviceOff.getDate() - 1);
-      }
-
-      const fellAsleep = new Date(now);
+      const fellAsleep = new Date(sleepDay);
       fellAsleep.setHours(sleepDetectFellAsleepAt.hours, sleepDetectFellAsleepAt.minutes, 0, 0);
-      // Apply same date correction for fell asleep if before 6 AM
-      if (sleepDetectFellAsleepAt.hours < 6 && fellAsleep.getTime() > now.getTime()) {
-        fellAsleep.setDate(fellAsleep.getDate() - 1);
-      }
+      if (sleepDetectFellAsleepAt.hours < 12) fellAsleep.setDate(fellAsleep.getDate() + 1);
 
-      const wokeUp = new Date(now);
+      const wokeUp = new Date(sleepDay);
       wokeUp.setHours(sleepDetectWakeUpAt.hours, sleepDetectWakeUpAt.minutes, 0, 0);
+      if (sleepDetectWakeUpAt.hours < 12) wokeUp.setDate(wokeUp.getDate() + 1);
 
-      const deviceOn = new Date(now);
+      const deviceOn = new Date(sleepDay);
       deviceOn.setHours(sleepDetectCustomWaketime.hours, sleepDetectCustomWaketime.minutes, 0, 0);
+      if (sleepDetectCustomWaketime.hours < 12) deviceOn.setDate(deviceOn.getDate() + 1);
 
       // Handle midnight crossing: wake time must be after device off
       if (wokeUp <= deviceOff) {
@@ -2574,6 +2579,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
     <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
       <AppBackground />
+      <RheoCurrent />
       {/* Sidebar � hidden on workspace (/terminal) and during solar overlay */}
       {location.pathname !== '/terminal' && !solarOverlayActive && (
       <motion.div
@@ -2852,7 +2858,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             </div>
 
             <button
-              onClick={() => window.dispatchEvent(new Event('open-gap-drawer'))}
+              onClick={() => setShowManualAssign(true)}
               title="Fill gaps with tracked apps, websites, or external activities"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-indigo-400 hover:text-indigo-300 hover:bg-indigo-500/10 transition"
             >
@@ -3086,6 +3092,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 onWaketimeChange={setSleepDetectCustomWaketime}
                 onFellAsleepAtChange={setSleepDetectFellAsleepAt}
                 onWakeUpAtChange={setSleepDetectWakeUpAt}
+                sleepDate={sleepDetectDate}
+                onSleepDateChange={setSleepDetectDate}
                 onConfirm={confirmSleepDetection}
                 onDismiss={dismissSleepDetection}
                 adjacentGaps={sleepDetectionData.adjacentGaps || []}

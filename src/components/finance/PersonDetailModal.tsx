@@ -1,9 +1,10 @@
 import { useMemo, useState, useCallback } from 'react';
-import { X, Phone, Mail, FileText, Wallet, Calendar, CheckCircle2, Clock, Plus, Minus, ChevronDown, Check, Landmark, Pencil, Trash2, ArrowUpRight } from 'lucide-react';
+import { X, Phone, Mail, FileText, Wallet, Calendar, CheckCircle2, Clock, Plus, Minus, ChevronDown, Check, Landmark, Pencil, Trash2, ArrowUpRight, Download } from 'lucide-react';
 import type { FinanceFtPerson, FinanceTransaction, FinanceWallet } from './finance-types';
 import { getRepaymentStatus, getFtPerson } from '../../lib/receivables';
 import { TopUpModal } from './modals/TopUpModal';
 import { DeductModal } from './modals/DeductModal';
+import { ReceiptGeneratorModal } from './receipt/ReceiptGeneratorModal';
 import { useNumberMask } from '../../context/NumberMaskContext';
 import { maskNumber } from '../../utils/maskNumber';
 
@@ -37,6 +38,8 @@ export function PersonDetailModal({
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const personTxns = useMemo(() => {
     return transactions.filter(tx => {
@@ -102,6 +105,8 @@ export function PersonDetailModal({
         notes: editNotes.trim() || undefined,
       });
       setEditing(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
       onRefresh();
     } catch { /* ignore */ }
     setSaving(false);
@@ -151,6 +156,9 @@ export function PersonDetailModal({
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {saveSuccess && (
+                <span className="px-2 py-1 rounded-lg text-[11px] font-medium bg-emerald-500/20 text-emerald-400 animate-in fade-in">Saved</span>
+              )}
               {editing ? (
                 <>
                   <button onClick={handleSaveEdit} disabled={saving || !editName.trim()}
@@ -164,6 +172,9 @@ export function PersonDetailModal({
                 </>
               ) : (
                 <>
+                  <button onClick={() => setShowReceipt(true)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors" title="Export receipt">
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
                   <button onClick={() => setEditing(true)} className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors" title="Edit person">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
@@ -410,6 +421,16 @@ export function PersonDetailModal({
           displayCurrency={displayCurrency}
           onSubmit={(data) => (window as any).deskflowAPI?.financeFtPersonDeduct(data)}
           onDone={() => { setShowDeduct(false); onRefresh(); }}
+        />
+      )}
+
+      {showReceipt && (
+        <ReceiptGeneratorModal
+          open={true}
+          onClose={() => setShowReceipt(false)}
+          person={person}
+          transactions={transactions}
+          displayCurrency={displayCurrency}
         />
       )}
 

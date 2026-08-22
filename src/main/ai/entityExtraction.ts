@@ -44,7 +44,6 @@ export interface ExtractionResult {
 
 function parseExtractionJson(text: string): ExtractionResult | null {
   try {
-    // Strip markdown fences if the model ignored instructions
     const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
     const parsed = JSON.parse(cleaned)
     if (!parsed || typeof parsed !== 'object') return null
@@ -57,6 +56,62 @@ function parseExtractionJson(text: string): ExtractionResult | null {
   } catch {
     return null
   }
+}
+
+const MIN_EXTRACTION_LENGTH = 20;
+
+function regexFallbackExtract(text: string): ExtractionResult {
+  const entities: ExtractionResult['entities'] = []
+  const facts: ExtractionResult['facts'] = []
+  const signals: ExtractionResult['signals'] = []
+  const seenEntities = new Set<string>()
+
+  const capitalizedPhraseRe = /\b([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)\b/g
+  let match: RegExpExecArray | null
+  while ((match = capitalizedPhraseRe.exec(text)) !== null) {
+    const name = match[1].trim()
+    const key = name.toLowerCase()
+    if (name.length < 3 || name.length > 60) continue
+    if (/^(The|This|That|These|Those|What|When|Where|How|Why|Who)\s/.test(name)) continue
+    if (seenEntities.has(key)) continue
+    seenEntities.add(key)
+    entities.push({ name, type: 'concept' })
+  }
+
+  const factRe = /\b([A-Z][a-zA-Z\s]{2,30}?)\s+(?:is|are|was|were|uses?|has|have|requires?|needs?)\s+([a-zA-Z0-9][a-zA-Z0-9\s,.]{2,60}?)(?:[.;,!]|$)/gm
+  while ((match = factRe.exec(text)) !== null) {
+    const subject = match[1].trim()
+    const predicate = match[0].match(/\b(is|are|was|were|uses?|has|have|requires?|needs?)\b/i)?.[1] || 'is'
+    const object = match[2].trim()
+    if (subject.length < 2 || object.length < 2) continue
+    facts.push({ subject, predicate, object })
+  }
+
+  const decisionRe = /(?:decided|decision|going with|chose|selected|will use)\s*[:\-]?\s*(.{5,80})/gi
+  while ((match = decisionRe.exec(text)) !== null) {
+    signals.push({ type: 'decision', content: match[1].trim() })
+  }
+
+  return { entities, facts, signals, contradictions: [] }
+}
+
+export function extractFromText(
+  llmOutput: string | null,
+  rawText: string
+): { result: ExtractionResult; status: 'full' | 'partial' | 'empty' } {
+  if (llmOutput) {
+    const parsed = parseExtractionJson(llmOutput)
+    if (parsed && (parsed.entities.length > 0 || parsed.facts.length > 0)) {
+      return { result: parsed, status: 'full' }
+    }
+  }
+  if (rawText.length >= MIN_EXTRACTION_LENGTH) {
+    const regexResult = regexFallbackExtract(rawText)
+    if (regexResult.entities.length > 0 || regexResult.facts.length > 0 || regexResult.signals.length > 0) {
+      return { result: regexResult, status: 'partial' }
+    }
+  }
+  return { result: { entities: [], facts: [], signals: [], contradictions: [] }, status: 'empty' }
 }
 
 export function applyExtraction(episodeId: string, result: ExtractionResult): void {

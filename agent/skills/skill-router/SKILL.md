@@ -1,4 +1,4 @@
-# Skill Router — Universal Skill Dispatcher v1.1.0
+# Skill Router — Universal Skill Dispatcher v1.2.0
 
 > **PURPOSE:** This is the master routing table for ALL skills in `agent/skills/`. It maps every task/scenario to the correct skill(s), enforces load order, and ensures no skill is forgotten. Load this skill FIRST whenever you begin a task.
 >
@@ -86,11 +86,12 @@ User task enters
 ---
 
 ### DESIGN
-**Trigger:** Any UI change, component work, new page, "make it look better", "polish", "redesign"
-**Goal:** Generate production-quality UI that follows DeskFlow design system
+**Trigger:** Any UI change, component work, new page, "make it look better", "polish", "redesign", "design audit", "visual system", "motion mechanics"
+**Goal:** Generate production-quality UI that follows DeskFlow design system + visual mechanic vocabulary
 
 | Priority | Skill | Why |
 |----------|-------|-----|
+| MANDATORY | Backandforth package (`agent/docs/backandfourth-docs/tugo-signature-motion/`) | Load FIRST — contains the design brief, codebase reference, 10 motion mechanics vocabulary, page-to-mechanic mapping, and conversation protocol. This is the canonical design reference for RHEO. |
 | MANDATORY | `frontend-external-infra` | Never design from zero — pull from MCP component libraries first. Check Source Routing table. |
 | MANDATORY | `humancentred-UIUX` | Mandated by AGENTS.md §5b. Every UI must cover all 4 states (empty/loading/error/populated). |
 | MANDATORY | `frontend-design` | DeskFlow design system — colors, spacing, typography, page patterns, component patterns |
@@ -104,9 +105,11 @@ User task enters
 | RECOMMENDED | `beautiful-charts` | When the work includes charts, graphs, data visualization, or chart styling |
 | RECOMMENDED | `layout-deck-fix` | When touching the AI-deck layout (deck.css / `--dk-*` tokens / deck pages) |
 
-**Load order:** frontend-external-infra → frontend-design → signature-design → humancentred-UIUX → [impeccable → motion-alive → taste-skill → beautiful-charts depending on scope]
+**Load order:** Backandforth package → frontend-external-infra → frontend-design → signature-design → humancentred-UIUX → [impeccable → motion-alive → taste-skill → beautiful-charts depending on scope]
 
 **If this is a page-level redesign** that also changes how data flows, also load `max-security` to review backend changes.
+
+**If this involves motion mechanics or visual simulations**, reference `agent/docs/motion_site_mechanics_10/` HTML files directly — they are the canonical source for algorithm details, canvas sizes, and physics parameters. This project is called RHEO.
 
 ---
 
@@ -304,7 +307,7 @@ User task enters
 
 | ❌ Wrong | ✅ Correct |
 |----------|-----------|
-| Start coding a UI without loading any design skills | Load `frontend-external-infra` + `humancentred-UIUX` + `frontend-design` first |
+| Start coding a UI without loading any design skills | Load backandforth package + `frontend-external-infra` + `humancentred-UIUX` + `frontend-design` first |
 | Fix a bug from PROBLEMS.md without loading `fix-problems` | Always load `fix-problems` for the workflow gates (user confirmation, status updates) |
 | Commit code without loading `commit` | `commit` enforces `git add -A`, exhaustive messages, COMMITS.md |
 | Ship code without loading `max-security` | Security review catches injection, crypto, auth, config issues |
@@ -314,6 +317,7 @@ User task enters
 | Ignore a user correction without loading `agent-reflect` | The same mistake will repeat across sessions |
 | Load ALL skills at once for every task | Only load what the category mandates — overloading wastes context |
 | Assume a single skill is enough for a UI task | Design tasks need MULTIPLE skills working together (infra + tokens + UX + motion) |
+| Use a visual mechanic without checking semantic fit | Every mechanic MUST map to the page's information type per DESIGN_SYSTEM_CONTEXT.md §3 |
 
 ## 6. Skill activation checklist (run mentally before ANY task)
 

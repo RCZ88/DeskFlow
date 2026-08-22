@@ -481,6 +481,79 @@ The AI Assistant page is the only route with a canvas (`CanvasGrid`) that uses `
 
 ---
 
+## Entry 12 — Sidebar/topbar covered or invisible after changing AppBackground
+
+**Symptom**
+
+After modifying `src/components/AppBackground.tsx` (adding layers, textures, or changing z-index), the sidebar navigation rail and/or top bar become invisible, darkened, or covered by a dark overlay. Content behind the sidebar is obscured. Buttons and text in the sidebar don't render properly.
+
+**Root cause**
+
+AppBackground is `position: fixed; inset: 0; z-index: 0` — it covers the ENTIRE viewport. Any child element inside it that is NOT `pointer-events-none` or that has a visible opaque/semi-opaque background will visually cover the sidebar and topbar, which are siblings in the DOM at normal flow (no explicit z-index on sidebar).
+
+The specific culprits (tried and confirmed breaking):
+
+| Component | Why it breaks | File |
+|-----------|--------------|------|
+| **Vignette** | `rgba(9,9,11,0.85)` = 85% opaque dark overlay at `z-[1]` over entire viewport. Kills all text/buttons underneath. | `ambient-patterns.tsx` |
+| **AmbientGlow** | Uses `var(--page-accent)` — if CSS variable not set, `color-mix()` can produce unexpected opaque colors | `ambient-patterns.tsx` |
+| **MeshGradient** | Animated radial gradients at 8% opacity — can look wrong on sidebar glass | `ambient-patterns.tsx` |
+| **DotPattern** | Dot grid using `var(--page-accent)` — renders over sidebar area | `ambient-patterns.tsx` |
+| **GradientWash** | Linear gradient overlay — subtle but adds visual noise over sidebar | `ambient-patterns.tsx` |
+
+**The rule: these MCP ambient components from `ambient-patterns.tsx` were removed in commit `c4e55c6` FOR THIS EXACT REASON. Do NOT re-add them to AppBackground. They break the sidebar every time.**
+
+**What WORKS in AppBackground (confirmed):**
+
+- `LivingSubstrate` — WebGL RD shader, pointer-events-none, renders at low alpha (0.20-0.35). Safe.
+- `Particles` — small canvas dots, pointer-events-none, low opacity. Safe.
+- `LightRays` — CSS motion blur rays, pointer-events-none. Safe.
+- `bg-[#09090b]` on the container — matches body background, not a problem.
+- Per-page accent colors via `PAGE_ACCENTS` — just changes shader tint. Safe.
+
+**Fast fix (if you already broke it):**
+
+Replace `src/components/AppBackground.tsx` with the minimal safe version:
+
+```tsx
+import { Particles } from './ui/particles';
+import { LightRays } from './ui/light-rays';
+import { LivingSubstrate } from './life-river/LivingSubstrate';
+
+const PAGE_ACCENTS: Record<string, string> = {
+  '/': '#10b981', '/activity': '#06b6d4', '/ide': '#6366f1',
+  '/life': '#fbbf24', '/finance': '#10b981', '/external': '#f59e0b',
+  '/terminal': '#22c55e', '/ai': '#8b5cf6', '/learn': '#6366f1',
+  '/settings': '#06b6d4', '/database': '#a78bfa', '/reports': '#ec4899',
+  '/resume': '#cbd5e1',
+};
+
+export function AppBackground({ pathname = '/' }: { pathname?: string }) {
+  const accent = PAGE_ACCENTS[pathname] || '#10b981';
+  const isHero = pathname === '/' || pathname === '/life';
+  return (
+    <div className="fixed inset-0 pointer-events-none z-[0] overflow-hidden">
+      <LivingSubstrate accent={accent} speed={isHero ? 2 : 1} maxAlpha={isHero ? 0.35 : 0.20} />
+      <Particles quantity={30} color="#10b981" opacity={0.3} />
+      <Particles quantity={20} color="#3b82f6" opacity={0.25} />
+      <LightRays color="rgba(160, 210, 255, 0.35)" blur={48} count={4} speed={12} />
+    </div>
+  );
+}
+```
+
+Then rebuild: `npx vite build && npx esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs && node scripts/rebuild-main.mjs`
+
+**Prevention:**
+
+- **NEVER add ambient overlay components from `ambient-patterns.tsx` to AppBackground.** They are viewport-spanning absolute layers that cover the sidebar. They were removed in commit `c4e55c6` for this reason.
+- **NEVER add Vignette to AppBackground.** It's a 85% opaque dark overlay — instant sidebar death.
+- If you want page-specific visual texture, put it INSIDE the page component itself (e.g. `<DotPattern>` inside `StatsPage`), NOT in the global AppBackground.
+- The `ambient-patterns.tsx` file can stay in the repo (other pages import from it directly), but AppBackground must NEVER import from it.
+- AppBackground's ONLY job is the subtle ambient base layer (substrate + particles + light rays). Everything else goes in page components.
+
+---
+
 <aside>
 📌
 

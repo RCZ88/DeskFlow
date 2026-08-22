@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, RotateCcw, RefreshCw, Plus, Pencil, Trash2, BookOpen, Maximize2, Minimize2 } from 'lucide-react';
+import { X, RotateCcw, RefreshCw, Plus, Pencil, Trash2, BookOpen, Maximize2, Minimize2, Brain } from 'lucide-react';
 import { loadProfile, saveProfile, updateKnob, resetProfile, addKnowledgeEntry, updateKnowledgeEntry, removeKnowledgeEntry, loadUserLessons } from '../../services/learn/learnerProfile';
 import { PROFILE_KNOBS } from '../../shared/learn/types';
 import { ImageGenSettings } from './ImageGenSettings';
+import { KnowledgeIntakePanel } from './KnowledgeIntakePanel';
 import type { LearnerProfile, ProfileKnob, MasteryLevel, KnowledgeEntry } from '../../shared/learn/types';
 
 interface Props {
@@ -28,7 +29,13 @@ const KNOB_LABELS: Record<ProfileKnob, { label: string; options: string[] }> = {
 export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
   const [profile, setProfile] = useState<LearnerProfile>(loadProfile);
   const [userLessons, setUserLessons] = useState<{ titles: string[]; parts: number[] }>({ titles: [], parts: [] });
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => {
+    try { return localStorage.getItem('lyceum.profileExpanded') !== 'false'; } catch { return true; }
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('lyceum.profileExpanded', String(expanded)); } catch { /* ignore */ }
+  }, [expanded]);
 
   useEffect(() => {
     if (open) {
@@ -128,7 +135,7 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
           exit={{ x: 320 }}
           transition={{ type: 'spring', damping: 25, stiffness: 300 }}
           onClick={(e) => e.stopPropagation()}
-          className={`${expanded ? 'w-full max-w-2xl' : 'w-80'} h-full bg-zinc-900 border-l border-zinc-700/50 overflow-y-auto transition-all duration-300`}
+          className={`${expanded ? 'w-full max-w-none' : 'w-80'} h-full bg-zinc-900 border-l border-zinc-700/50 overflow-y-auto transition-all duration-300`}
         >
           {/* Header */}
           <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-zinc-900">
@@ -143,7 +150,7 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
             </div>
           </div>
 
-          <div className="p-5 space-y-6">
+          <div className={`p-5 space-y-6 ${expanded ? 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 auto-rows-min' : ''}`}>
             {/* Knobs */}
             {PROFILE_KNOBS.map((knob) => {
               const meta = KNOB_LABELS[knob];
@@ -361,6 +368,21 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
             {/* Image Generation Settings */}
             <div className="pt-4 border-t border-zinc-800">
               <ImageGenSettings />
+            </div>
+
+            {/* Knowledge Intake System */}
+            <div className="pt-4 border-t border-zinc-800">
+              <h3 className="text-xs font-medium text-zinc-300 mb-3 flex items-center gap-1.5">
+                <Brain className="w-3.5 h-3.5 text-clay-400" />
+                Knowledge Intake
+              </h3>
+              <p className="text-[10px] text-zinc-600 leading-relaxed mb-3">
+                Import what you know from surveys, chat transcripts, or topic-focused extraction.
+              </p>
+              <KnowledgeIntakePanel
+                profile={profile}
+                onProfileUpdate={(updated) => setProfile(updated)}
+              />
             </div>
 
             {/* Actions */}

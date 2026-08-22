@@ -21,6 +21,7 @@ export function FinanceOverviewSection() {
   const [data, setData] = useState<DashFinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [displayCurrency, setDisplayCurrency] = useState('USD');
+  const [lastActivity, setLastActivity] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +34,10 @@ export function FinanceOverviewSection() {
     }).then((financeData) => {
       if (cancelled) return;
       if (financeData) setData(financeData as DashFinanceData);
+      return (window as any).deskflowAPI?.financeLastTransactionDate?.();
+    }).then((lastDate: any) => {
+      if (cancelled) return;
+      if (lastDate?.lastDate) setLastActivity(lastDate.lastDate);
     }).catch(() => {}).finally(() => {
       if (!cancelled) setLoading(false);
     });
@@ -126,6 +131,14 @@ export function FinanceOverviewSection() {
                 <BarChart3 className="w-3.5 h-3.5 text-indigo-400" />
                 <span className="text-[11px] text-zinc-500">
                   {data.subscriptionCount} active subscription{data.subscriptionCount !== 1 ? 's' : ''}
+                </span>
+              </div>
+            )}
+
+            {lastActivity && (
+              <div className="pt-2 border-t border-zinc-800/40">
+                <span className="text-[11px] text-zinc-500">
+                  Last transaction: {new Date(lastActivity).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </span>
               </div>
             )}

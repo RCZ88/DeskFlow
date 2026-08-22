@@ -109,9 +109,12 @@ export default function BackupCenterPage() {
       ]);
       setStatus(st);
       setProjects(overview?.projects || []);
-      if (!selectedProject && overview?.projects?.length) {
-        setSelectedProject(overview.projects[0].id);
-      }
+      // Auto-select first project only on initial load (when nothing is selected yet)
+      setSelectedProject(prev => {
+        if (prev) return prev; // keep user's selection
+        if (overview?.projects?.length) return overview.projects[0].id;
+        return null;
+      });
       setSchedules(sch?.data || []);
 
       const rows: AgentSnapshotRow[] = [];
@@ -131,7 +134,7 @@ export default function BackupCenterPage() {
       setError(String(e.message || e));
     }
     setLoading(false);
-  }, [selectedProject]);
+  }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 

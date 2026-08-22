@@ -303,6 +303,9 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [pastSleepSessionId, setPastSleepSessionId] = useState<string | null>(null);
   const [pastOriginalStartedAt, setPastOriginalStartedAt] = useState<string | null>(null);
   const [showMorningPrompt, setShowMorningPrompt] = useState(false);
+  const [dragSourceDate, setDragSourceDate] = useState<string | null>(null);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const dragDidFireRef = useRef(false);
   const [morningPromptData, setMorningPromptData] = useState<{ lastCloseTime: number; lastCloseType: string } | null>(null);
   const [sleepLatencyMinutes, setSleepLatencyMinutes] = useState(15);
   const [wakeUpMinutes, setWakeUpMinutes] = useState(5);
@@ -316,9 +319,11 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
   const [manualVersion, setManualVersion] = useState(0);
   const [viewDate, setViewDate] = useState<Date | null>(null);
 
-  // Load existing sleep data when date changes in the modal
+  // Load existing sleep data when date changes in the modal (add mode only)
   useEffect(() => {
     if (!showPastSleepModal || !pastSleepDate || !window.deskflowAPI?.getSleepForDate) return;
+    // In edit mode (pastSleepSessionId set), don't reload — date change is a MOVE, not a search
+    if (pastSleepSessionId) return;
     (async () => {
       try {
         const existing = await window.deskflowAPI.getSleepForDate!(pastSleepDate);
@@ -583,6 +588,32 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
       window.deskflowAPI.getSleepTrends(p, off).then(setSleepTrends);
     }
   }, [selectedPeriod, dateOffset]);
+
+  const handleDropSleep = useCallback(async (sourceDate: string, targetDate: string) => {
+    if (sourceDate === targetDate) return;
+    try {
+      const existing = await (window as any).deskflowAPI?.getSleepForDate?.(sourceDate);
+      if (!existing?.id) return;
+      const startMs = new Date(existing.started_at).getTime();
+      const preSleep = existing.device_off_to_sleep_seconds || 0;
+      const postWake = existing.wake_up_to_app_seconds || 0;
+      const srcDay = new Date(sourceDate + 'T00:00:00');
+      const tgtDay = new Date(targetDate + 'T00:00:00');
+      const shiftMs = tgtDay.getTime() - srcDay.getTime();
+      const newStart = new Date(startMs + shiftMs);
+      const newEndMs = new Date(existing.ended_at).getTime() + shiftMs;
+      await (window as any).deskflowAPI?.updateManualSleep?.(String(existing.id), {
+        started_at: newStart.toISOString(),
+        ended_at: new Date(newEndMs).toISOString(),
+        device_off_to_sleep_seconds: preSleep,
+        wake_up_to_app_seconds: postWake,
+      });
+      window.dispatchEvent(new CustomEvent('external-data-changed'));
+      refreshStats();
+    } catch (e) {
+      console.error('[ExternalPage] Failed to move sleep:', e);
+    }
+  }, [refreshStats]);
 
   // Listen for sleep-confirmed event from Sleep Detection modal
   useEffect(() => {
@@ -1844,7 +1875,16 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                     };
                     
                     return (
-                      <div key={idx} className="flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer" onClick={() => { if (!hasSleepData) return; setPastSleepDate(day.date); setShowPastSleepModal(true); }}>
+                      <div
+                        key={idx}
+                        className={`flex-1 flex flex-col items-center group relative min-w-[40px] cursor-pointer transition-colors ${dragOverDate === day.date ? 'bg-indigo-500/20 ring-1 ring-indigo-500/40 rounded-lg' : ''}`}
+                        draggable={hasSleepData}
+                        onDragStart={hasSleepData ? (e) => { e.stopPropagation(); setDragSourceDate(day.date); dragDidFireRef.current = true; e.dataTransfer.effectAllowed = 'move'; } : undefined}
+                        onDragOver={(e) => { e.preventDefault(); if (dragSourceDate && dragSourceDate !== day.date) { e.dataTransfer.dropEffect = 'move'; setDragOverDate(day.date); }}}
+                        onDragLeave={() => setDragOverDate(null)}
+                        onDrop={(e) => { e.preventDefault(); setDragOverDate(null); dragDidFireRef.current = true; if (dragSourceDate) { handleDropSleep(dragSourceDate, day.date); setDragSourceDate(null); }}}
+                        onClick={() => { if (dragDidFireRef.current) { dragDidFireRef.current = false; return; } if (!hasSleepData) return; setPastSleepDate(day.date); setShowPastSleepModal(true); }}
+                      >
                         {/* 3-segment sleep bar: amber pre-sleep → indigo sleep → rose post-wake */}
                         <div className="relative w-full h-72">
                           {/* Tooltip - positioned at bottom of bar area */}
@@ -1891,7 +1931,8 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                                   <div className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                                   <span>Post-wake: {formatHours(day.post_wake_seconds)}</span>
                                 </div>
-                                <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
+                                                <div className="mt-1 pt-1 border-t border-zinc-700 text-indigo-400">Sleep: {formatHours(day.sleep_seconds)}</div>
+                                <div className="mt-1 text-[9px] text-zinc-600">Drag to move to another date</div>
                               </>
                             )}
                           </div>
@@ -2925,8 +2966,8 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
               {/* Date selector with day navigation */}
               <div className="mb-4">
-                <label className="block text-sm text-zinc-400 mb-1 text-center">Search by date</label>
-                <p className="text-[10px] text-zinc-600 text-center mb-2">Works for both bedtime and wake-up dates</p>
+                <label className="block text-sm text-zinc-400 mb-1 text-center">{pastSleepSessionId ? 'Move sleep to date' : 'Search by date'}</label>
+                <p className="text-[10px] text-zinc-600 text-center mb-2">{pastSleepSessionId ? 'Change the date this sleep belongs to' : 'Works for both bedtime and wake-up dates'}</p>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {

@@ -26,7 +26,8 @@ let state = {
   lastPeriodicSync: Date.now(),  // Track last sync time for delta calculation
   isTrackingEnabled: true,
   serverHealthy: false,
-  isBrowserFocused: true         // Track if browser window has focus
+  isBrowserFocused: true,        // Track if browser window has focus
+  profileId: ''                  // Unique per-installation profile identifier
 };
 
 // --- Persistence helpers ---
@@ -40,7 +41,8 @@ async function saveState() {
       deskflow_sessionStart: state.sessionStart,
       deskflow_lastPeriodicSync: state.lastPeriodicSync,
       deskflow_isTrackingEnabled: state.isTrackingEnabled,
-      deskflow_isBrowserFocused: state.isBrowserFocused
+      deskflow_isBrowserFocused: state.isBrowserFocused,
+      deskflow_profileId: state.profileId
     });
   } catch (err) {
     console.debug('[DeskFlow] Failed to save state:', err.message);
@@ -57,7 +59,8 @@ async function loadState() {
       'deskflow_sessionStart',
       'deskflow_lastPeriodicSync',
       'deskflow_isTrackingEnabled',
-      'deskflow_isBrowserFocused'
+      'deskflow_isBrowserFocused',
+      'deskflow_profileId'
     ]);
 
     if (data.deskflow_activeTabId !== undefined) state.activeTabId = data.deskflow_activeTabId;
@@ -70,6 +73,15 @@ async function loadState() {
     if (!data.deskflow_lastPeriodicSync) state.lastPeriodicSync = Date.now();
     if (data.deskflow_isTrackingEnabled !== undefined) state.isTrackingEnabled = data.deskflow_isTrackingEnabled;
     if (data.deskflow_isBrowserFocused !== undefined) state.isBrowserFocused = data.deskflow_isBrowserFocused;
+    if (data.deskflow_profileId) state.profileId = data.deskflow_profileId;
+
+    // Generate a stable profile ID on first run (one per extension installation)
+    if (!state.profileId) {
+      state.profileId = crypto.randomUUID ? crypto.randomUUID() :
+        'p-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+      await saveState();
+      console.log('[DeskFlow] 🆔 Generated new profile ID:', state.profileId);
+    }
 
     console.log('[DeskFlow] 📦 State loaded from storage');
   } catch (err) {
@@ -141,10 +153,10 @@ async function identifyBrowser() {
     await fetch(`${DESKFLOW_SERVER}/browser-identify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ browser: BROWSER_NAME, processNames }),
+      body: JSON.stringify({ browser: BROWSER_NAME, processNames, profileId: state.profileId }),
       signal: AbortSignal.timeout(2000)
     });
-    console.log('[DeskFlow] 🏷️ Identified as:', BROWSER_NAME, 'processNames:', processNames);
+    console.log('[DeskFlow] 🏷️ Identified as:', BROWSER_NAME, 'profileId:', state.profileId);
   } catch (err) {
     console.debug('[DeskFlow] Could not identify browser to server:', err.message);
   }
@@ -367,7 +379,8 @@ async function logPreviousSession(force = false) {
     sanitized_url: sanitizeUrl(state.activeTabUrl),
     is_periodic: false, // Important: this is a tab switch, NOT a periodic sync
     delta_ms: 0,
-    is_browser_focused: state.isBrowserFocused // Tell desktop app if browser was focused
+    is_browser_focused: state.isBrowserFocused, // Tell desktop app if browser was focused
+    profileId: state.profileId // Which browser profile is active
   };
 
   await sendToDeskFlow(data);
@@ -406,7 +419,8 @@ async function periodicSync() {
     sanitized_url: sanitizeUrl(state.activeTabUrl),
     is_periodic: true,
     delta_ms: cappedDelta,                   // Explicit delta for desktop app
-    is_browser_focused: state.isBrowserFocused // Tell desktop app if browser is focused
+    is_browser_focused: state.isBrowserFocused, // Tell desktop app if browser is focused
+    profileId: state.profileId                // Which browser profile is active
   };
 
   // Update last sync time after preparing data

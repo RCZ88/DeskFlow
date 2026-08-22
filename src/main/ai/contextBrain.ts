@@ -205,32 +205,83 @@ export function closeFact(factId: string): void {
 
 // ═══ Keyword Search ═══
 
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'shall', 'can', 'need', 'dare', 'ought',
+  'used', 'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+  'as', 'into', 'through', 'during', 'before', 'after', 'above', 'below',
+  'between', 'out', 'off', 'over', 'under', 'again', 'further', 'then',
+  'once', 'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each',
+  'every', 'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no',
+  'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very',
+  'just', 'because', 'but', 'and', 'or', 'if', 'while', 'about', 'what',
+  'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'i', 'me',
+  'my', 'myself', 'we', 'our', 'you', 'your', 'he', 'him', 'his', 'she',
+  'her', 'it', 'its', 'they', 'them', 'their', 'quick', 'instruction',
+  'new', 'session', 'task', 'fix', 'implement', 'add', 'remove', 'update',
+  'change', 'make', 'create', 'delete', 'edit', 'modify', 'set', 'get',
+]);
+
 export function keywordSearch(query: string, limit: number = 20): Array<{ type: string; id: string; name?: string; content?: string; score: number }> {
   if (!dbRef) return []
   const results: Array<{ type: string; id: string; name?: string; content?: string; score: number }> = []
 
-  // Search entities
+  const rawWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+  const meaningfulWords = rawWords.filter(w => !STOP_WORDS.has(w))
+  const searchWords = meaningfulWords.length > 0 ? meaningfulWords : rawWords
+
+  if (searchWords.length === 0) {
+    // All stop words — fallback to recent episodes
+    const recent = dbRef.prepare(
+      'SELECT * FROM context_episodes ORDER BY occurred_at DESC LIMIT ?'
+    ).all(Math.min(limit, 5)) as any[]
+    for (const e of recent) {
+      results.push({ type: 'episode', id: e.id, content: e.content.slice(0, 200), score: 0.5 })
+    }
+    return results
+  }
+
+  const likeConditions = searchWords.map(() => '(name LIKE ? OR aliases LIKE ?)').join(' OR ')
+  const entityParams = searchWords.flatMap(w => [`%${w}%`, `%${w}%`])
   const entities = dbRef.prepare(
-    'SELECT * FROM context_entities WHERE name LIKE ? OR aliases LIKE ? ORDER BY last_seen DESC LIMIT ?'
-  ).all(`%${query}%`, `%${query}%`, limit)
+    `SELECT * FROM context_entities WHERE ${likeConditions} ORDER BY last_seen DESC LIMIT ?`
+  ).all(...entityParams, limit)
   for (const e of entities) {
     results.push({ type: 'entity', id: e.id, name: e.name, score: 0.8 })
   }
 
-  // Search episodes
+  const epConditions = searchWords.map(() => 'content LIKE ?').join(' OR ')
+  const epParams = searchWords.map(w => `%${w}%`)
   const episodes = dbRef.prepare(
-    'SELECT * FROM context_episodes WHERE content LIKE ? ORDER BY occurred_at DESC LIMIT ?'
-  ).all(`%${query}%`, limit)
+    `SELECT *, CASE WHEN occurred_at > datetime('now', '-7 days') THEN 2 ELSE 1 END as recency_weight FROM context_episodes WHERE ${epConditions} ORDER BY recency_weight DESC, occurred_at DESC LIMIT ?`
+  ).all(...epParams, limit * 2)
+  const sourceCounts: Record<string, number> = {}
+  const MAX_PER_SOURCE = 3
   for (const e of episodes) {
-    results.push({ type: 'episode', id: e.id, content: e.content.slice(0, 200), score: 0.6 })
+    const src = e.source || 'unknown'
+    sourceCounts[src] = (sourceCounts[src] || 0) + 1
+    if (sourceCounts[src] <= MAX_PER_SOURCE) {
+      results.push({ type: 'episode', id: e.id, content: e.content.slice(0, 200), score: 0.6 * (e.recency_weight || 1) })
+    }
   }
 
-  // Search facts
+  const factConditions = searchWords.map(() => 'object_literal LIKE ?').join(' OR ')
+  const factParams = searchWords.map(w => `%${w}%`)
   const facts = dbRef.prepare(
-    'SELECT * FROM context_facts WHERE object_literal LIKE ? AND valid_to IS NULL ORDER BY confidence DESC LIMIT ?'
-  ).all(`%${query}%`, limit)
+    `SELECT * FROM context_facts WHERE (${factConditions}) AND valid_to IS NULL ORDER BY confidence DESC LIMIT ?`
+  ).all(...factParams, limit)
   for (const f of facts) {
     results.push({ type: 'fact', id: f.id, content: `${f.predicate}: ${f.object_literal}`, score: 0.7 })
+  }
+
+  if (results.length === 0) {
+    const recent = dbRef.prepare(
+      'SELECT * FROM context_episodes ORDER BY occurred_at DESC LIMIT ?'
+    ).all(Math.min(limit, 5)) as any[]
+    for (const e of recent) {
+      results.push({ type: 'episode', id: e.id, content: e.content.slice(0, 200), score: 0.4 })
+    }
   }
 
   return results.sort((a, b) => b.score - a.score)

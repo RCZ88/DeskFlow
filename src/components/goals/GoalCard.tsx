@@ -53,9 +53,12 @@ export function GoalCard({ goal, onToggle, onDelete, onEdit, longTermGoals = [] 
 
   const catMeta = CATEGORY_STYLES[goal.category] || CATEGORY_STYLES.work;
   const isTime = goal.target.type === 'time';
+  const isExternal = goal.target.type === 'external';
   const progress = isTime && goal.target.targetSeconds
     ? Math.min(100, ((goal.progressSeconds || 0) / goal.target.targetSeconds) * 100)
-    : goal.target.done ? 100 : 0;
+    : isExternal && goal.target.maxExternalSeconds
+      ? Math.min(100, Math.max(0, 100 - ((goal.progressSeconds || 0) / goal.target.maxExternalSeconds) * 100))
+      : goal.target.done ? 100 : 0;
 
   const parentIds = goal.parentIds?.length ? goal.parentIds : (goal.parentId ? [goal.parentId] : []);
   const parentGoals = parentIds
@@ -112,6 +115,12 @@ export function GoalCard({ goal, onToggle, onDelete, onEdit, longTermGoals = [] 
             {isTime && goal.target.targetSeconds && (
               <span className="text-[10px] text-zinc-600">
                 {formatTime(goal.progressSeconds || 0)} / {formatTime(goal.target.targetSeconds)}
+              </span>
+            )}
+
+            {isExternal && goal.target.maxExternalSeconds && (
+              <span className={`text-[10px] ${(goal.progressSeconds || 0) > goal.target.maxExternalSeconds ? 'text-amber-400' : 'text-zinc-600'}`}>
+                {formatTime(goal.progressSeconds || 0)} / {formatTime(goal.target.maxExternalSeconds)} max
               </span>
             )}
 

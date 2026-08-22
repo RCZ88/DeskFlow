@@ -68,27 +68,46 @@ export function extractThoughts(content: string): { thoughts: string[]; cleanCon
   const thoughts: string[] = []
   let cleanContent = content
 
-  // Extract complete <thought>...</thought> pairs
-  const completeRegex = /<thought>([\s\S]*?)<\/thought>/gi
-  let match
-  while ((match = completeRegex.exec(content)) !== null) {
-    thoughts.push(match[1].trim())
-    cleanContent = cleanContent.replace(match[0], '')
+  // Support multiple thinking tag formats:
+  // <thought>...</thought>, <thinking>...</thinking>, <think>...</</think>, [thinking]...[/thinking]
+  const tagPatterns = [
+    { open: /<thought>/gi, close: /<\/thought>/gi, full: /<thought>([\s\S]*?)<\/thought>/gi, partial: /<thought>([\s\S]*?)$/i },
+    { open: /<thinking>/gi, close: /<\/thinking>/gi, full: /<thinking>([\s\S]*?)<\/thinking>/gi, partial: /<thinking>([\s\S]*?)$/i },
+    { open: /<think>/gi, close: /<\/think>/gi, full: /<think>([\s\S]*?)<\/think>/gi, partial: /<think>([\s\S]*?)$/i },
+  ]
+
+  for (const pattern of tagPatterns) {
+    // Extract complete pairs
+    let match
+    while ((match = pattern.full.exec(cleanContent)) !== null) {
+      thoughts.push(match[1].trim())
+      cleanContent = cleanContent.replace(match[0], '')
+    }
+
+    // Handle partial/incomplete tags during streaming
+    const partialMatch = pattern.partial.exec(cleanContent)
+    if (partialMatch) {
+      const partialContent = partialMatch[1].trim()
+      if (partialContent) {
+        thoughts.push(partialContent)
+      }
+      cleanContent = cleanContent.slice(0, partialMatch.index).trim()
+    }
   }
 
-  // Handle partial/incomplete <thought> during streaming:
-  // If there's an opening <thought> tag without a closing </thought>,
-  // extract its content as an in-progress thought and remove the raw tag.
-  const partialRegex = /<thought>([\s\S]*?)$/i
-  const partialMatch = partialRegex.exec(cleanContent)
-  if (partialMatch) {
-    // There's an unclosed <thought> — treat everything after it as thinking
-    const partialContent = partialMatch[1].trim()
-    if (partialContent) {
-      thoughts.push(partialContent)
-    }
-    // Remove the partial tag and everything after it from cleanContent
-    cleanContent = cleanContent.slice(0, partialMatch.index).trim()
+  // Also handle [thinking]...[/thinking] bracket format
+  const bracketFull = /\[thinking\]([\s\S]*?)\[\/thinking\]/gi
+  const bracketPartial = /\[thinking\]([\s\S]*?)$/i
+  let bMatch
+  while ((bMatch = bracketFull.exec(cleanContent)) !== null) {
+    thoughts.push(bMatch[1].trim())
+    cleanContent = cleanContent.replace(bMatch[0], '')
+  }
+  const bPartial = bracketPartial.exec(cleanContent)
+  if (bPartial) {
+    const bContent = bPartial[1].trim()
+    if (bContent) thoughts.push(bContent)
+    cleanContent = cleanContent.slice(0, bPartial.index).trim()
   }
 
   return { thoughts, cleanContent: cleanContent.trim() }

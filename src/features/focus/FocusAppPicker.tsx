@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Check, X, Search } from 'lucide-react';
+import { Check, X, Search, Globe } from 'lucide-react';
 
 export interface KnownApp {
   app: string;
@@ -15,6 +15,7 @@ interface FocusAppPickerProps {
   placeholder?: string;
   emptyText?: string;
   addLabel?: string;
+  showBrowserBadge?: boolean;
 }
 
 export function FocusAppPicker({
@@ -24,6 +25,7 @@ export function FocusAppPicker({
   placeholder = 'Type to search tracked apps...',
   emptyText = 'Type to search tracked apps...',
   addLabel = "custom app",
+  showBrowserBadge = false,
 }: FocusAppPickerProps) {
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -123,6 +125,12 @@ export function FocusAppPicker({
               >
                 <span className="truncate mr-2">{item.app}</span>
                 <span className="flex items-center gap-2 shrink-0">
+                  {showBrowserBadge && item.is_browser_tracking === 1 && (
+                    <span className="flex items-center gap-0.5 text-[9px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded-md">
+                      <Globe className="w-2.5 h-2.5" />
+                      browser
+                    </span>
+                  )}
                   {item.category && (
                     <span className="text-[9px] uppercase tracking-wider text-zinc-500">{item.category}</span>
                   )}

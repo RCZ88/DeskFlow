@@ -4,6 +4,7 @@ import { TEXT } from "../tokens"
 
 export interface ThinkingIndicatorProps {
 	label?: string
+	variant?: "connecting" | "thinking"
 	className?: string
 }
 
@@ -12,15 +13,17 @@ export interface ThinkingIndicatorProps {
  * (opacity only). Under reduced-motion the dots hold at a steady mid opacity
  * so we still show a live-but-calm state instead of a jarring blink.
  */
-export function ThinkingIndicator({ label = "Thinking", className }: ThinkingIndicatorProps) {
+export function ThinkingIndicator({ label, variant = "thinking", className }: ThinkingIndicatorProps) {
 	const reduce = useReducedMotion()
+	const displayLabel = label ?? (variant === "connecting" ? "Connecting to AI" : "Thinking")
+	const dotColor = variant === "connecting" ? "bg-amber-400/80" : "bg-pink-400/80"
 	return (
-		<div className={cn("flex items-center gap-2", className)} role="status" aria-label={label}>
+		<div className={cn("flex items-center gap-2", className)} role="status" aria-label={displayLabel}>
 			<div className="flex items-center gap-1">
 				{[0, 1, 2].map((i) => (
 					<motion.span
 						key={i}
-						className="h-1.5 w-1.5 rounded-full bg-pink-400/80"
+						className={cn("h-1.5 w-1.5 rounded-full", dotColor)}
 						initial={ { opacity: 0.3 } }
 						animate={ reduce ? { opacity: 0.5 } : { opacity: [0.3, 1, 0.3] } }
 						transition={
@@ -31,7 +34,7 @@ export function ThinkingIndicator({ label = "Thinking", className }: ThinkingInd
 					/>
 				))}
 			</div>
-			<span className={cn("text-[12px]", TEXT.muted)}>{label}…</span>
+			<span className={cn("text-[12px]", TEXT.muted)}>{displayLabel}…</span>
 		</div>
 	)
 }

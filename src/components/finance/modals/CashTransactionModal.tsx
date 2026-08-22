@@ -7,6 +7,7 @@ import { CategoryChipGrid } from './CategoryChipGrid'
 import { TransferWalletSelect } from './TransferWalletSelect'
 import { TransferDestinationPanel } from './TransferDestinationPanel'
 import { DenominationPicker } from './DenominationPicker'
+import { MerchantCombobox } from '../MerchantCombobox'
 import { useCurrencyFormat, parseMeta, sumDenoms, DENOMINATIONS } from './modalUtils'
 import type { TxModalProps } from './modalUtils'
 
@@ -86,6 +87,13 @@ export const CashTransactionModal: React.FC<TxModalProps> = (props) => {
                   const fv = parseFloat(meta.transfer_fee_value || '0');
                   return ft && ft !== 'none' && fv > 0 ? { type: ft, value: fv } : null;
                 })()}
+                destFee={(() => {
+                  if (!destWallet) return null;
+                  const destMeta = parseMeta(destWallet);
+                  const ft = destMeta.transfer_fee_type;
+                  const fv = parseFloat(destMeta.transfer_fee_value || '0');
+                  return ft && ft !== 'none' && fv > 0 ? { type: ft, value: fv } : null;
+                })()}
                 transferAmount={f.numericAmount}
               />
 							</>
@@ -96,9 +104,13 @@ export const CashTransactionModal: React.FC<TxModalProps> = (props) => {
 						<AmountInput accent={ACCENT} value={f.fee} onChange={f.setFee} symbol={symbol} label={f.type === 'transfer' ? 'Transfer Fee' : 'Transaction Fee'} />
 						<div>
 							<label className="block text-[10px] font-medium text-zinc-400 mb-1">Merchant / Store</label>
-							<input value={f.merchant} onChange={e => f.setMerchant(e.target.value)}
-								placeholder="e.g. Netflix, Starbucks, Amazon"
-								className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
+							<MerchantCombobox
+								merchants={f.merchants}
+								value={f.merchantId || null}
+								onChange={(id, name) => { f.setMerchantId(id); f.setMerchant(name); }}
+								onAddMerchant={async (name) => { try { const res = await (window as any).deskflowAPI?.financeCreateMerchant?.({ name, account_id: props.wallet.account_id }); if (res?.id) { f.setMerchants((prev: any[]) => [...prev, res].sort((a: any, b: any) => a.name.localeCompare(b.name))); } } catch {} }}
+								placeholder="e.g. Netflix, Starbucks"
+							/>
 						</div>
 						<OnBehalfOfSection accent={ACCENT} value={f.onBehalfOf} personId={f.ftPersonId} onValueChange={f.setOnBehalfOf} onPersonChange={(id, _name) => f.setFtPersonId(id)} persons={props.ftPersons} onAddPerson={props.onAddFtPerson} usePersonBalance={f.usePersonBalance} onUsePersonBalanceChange={f.setUsePersonBalance} personBalance={selectedPerson?.balance} />
 {(f.type === 'income' || f.type === 'transfer') && (

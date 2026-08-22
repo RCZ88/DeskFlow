@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Highlighter, StickyNote, Trash2, Palette, Lightbulb, MessageSquare, Search, ArrowRight, ImageIcon } from 'lucide-react';
+import { Highlighter, StickyNote, Trash2, Palette, Lightbulb, MessageSquare, Search, ArrowRight, ImageIcon, Edit3 } from 'lucide-react';
 import type { Highlight } from '../../services/learn/highlightAnchor';
 
 const HIGHLIGHT_COLORS: { value: Highlight['color']; label: string; css: string }[] = [
@@ -13,9 +13,10 @@ const HIGHLIGHT_COLORS: { value: Highlight['color']; label: string; css: string 
 
 const TUTOR_MODES = [
   { key: 'explain' as const, label: 'Explain', icon: Lightbulb },
-  { key: 'ask' as const, label: 'Ask…', icon: MessageSquare },
+  { key: 'ask' as const, label: 'Ask...', icon: MessageSquare },
   { key: 'simpler' as const, label: 'Simpler', icon: Search },
   { key: 'deeper' as const, label: 'Deeper', icon: ArrowRight },
+  { key: 'edit' as const, label: 'Edit', icon: Edit3 },
 ];
 
 interface SelectionActionsProps {
@@ -24,7 +25,7 @@ interface SelectionActionsProps {
   onCreateNote: (text: string, startOffset: number, endOffset: number) => void;
   onDeleteHighlight?: (id: string) => void;
   selectedHighlightId?: string | null;
-  onAskTutor?: (text: string, mode: 'explain' | 'ask' | 'simpler' | 'deeper') => void;
+  onAskTutor?: (text: string, mode: 'explain' | 'ask' | 'simpler' | 'deeper' | 'edit') => void;
   onExplainWithImage?: (text: string, contextText: string) => void;
   isSelecting?: boolean;
 }
@@ -189,7 +190,7 @@ export function SelectionActions({
     onDeleteHighlight(selectedHighlightId);
   }, [selectedHighlightId, onDeleteHighlight]);
 
-  const handleTutorMode = useCallback((mode: 'explain' | 'ask' | 'simpler' | 'deeper') => {
+  const handleTutorMode = useCallback((mode: 'explain' | 'ask' | 'simpler' | 'deeper' | 'edit') => {
     if (!selection || !onAskTutor) return;
     onAskTutor(selection.text, mode);
     window.getSelection()?.removeAllRanges();

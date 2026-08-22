@@ -61,6 +61,7 @@ export interface UseAiChat {
   setInput: (v: string) => void
   streaming: boolean
   thinking: boolean
+  connecting: boolean
   error: string | null
   contextWarnings: string[]
   hasProvider: boolean
@@ -87,6 +88,7 @@ export function useAiChat(): UseAiChat {
   const [input, setInput] = useState("")
   const [streaming, setStreaming] = useState(false)
   const [thinking, setThinking] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [contextWarnings, setContextWarnings] = useState<string[]>([])
   const [hasProvider, setHasProvider] = useState(true)
@@ -255,6 +257,7 @@ export function useAiChat(): UseAiChat {
     streamingRef.current = false
     setStreaming(false)
     setThinking(false)
+    setConnecting(false)
   }, [])
 
   const reset = useCallback(async () => {
@@ -349,7 +352,8 @@ export function useAiChat(): UseAiChat {
 
       const history = messages.map((m) => ({ role: m.role, content: m.content }))
       setMessages((prev) => [...prev, userMsg, assistantMsg])
-      setThinking(true)
+      setConnecting(true)
+      setThinking(false)
 
       let target: { provider: unknown; model: string } | null = null
       try {
@@ -361,6 +365,7 @@ export function useAiChat(): UseAiChat {
       }
       if (!target) {
         setHasProvider(false)
+        setConnecting(false)
         setThinking(false)
         setAssistantMessage(assistantId, {
           parsed: {
@@ -453,6 +458,7 @@ export function useAiChat(): UseAiChat {
       if (typeof b.onProviderChunk === "function") {
         cleanupRef.current = (b.onProviderChunk as (cb: (d: AnyRec) => void) => () => void)((d) => {
           if (d.error) {
+            setConnecting(false)
             setThinking(false)
             setAssistantMessage(assistantId, {
               parsed: {
@@ -465,6 +471,7 @@ export function useAiChat(): UseAiChat {
             return
           }
           if (typeof d.delta === "string" && d.delta) {
+            setConnecting(false)
             setThinking(false)
             full += d.delta
             setAssistantMessage(assistantId, { content: full })
@@ -489,6 +496,7 @@ export function useAiChat(): UseAiChat {
           model: target.model,
         })
       } catch (e) {
+        setConnecting(false)
         setThinking(false)
         setAssistantMessage(assistantId, {
           parsed: {
@@ -555,6 +563,7 @@ export function useAiChat(): UseAiChat {
     setInput,
     streaming,
     thinking,
+    connecting,
     error,
     contextWarnings,
     hasProvider,

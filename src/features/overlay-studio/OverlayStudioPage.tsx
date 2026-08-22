@@ -2,7 +2,8 @@ import React, { useEffect, useCallback, useRef, useState } from 'react'
 import { StudioProvider, useStudio } from './state/StudioProvider'
 import { StudioShell } from './components/shell/StudioShell'
 import { ContentEngineWorkspace } from '../content-engine/ContentEngineWorkspace'
-import { Sparkles } from 'lucide-react'
+import { PresentationWorkspace } from '@/features/presentation/PresentationWorkspace'
+import { Sparkles, Presentation } from 'lucide-react'
 import type { StudioSession, StudioAction } from './state/studioTypes'
 
 function uid() { return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
@@ -71,7 +72,7 @@ function handleImport() {
 
 function StudioPageInner() {
   const { dispatch } = useStudio()
-  const [mode, setMode] = useState<'studio' | 'engine'>('studio')
+  const [mode, setMode] = useState<'studio' | 'engine' | 'presentation'>('studio')
 
   // Set the dispatch ref for the file-level handleImport
   useEffect(() => { dispatchRef.current = dispatch }, [dispatch])
@@ -92,29 +93,16 @@ function StudioPageInner() {
     <div className="flex flex-col h-full" data-page="studio">
       <div className="flex items-center gap-2 px-4 py-2 border-b border-[rgba(63,63,70,0.50)] bg-[rgba(24,24,27,0.60)] backdrop-blur-sm shrink-0 min-h-[44px]">
         <div className="w-6 h-6 rounded-md bg-[#ec4899]/15 flex items-center justify-center"><Sparkles size={12} className="text-[#ec4899]" /></div>
-        <span className="text-xs font-semibold text-zinc-200">{mode === 'studio' ? 'Overlay Studio' : 'Content Engine'}</span>
+        <span className="text-xs font-semibold text-zinc-200">{mode === 'studio' ? 'Overlay Studio' : mode === 'engine' ? 'Content Engine' : 'Presentations'}</span>
         <div className="flex items-center gap-1 rounded-full bg-white/[0.04] p-0.5">
-          <button
-            onClick={() => setMode('studio')}
-            className={mode === 'studio'
-              ? 'h-6 rounded-full bg-[#ec4899]/15 px-2.5 text-[10px] font-semibold text-[#ec4899]'
-              : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300'}
-          >
-            Overlay Studio
-          </button>
-          <button
-            onClick={() => setMode('engine')}
-            className={mode === 'engine'
-              ? 'h-6 rounded-full bg-[#f5c518]/15 px-2.5 text-[10px] font-semibold text-[#f5c518]'
-              : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300'}
-          >
-            Content Engine
-          </button>
+          <button onClick={() => setMode('studio')} className={mode === 'studio' ? 'h-6 rounded-full bg-[#ec4899]/15 px-2.5 text-[10px] font-semibold text-[#ec4899]' : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300'}>Overlay Studio</button>
+          <button onClick={() => setMode('engine')} className={mode === 'engine' ? 'h-6 rounded-full bg-[#f5c518]/15 px-2.5 text-[10px] font-semibold text-[#f5c518]' : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300'}>Content Engine</button>
+          <button onClick={() => setMode('presentation')} className={mode === 'presentation' ? 'h-6 rounded-full bg-[#10b981]/15 px-2.5 text-[10px] font-semibold text-[#10b981] flex items-center gap-1' : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300 flex items-center gap-1'}><Presentation size={10} /> Presentations</button>
         </div>
-        <span className="text-[9px] text-zinc-500">— Video Overlay Suggestion Studio</span>
+        <span className="text-[9px] text-zinc-500">— {mode === 'studio' ? 'Video Overlay Suggestion Studio' : mode === 'engine' ? 'Content Creation Pipeline' : 'Interactive HTML Slide Generator'}</span>
       </div>
       <div className="flex-1 min-h-0">
-        {mode === 'engine' ? <ContentEngineWorkspace /> : <StudioShell />}
+        {mode === 'engine' ? <ContentEngineWorkspace /> : mode === 'presentation' ? <PresentationWorkspace /> : <StudioShell />}
       </div>
     </div>
   )

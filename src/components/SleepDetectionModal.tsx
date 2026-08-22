@@ -31,6 +31,13 @@ function fmtGapDur(seconds: number) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+function localDateStr(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 export default function SleepDetectionModal({
   data,
   customBedtime,
@@ -41,6 +48,8 @@ export default function SleepDetectionModal({
   onWaketimeChange,
   onFellAsleepAtChange,
   onWakeUpAtChange,
+  sleepDate,
+  onSleepDateChange,
   onConfirm,
   onDismiss,
   adjacentGaps = [],
@@ -58,6 +67,8 @@ export default function SleepDetectionModal({
   onWaketimeChange: (v: TimeState) => void;
   onFellAsleepAtChange: (v: TimeState) => void;
   onWakeUpAtChange: (v: TimeState) => void;
+  sleepDate: string;
+  onSleepDateChange: (v: string) => void;
   onConfirm: () => void;
   onDismiss: () => void;
   adjacentGaps?: AdjacentSleepGap[];
@@ -66,12 +77,13 @@ export default function SleepDetectionModal({
   activities?: Array<{ id: string | number; name: string; category?: string }>;
   sessions?: Array<{ app?: string; activity?: string; [k: string]: unknown }>;
 }) {
-  console.log('%c[SleepDetectionModal] v1.2 auto-fill inline', 'color: #fbbf24; font-weight: bold');
+  console.log('%c[SleepDetectionModal] v1.3 date picker + auto-fix', 'color: #fbbf24; font-weight: bold');
 
   const [autoFilling, setAutoFilling] = useState(false);
   const [fillProgress, setFillProgress] = useState<{ done: number; total: number } | null>(null);
   const [fillResults, setFillResults] = useState<{ gap: AdjacentSleepGap; filled: number; total: number }[]>([]);
   const [fillError, setFillError] = useState<string | null>(null);
+  const [dateManuallySet, setDateManuallySet] = useState(false);
 
   const handleDone = onDone || onDismiss;
 
@@ -363,6 +375,48 @@ export default function SleepDetectionModal({
                 </div>
               );
             })()}
+          </div>
+
+          {/* ── Date selector with auto-fix ── */}
+          <div className="mb-5">
+            <label className="block text-[11px] text-zinc-500 text-center mb-1.5">Sleep belongs to</label>
+            <p className="text-[10px] text-zinc-600 text-center mb-2">
+              {dateManuallySet ? 'Date set manually' : 'Auto-fixed: bedtime before noon = previous day'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const d = new Date(sleepDate + 'T00:00:00');
+                  d.setDate(d.getDate() - 1);
+                  onSleepDateChange(localDateStr(d));
+                  setDateManuallySet(true);
+                }}
+                className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6"/></svg>
+              </button>
+              <input
+                type="date"
+                value={sleepDate}
+                onChange={(e) => {
+                  onSleepDateChange(e.target.value);
+                  setDateManuallySet(true);
+                }}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-zinc-200 text-center"
+              />
+              <button
+                onClick={() => {
+                  const d = new Date(sleepDate + 'T00:00:00');
+                  d.setDate(d.getDate() + 1);
+                  onSleepDateChange(localDateStr(d));
+                  setDateManuallySet(true);
+                }}
+                disabled={sleepDate === localDateStr(new Date())}
+                className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors text-zinc-400 hover:text-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6"/></svg>
+              </button>
+            </div>
           </div>
 
           {/* ── Summary stats ── */}

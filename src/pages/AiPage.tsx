@@ -1565,6 +1565,7 @@ export function AiPage() {
               }))}
               streaming={chat.streaming}
               thinking={chat.thinking}
+              connecting={chat.connecting}
               provider={defaultBadge?.label}
               online={chat.hasProvider}
               input={chat.input}
@@ -1817,6 +1818,7 @@ export function AiPage() {
               onStop={chat.stop}
               streaming={chat.streaming}
               thinking={chat.thinking}
+              connecting={chat.connecting}
               focusedCardId={focusedCardId}
               autoFocus={autoFocus}
               onToggleAutoFocus={() => setAutoFocus(v => !v)}

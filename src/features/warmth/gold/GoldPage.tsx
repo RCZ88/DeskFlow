@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Target, Flame, Plus, Bell, Trash2, CheckCircle2, ChevronDown, ChevronUp,
-  CalendarDays, NotebookPen, TrendingUp, ChevronLeft, ChevronRight,
+  CalendarDays, Calendar, NotebookPen, TrendingUp, ChevronLeft, ChevronRight,
   Sparkles, Lightbulb, Timer, Code2, Activity, Pencil, X,
 } from 'lucide-react';
 import { WarmCard } from '../WarmCard';
@@ -125,7 +125,9 @@ export const catDot = (c: string) => (CAT_META[c] || CAT_META.work).dot;
 
 export const defaultCriteria: CriteriaForm = {
   title: '', description: '', category: 'work', period: 'daily',
-  targetType: 'completion', targetHours: 0, targetMinutes: 30, matchCategory: '',
+  targetType: 'completion', targetHours: 0, targetMinutes: 30,
+  externalHours: 0, externalMinutes: 30,
+  matchCategory: '',
   detectionEnabled: false, detectionMode: 'positive', detectionKeywords: '',
   detectionMinMinutes: 5, parentIds: [], links: [],
 };
@@ -136,6 +138,8 @@ function goalToCriteria(g: Goal): CriteriaForm {
     targetType: g.target.type,
     targetHours: g.target.targetSeconds ? Math.floor(g.target.targetSeconds / 3600) : 0,
     targetMinutes: g.target.targetSeconds ? Math.floor((g.target.targetSeconds % 3600) / 60) : 30,
+    externalHours: g.target.maxExternalSeconds ? Math.floor(g.target.maxExternalSeconds / 3600) : 0,
+    externalMinutes: g.target.maxExternalSeconds ? Math.floor((g.target.maxExternalSeconds % 3600) / 60) : 30,
     matchCategory: g.target.matchCategory || '',
     detectionEnabled: g.detection?.enabled || false,
     detectionMode: g.detection?.mode || 'positive',
@@ -155,6 +159,7 @@ export function criteriaToGoal(c: CriteriaForm, date: string, existingId?: strin
     target: {
       type: c.targetType,
       targetSeconds: c.targetType === 'time' ? c.targetHours * 3600 + c.targetMinutes * 60 : undefined,
+      maxExternalSeconds: c.targetType === 'external' ? c.externalHours * 3600 + c.externalMinutes * 60 : undefined,
       matchCategory: c.matchCategory || undefined,
     },
     period: c.period, status: 'active', date, source: 'manual',
@@ -1100,6 +1105,7 @@ export default function GoldPage({ embedded }: { embedded?: boolean }) {
       target: {
         type: editCriteria.targetType,
         targetSeconds: editCriteria.targetType === 'time' ? editCriteria.targetHours * 3600 + editCriteria.targetMinutes * 60 : undefined,
+        maxExternalSeconds: editCriteria.targetType === 'external' ? editCriteria.externalHours * 3600 + editCriteria.externalMinutes * 60 : undefined,
         matchCategory: editCriteria.matchCategory || undefined,
       },
       parentId: editCriteria.parentIds[0] || undefined,

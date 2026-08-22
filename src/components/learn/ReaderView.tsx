@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon, FileCode2, Loader2 } from 'lucide-react';
+import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon, FileCode2, Loader2, Link } from 'lucide-react';
 import { BlockRenderer } from './blocks/BlockRenderer';
 import { PendingIllustrationsPanel } from './blocks/PendingIllustrationsPanel';
 import { FlashcardBlock } from './blocks/FlashcardBlock';
@@ -10,6 +10,7 @@ import { CurriculumGraph } from './CurriculumGraph';
 import { ChecklistProgress } from './ChecklistProgress';
 import { AssessmentCard, AssessmentCardBlock, parseAssessmentBlock, type Question } from './AssessmentCard';
 import { SelectionActions } from './SelectionActions';
+import { NodeSourcesPanel } from './NodeSourcesPanel';
 import { useHighlights } from './useHighlights';
 import type { LessonWithNodes, RenderableNode, TutorAnswer, MasteryLevel, NodeProgress, LdocBlock } from '../../shared/learn/types';
 
@@ -114,6 +115,9 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
   const [sourceText, setSourceText] = useState<string | null>(null);
   const [sourceLoading, setSourceLoading] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
+
+  // Grounding sources panel
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const lessonId = lesson.lesson.id != null ? String(lesson.lesson.id) : `lesson-${lesson.lesson.part}`;
 
@@ -319,6 +323,23 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                   <FileCode2 className="w-3 h-3" />
                   Source
                 </button>
+
+                {/* Grounding Sources */}
+                {currentNode && (
+                  <button
+                    onClick={() => setSourcesOpen(!sourcesOpen)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      sourcesOpen
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
+                    }`}
+                    title="Edit grounding sources for this node"
+                    aria-label="Edit grounding sources"
+                  >
+                    <Link className="w-3 h-3" />
+                    Sources
+                  </button>
+                )}
 
                 {/* Spacer */}
                 <div className="flex-1" />
@@ -652,6 +673,15 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
         onNavigateToNode={(id) => { onSelectNode(id); setShowIllustrations(false); }}
         onImageUploaded={onPersistIllustration}
       />
+
+      {/* Grounding Sources panel */}
+      {currentNode && (
+        <NodeSourcesPanel
+          nodeId={currentNode.id}
+          open={sourcesOpen}
+          onClose={() => setSourcesOpen(false)}
+        />
+      )}
     </>
   );
 }

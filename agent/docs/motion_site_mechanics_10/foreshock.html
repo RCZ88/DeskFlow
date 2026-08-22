@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FORESHOCK</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#fff;color:#111;font-family:Arial,sans-serif}.nav{height:60px;border-bottom:1px solid #111;padding:0 28px;display:flex;justify-content:space-between;align-items:center;font:11px monospace}.hero{height:100vh;position:relative;overflow:hidden}.hero canvas{position:absolute;inset:0;width:100%;height:100%}.copy{position:absolute;z-index:2;left:6vw;top:15vh;width:500px}.k{font:10px monospace;color:#777}.copy h1{font:clamp(50px,7vw,100px)/.86 Arial;font-weight:700;letter-spacing:-.06em;margin:20px 0}.copy p{line-height:1.5}.section{min-height:70vh;padding:70px 6vw;border-top:1px solid #111}.incident{font:14px monospace;border-top:1px solid;padding:15px 0}.faq button{display:block;width:100%;background:none;border:0;border-bottom:1px solid;padding:18px 0;text-align:left}.ans{display:none;padding-bottom:18px;color:#666}footer{padding:60px;height:25vh;border-top:1px solid}@media(max-width:800px){.copy{width:80vw}}
+</style></head><body>
+<div class="nav"><b>FORESHOCK</b><span>Detection / Integrations / Pricing / Status</span><span>Start free</span></div>
+<section class="hero"><canvas id="s"></canvas><div class="copy"><div class="k">MEAN TIME TO DETECT: 41 SECONDS</div><h1>EVERY OUTAGE ANNOUNCED ITSELF FIRST</h1><p>Foreshock watches queue depth, retry rate and p99 drift, then pages you on the pattern.</p></div></section>
+<section class="section"><h2>Detection</h2><div class="incident">14:02 retry rate +8%</div><div class="incident">14:09 queue depth inflects</div><div class="incident">14:11 Foreshock pages</div><div class="incident">14:52 threshold alert fires</div></section>
+<section class="section"><h2>Integrations</h2><p>Postgres · Kafka · Envoy · Redis · MySQL · Nginx · 40 sources.</p></section>
+<section class="section"><h2>FAQ</h2><div class="faq"><button>Can I see why it paged? +</button><div class="ans">Every alert ships with the counterfactual.</div></div></section><footer>FORESHOCK · STATUS</footer>
+<script>
+const c=document.getElementById('s'),x=c.getContext('2d');let W,H,off=0,spike=0,spikeY=0;function resize(){W=c.width=innerWidth;H=c.height=innerHeight}addEventListener('resize',resize);resize();
+function draw(t){x.clearRect(0,0,W,H);for(let r=0;r<8;r++){let y=H*.18+r*H*.07;x.strokeStyle='#111';x.lineWidth=1;x.beginPath();for(let px=0;px<W;px+=3){let sample=Math.sin((px+off)*.035+r)*3+Math.sin((px+off)*.008+r*2)*2;if(r===Math.floor((t/9000)%8)&&px>W*.55&&px<W*.6)sample*=8;x.lineTo(px,y+sample)}x.stroke()}off+=.67;if(t%9000<20){spike++;spikeY=Math.floor(Math.random()*8)}requestAnimationFrame(draw)}requestAnimationFrame(draw);
+document.querySelectorAll('.faq button').forEach(b=>b.onclick=()=>{let a=b.nextElementSibling;a.style.display=a.style.display==='block'?'none':'block'});
+</script></body></html>

@@ -31,13 +31,15 @@ export function MessageBubble(props: MessageBubbleProps) {
   }, [content, isUser, isSystem, isTool])
 
   const renderedContent = useMemo(() => {
-    if (!cleanContent) return null
+    if (!cleanContent && !hasCard) return null
     if (isUser) return <span style={{ whiteSpace: "pre-wrap" }}>{cleanContent}</span>
     if (isSystem) return <span style={{ fontStyle: "italic" }}>{cleanContent}</span>
     if (isTool) return <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{cleanContent}</pre>
+    // For assistant messages: show content even if empty (card-only message)
+    if (!cleanContent && hasCard) return null
     if (streaming) return <TypewriterText text={cleanContent} />
     return <MarkdownRenderer content={cleanContent} />
-  }, [cleanContent, isUser, isSystem, isTool, streaming])
+  }, [cleanContent, isUser, isSystem, isTool, streaming, hasCard])
 
   if (isSystem) {
     return (

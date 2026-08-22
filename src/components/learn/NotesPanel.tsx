@@ -1,17 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { StickyNote, Pin, PinOff, Trash2, Search, Loader2 } from 'lucide-react';
+import { StickyNote, Pin, PinOff, Trash2, Search, Loader2, MessageCircle } from 'lucide-react';
 import type { NoteEntry } from '../../shared/learn/types';
+
+type NoteFilter = 'all' | 'clarification';
 
 interface Props {
   getNotes: () => Promise<NoteEntry[]>;
   deleteNote: (id: string) => Promise<void>;
   togglePin: (id: string) => Promise<void>;
+  defaultFilter?: NoteFilter;
 }
 
-export function NotesPanel({ getNotes, deleteNote, togglePin }: Props) {
+export function NotesPanel({ getNotes, deleteNote, togglePin, defaultFilter = 'all' }: Props) {
   const [notes, setNotes] = useState<NoteEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<NoteFilter>(defaultFilter);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -23,9 +27,11 @@ export function NotesPanel({ getNotes, deleteNote, togglePin }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = notes.filter(n =>
-    !search || n.text.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = notes.filter(n => {
+    if (filter === 'clarification' && (!n.tags || !n.tags.includes('clarification'))) return false;
+    if (search && !n.text.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
 
   const sorted = [...filtered].sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
@@ -46,8 +52,31 @@ export function NotesPanel({ getNotes, deleteNote, togglePin }: Props) {
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-800">
         <StickyNote className="w-4 h-4 text-emerald-400" />
-        <span className="text-sm font-medium text-zinc-200">All Notes</span>
-        <span className="text-[10px] text-zinc-600 ml-auto">{notes.length}</span>
+        <span className="text-sm font-medium text-zinc-200">
+          {filter === 'clarification' ? 'Clarifications' : 'All Notes'}
+        </span>
+        <span className="text-[10px] text-zinc-600 ml-auto">{filtered.length}</span>
+      </div>
+
+      {/* Filter tabs */}
+      <div className="flex items-center gap-1 px-4 pt-2 pb-1">
+        <button
+          onClick={() => setFilter('all')}
+          className={`px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
+            filter === 'all' ? 'bg-zinc-800 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          All
+        </button>
+        <button
+          onClick={() => setFilter('clarification')}
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
+            filter === 'clarification' ? 'bg-amber-500/15 text-amber-300' : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <MessageCircle className="w-2.5 h-2.5" />
+          Clarifications
+        </button>
       </div>
 
       <div className="px-4 pt-3 pb-2">

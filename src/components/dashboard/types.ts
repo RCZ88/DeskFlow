@@ -8,7 +8,7 @@ export type GoalCategory = 'work' | 'personal' | 'health' | 'learning' | 'financ
 export type GoalPeriod = 'daily' | 'weekly' | 'monthly';
 export type GoalStatus = 'active' | 'done' | 'archived' | 'failed';
 export type GoalSource = 'manual' | 'ai';
-export type TargetType = 'time' | 'completion';
+export type TargetType = 'time' | 'completion' | 'external';
 
 export type Priority = 'critical' | 'high' | 'medium' | 'low';
 export type DeadlineStatus = 'pending' | 'completed' | 'overdue';
@@ -24,6 +24,7 @@ export interface GoalLink {
 export interface GoalTarget {
   type: TargetType;
   targetSeconds?: number;
+  maxExternalSeconds?: number;
   matchCategory?: string;
   done?: boolean;
 }

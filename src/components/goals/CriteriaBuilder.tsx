@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, X, Clock, CheckCircle2, Monitor, Search, Target } from 'lucide-react';
+import { Plus, X, Clock, CheckCircle2, Monitor, Search, Target, ArrowDownToLine } from 'lucide-react';
 import { Input } from '../ui/input';
 import { Select, SelectItem } from '../ui/select';
 import { FocusGroupSelect } from './FocusGroupSelect';
@@ -14,6 +14,8 @@ export interface CriteriaForm {
   targetType: GoalTarget['type'];
   targetHours: number;
   targetMinutes: number;
+  externalHours: number;
+  externalMinutes: number;
   matchCategory: string;
   detectionEnabled: boolean;
   detectionMode: 'positive' | 'avoidance';
@@ -130,9 +132,10 @@ export function CriteriaBuilder({ value, onChange, onSave, onCancel, longTermGoa
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <Select value={value.targetType} onValueChange={v => update({ targetType: v as GoalTarget['type'] })} className="w-[140px]">
+        <Select value={value.targetType} onValueChange={v => update({ targetType: v as GoalTarget['type'] })} className="w-[180px]">
           <SelectItem value="completion">Complete it</SelectItem>
           <SelectItem value="time">Spend time</SelectItem>
+          <SelectItem value="external">External usage under</SelectItem>
         </Select>
 
         {value.targetType === 'time' && (
@@ -175,6 +178,39 @@ export function CriteriaBuilder({ value, onChange, onSave, onCancel, longTermGoa
           />
           <p className="text-[10px] text-zinc-600 mt-1">Progress counts completed focus sessions of the group.</p>
         </div>
+      )}
+
+      {value.targetType === 'external' && (
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="space-y-2 p-3 rounded-lg bg-zinc-900/40 border border-zinc-800/40"
+        >
+          <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+            <ArrowDownToLine size={13} className="text-amber-400" />
+            Keep distracting / external app usage under:
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="number" min={0} max={23}
+              value={value.externalHours}
+              onChange={e => update({ externalHours: parseInt(e.target.value) || 0 })}
+              className="w-14 bg-zinc-900/80 border-zinc-700/50 text-[13px] h-8 text-center"
+            />
+            <span className="text-[11px] text-zinc-500">h</span>
+            <Input
+              type="number" min={0} max={59}
+              value={value.externalMinutes}
+              onChange={e => update({ externalMinutes: parseInt(e.target.value) || 0 })}
+              className="w-14 bg-zinc-900/80 border-zinc-700/50 text-[13px] h-8 text-center"
+            />
+            <span className="text-[11px] text-zinc-500">m</span>
+            <span className="text-[10px] text-zinc-600 ml-1">
+              max per day
+            </span>
+          </div>
+          <p className="text-[10px] text-zinc-600">Goal completes when external/distracting app usage stays below this limit for the day.</p>
+        </motion.div>
       )}
 
       {longTermGoals.length > 0 && (

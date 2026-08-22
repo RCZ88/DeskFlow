@@ -146,7 +146,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   getTableSchema: (tableName: string) => ipcRenderer.invoke('get-table-schema', tableName),
   getDatabaseTables: () => ipcRenderer.invoke('get-database-tables'),
-  getTableData: (tableName: string, limit?: number) => ipcRenderer.invoke('get-table-data', tableName, limit),
+  getTableData: (tableName: string, limit?: number, offset?: number) => ipcRenderer.invoke('get-table-data', tableName, limit, offset),
+  getTableDataCount: (tableName: string) => ipcRenderer.invoke('get-table-data-count', tableName),
+  getTableChanges: (tableName: string, limit?: number) => ipcRenderer.invoke('get-table-changes', tableName, limit),
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
     ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides, false),
   previewCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 

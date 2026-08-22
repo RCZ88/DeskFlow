@@ -24,6 +24,7 @@ function uid(): string {
 const defaultCriteria: CriteriaForm = {
   title: '', description: '', category: 'work', period: 'daily',
   targetType: 'completion', targetHours: 0, targetMinutes: 30,
+  externalHours: 0, externalMinutes: 30,
   matchCategory: '', detectionEnabled: false, detectionMode: 'positive',
   detectionKeywords: '', detectionMinMinutes: 10,
   parentIds: [], links: [],

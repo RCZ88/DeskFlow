@@ -10,10 +10,11 @@ interface Props {
   format: (n: number) => string
   onMetadataChange: (meta: Record<string, any> | null) => void
   sourceFee?: { type: string; value: number } | null
+  destFee?: { type: string; value: number } | null
   transferAmount?: number
 }
 
-export function TransferDestinationPanel({ destWallet, accent, format, onMetadataChange, sourceFee, transferAmount }: Props) {
+export function TransferDestinationPanel({ destWallet, accent, format, onMetadataChange, sourceFee, destFee, transferAmount }: Props) {
   const denoms = destWallet?.currency ? (DENOMINATIONS[destWallet.currency] ?? DENOMINATIONS.IDR) : DENOMINATIONS.IDR
   const [destCounts, setDestCounts] = useState<Record<number, number>>({})
 
@@ -36,8 +37,34 @@ export function TransferDestinationPanel({ destWallet, accent, format, onMetadat
         const amt = sourceFee.type === 'percentage' ? (transferAmount * sourceFee.value / 100) : sourceFee.value;
         return (
           <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] border border-white/5 mt-2">
-            <span className="text-xs text-zinc-400">Transfer fee ({sourceFee.type === 'percentage' ? `${sourceFee.value}%` : format(sourceFee.value)})</span>
+            <span className="text-xs text-zinc-400">Source wallet fee ({sourceFee.type === 'percentage' ? `${sourceFee.value}%` : format(sourceFee.value)})</span>
             <span className="text-xs text-zinc-200 tabular-nums font-medium">{format(amt)}</span>
+          </div>
+        );
+      })()
+    : null;
+
+  const destFeeRow = destFee && transferAmount && transferAmount > 0
+    ? (() => {
+        const amt = destFee.type === 'percentage' ? (transferAmount * destFee.value / 100) : destFee.value;
+        return (
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/[0.03] border border-white/5 mt-1">
+            <span className="text-xs text-zinc-400">Destination wallet fee ({destFee.type === 'percentage' ? `${destFee.value}%` : format(destFee.value)})</span>
+            <span className="text-xs text-zinc-200 tabular-nums font-medium">{format(amt)}</span>
+          </div>
+        );
+      })()
+    : null;
+
+  const netReceived = transferAmount && transferAmount > 0
+    ? (() => {
+        const srcAmt = sourceFee ? (sourceFee.type === 'percentage' ? (transferAmount * sourceFee.value / 100) : sourceFee.value) : 0;
+        const dstAmt = destFee ? (destFee.type === 'percentage' ? (transferAmount * destFee.value / 100) : destFee.value) : 0;
+        const net = transferAmount - srcAmt - dstAmt;
+        return (
+          <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10 mt-1">
+            <span className="text-xs text-emerald-400/80">Received amount</span>
+            <span className="text-xs text-emerald-400 tabular-nums font-semibold">{format(net)}</span>
           </div>
         );
       })()
@@ -63,6 +90,8 @@ export function TransferDestinationPanel({ destWallet, accent, format, onMetadat
           format={format}
         />
         {feeRow}
+        {destFeeRow}
+        {netReceived}
       </div>
     )
   }
@@ -87,6 +116,8 @@ export function TransferDestinationPanel({ destWallet, accent, format, onMetadat
           format={format}
         />
         {feeRow}
+        {destFeeRow}
+        {netReceived}
       </div>
     )
   }
@@ -109,9 +140,11 @@ export function TransferDestinationPanel({ destWallet, accent, format, onMetadat
           </div>
         </div>
         {feeRow}
+        {destFeeRow}
+        {netReceived}
       </div>
     )
   }
 
-  return feeRow ? <div>{feeRow}</div> : null
+  return feeRow || destFeeRow || netReceived ? <div>{feeRow}{destFeeRow}{netReceived}</div> : null
 }

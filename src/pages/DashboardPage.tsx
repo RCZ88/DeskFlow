@@ -15,7 +15,6 @@ import { useDashboardData } from '../components/dashboard/useDashboardData';
 import { InsightStrip } from './dashboard/InsightStrip';
 import { MomentumHero } from '../components/dashboard/MomentumHero';
 import { TierBreakdownStrip } from './dashboard/TierBreakdownStrip';
-import { SleepBarMini } from '../components/dashboard/SleepBarMini';
 
 import { SectionHeader } from '../components/SectionHeader';
 import { GlassCard } from '../components/GlassCard';
@@ -31,7 +30,7 @@ import { BlurFade } from '../components/ui/blur-fade';
 import { Particles } from '../components/ui/particles';
 
 import {
-  BookOpen, Dumbbell, Activity, Moon,
+  BookOpen, Dumbbell, Activity,
   Utensils, Coffee, Bus, Book, Timer, Zap,
   Sun, Zap as ZapIcon, Focus, Clock, X,
   Edit3, Check, Plus, Minus, TrendingUp,
@@ -111,7 +110,7 @@ interface HeatmapCell {
 interface ExternalActivity {
   id: number;
   name: string;
-  type: 'stopwatch' | 'sleep' | 'checkin';
+  type: 'stopwatch' | 'checkin';
   color: string;
   icon: string;
   is_productive: boolean;
@@ -453,6 +452,13 @@ export default function DashboardPage({
   const [activityFeed, setActivityFeed] = useState<ActivityFeedItem[]>(getPersistedActivityFeed());
   const activityFeedRef = useRef<ActivityFeedItem[]>(getPersistedActivityFeed());
 
+  // Helper: update feed + propagate to parent so it stays in sync across re-mounts
+  const updateFeed = useCallback((items: ActivityFeedItem[]) => {
+    activityFeedRef.current = items;
+    setActivityFeed(items);
+    onActivityFeedChange?.(items);
+  }, [onActivityFeedChange]);
+
   // Debounce period switches: UI responds immediately, but data fetches settle
   useEffect(() => {
     if (periodTimerRef.current) clearTimeout(periodTimerRef.current);
@@ -470,6 +476,7 @@ export default function DashboardPage({
   // Follow Through finance data for dashboard card
   const [ftData, setFtData] = useState<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] } | null>(null);
   const [ftPersons, setFtPersons] = useState<{ id: number; name: string; balance?: number; wallet_id?: number | null }[]>([]);
+  const [lastTxDate, setLastTxDate] = useState<{ lastUpdated: string; lastDate: string } | null>(null);
 
   // Gap/unfilled time indicator
   const [unfilledMinutes, setUnfilledMinutes] = useState(0);
@@ -489,9 +496,7 @@ export default function DashboardPage({
 
   const [aiInsights, setAiInsights] = useState<any[]>([]);
   const todayStr = new Date().toISOString().split('T')[0];
-  const [sleepData, setSleepData] = useState<{ label: string; hours: number }[]>([]);
-  const [avgSleep, setAvgSleep] = useState(0);
-  const [sleepDebt, setSleepDebt] = useState(0);
+
   const [masteryMastered, setMasteryMastered] = useState(0);
   const [masteryTotal, setMasteryTotal] = useState(0);
   const [streak, setStreak] = useState(0);
@@ -523,38 +528,6 @@ export default function DashboardPage({
         if (Array.isArray(res?.insights)) setAiInsights(res.insights.slice(0, 3));
         else if (Array.isArray(res)) setAiInsights(res.slice(0, 3));
       } catch { /* ignore */ }
-    }).catch(() => {});
-
-    // Sleep (last 7 days)
-    api.getExternalSessions?.('all')?.then((res: any) => {
-      if (!res?.sessions) return;
-      const sleepSessions = res.sessions.filter((s: any) => s.activity === 'Sleep');
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const now = new Date();
-      const weekData: { label: string; hours: number }[] = [];
-      let totalHours = 0;
-      let count = 0;
-      for (let i = 6; i >= 0; i--) {
-        const d = new Date(now);
-        d.setDate(d.getDate() - i);
-        const dateStr = d.toISOString().split('T')[0];
-        const daySleep = sleepSessions.filter((s: any) => {
-          const sDate = new Date(s.started_at || s.start_time).toISOString().split('T')[0];
-          return sDate === dateStr;
-        });
-        const hours = daySleep.reduce((sum: number, s: any) => {
-          const dur = s.duration_s || ((new Date(s.ended_at).getTime() - new Date(s.started_at).getTime()) / 1000);
-          const preSleep = s.device_off_to_sleep_seconds || 0;
-          const actualSleep = Math.max(0, dur - preSleep);
-          return sum + actualSleep / 3600;
-        }, 0);
-        weekData.push({ label: days[d.getDay()], hours: Math.round(hours * 10) / 10 });
-        if (hours > 0) { totalHours += hours; count++; }
-      }
-      setSleepData(weekData);
-      const avg = count > 0 ? totalHours / count : 0;
-      setAvgSleep(Math.round(avg * 10) / 10);
-      setSleepDebt(Math.max(0, Math.round((8 - avg) * 10) / 10 * (count > 0 ? 1 : 0)));
     }).catch(() => {});
 
     // Mastery — skip if learnGetProfile requires { key } and handler may not exist
@@ -680,6 +653,12 @@ export default function DashboardPage({
         if (Array.isArray(persons)) setFtPersons(persons);
       } catch {}
     })();
+    (async () => {
+      try {
+        const lastTx = await (window as any).deskflowAPI?.financeLastTransactionDate?.();
+        if (lastTx) setLastTxDate(lastTx);
+      } catch {}
+    })();
   }, []);
 
   // Reset pausedByTrackerApp when mode changes from 'pause' to something else
@@ -708,7 +687,7 @@ export default function DashboardPage({
       });
       if (feedItems.length > 0) {
         activityFeedRef.current = feedItems;
-        setActivityFeed(feedItems);
+        updateFeed(feedItems);
       }
     }
   }, [dashboardData?.recentSessions, activityFeed.length]);
@@ -1015,8 +994,7 @@ export default function DashboardPage({
     { id: 2, name: 'Exercise', type: 'stopwatch', color: '#10b981', icon: 'Dumbbell', is_productive: true },
     { id: 3, name: 'Gym', type: 'stopwatch', color: '#10b981', icon: 'Activity', is_productive: true },
     { id: 4, name: 'Reading', type: 'stopwatch', color: '#10b981', icon: 'Book', is_productive: true },
-    { id: 5, name: 'Sleep', type: 'sleep', color: '#6366f1', icon: 'Moon', is_productive: false },
-    { id: 6, name: 'Eating', type: 'checkin', color: '#6366f1', icon: 'Utensils', is_productive: false },
+    { id: 5, name: 'Eating', type: 'checkin', color: '#6366f1', icon: 'Utensils', is_productive: false },
   ];
 
   const activities = useMemo(() => externalActivities.length > 0 ? externalActivities : DEFAULT_ACTIVITIES, [externalActivities]);
@@ -1183,7 +1161,7 @@ export default function DashboardPage({
         return item;
       });
       activityFeedRef.current = [...activityFeedRef.current.slice(-9), newItem];
-      setActivityFeed([...activityFeedRef.current]);
+      updateFeed([...activityFeedRef.current]);
     });
 
     // Fetch current foreground app on mount (foreground-changed only fires on change)
@@ -1218,6 +1196,35 @@ export default function DashboardPage({
           return 'neutral';
         };
         setLastTier(initialGetTier(initialData.category));
+
+        // Create an active feed item for the current foreground app
+        const initialTier = initialGetTier(initialData.category);
+        const initNow = Date.now();
+        const initItem: ActivityFeedItem = {
+          id: `${initNow}-init`,
+          timestamp: new Date(initNow),
+          startTime: initNow,
+          type: 'app',
+          name: initialData.app || initialData.title || 'Unknown',
+          category: initialData.category || 'Unknown',
+          tier: initialTier,
+          isActive: true
+        };
+        // Mark any previously active items as inactive
+        activityFeedRef.current = activityFeedRef.current.map(item =>
+          item.isActive ? { ...item, isActive: false, duration: Math.floor((initNow - item.startTime) / 1000) } : item
+        );
+        // Only add if the last item isn't already this app
+        const lastInit = activityFeedRef.current[activityFeedRef.current.length - 1];
+        if (!lastInit || lastInit.name !== initItem.name) {
+          activityFeedRef.current = [...activityFeedRef.current.slice(-9), initItem];
+        } else {
+          // Same app — just make sure it's marked active
+          activityFeedRef.current = activityFeedRef.current.map(item =>
+            item.name === initItem.name ? { ...item, isActive: true, startTime: initNow } : item
+          );
+        }
+        updateFeed([...activityFeedRef.current]);
       }).catch(() => { });
     }
 
@@ -1295,7 +1302,7 @@ export default function DashboardPage({
         setIsInBrowser(false);
         setCurrentWebsite(null);
         activityFeedRef.current = activityFeedRef.current.filter((item) => item.type !== 'browser' || !item.isActive);
-        setActivityFeed([...activityFeedRef.current]);
+        updateFeed([...activityFeedRef.current]);
         return;
       }
 
@@ -1357,7 +1364,7 @@ export default function DashboardPage({
           return item;
         });
         activityFeedRef.current = [...activityFeedRef.current.slice(-9), newItem];
-        setActivityFeed([...activityFeedRef.current]);
+        updateFeed([...activityFeedRef.current]);
       }
     });
   }, []); // empty deps — register once, refs handle latest values
@@ -2074,7 +2081,7 @@ export default function DashboardPage({
     return (
       <div className="relative w-full">
         <div className="overflow-x-auto">
-          <div className="w-full bg-zinc-950 rounded-xl border border-zinc-800 p-5">
+          <div className="w-full bg-zinc-900/60 backdrop-blur-xl rounded-xl border border-zinc-800/50 p-5">
             {/* Day Headers - aligned with grid */}
             <div className="flex items-center mb-3">
               <div className="w-14 flex-shrink-0"></div>
@@ -2459,7 +2466,7 @@ export default function DashboardPage({
   }, []);
 
   return (
-    <PageShell page="dashboard" variant="dashboard" className="text-white bg-[#0a0a0a]">
+    <PageShell page="dashboard" variant="dashboard" className="text-white">
       <TimerResetOverlay trigger={resetTrigger} />
 
       <div className="relative z-10">
@@ -2661,10 +2668,7 @@ export default function DashboardPage({
             </div>
           </BlurFade>
 
-          {/* Row 7: Sleep */}
-          <SleepBarMini sleepData={sleepData} avgSleep={avgSleep} sleepDebt={sleepDebt} />
-
-          {/* Row 8: Activity Feed */}
+          {/* Row 7: Activity Feed */}
           <BlurFade delay={0.35} duration={0.4}>
             <div className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/60 rounded-xl p-5 mb-4">
               <div className="border-t border-zinc-500/30 -mx-5 -mt-5 mb-4" />

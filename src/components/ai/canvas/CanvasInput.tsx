@@ -8,10 +8,11 @@ interface CanvasInputProps {
   onStop?: () => void
   streaming?: boolean
   thinking?: boolean
+  connecting?: boolean
   onOpenPalette?: () => void
 }
 
-export function CanvasInput({ onSend, onStop, streaming, thinking, onOpenPalette }: CanvasInputProps) {
+export function CanvasInput({ onSend, onStop, streaming, thinking, connecting, onOpenPalette }: CanvasInputProps) {
   const [text, setText] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -46,6 +47,12 @@ export function CanvasInput({ onSend, onStop, streaming, thinking, onOpenPalette
           <div className="dk-canvas-input-thinking">
             <Loader2 size={14} className="animate-spin" />
             <span>Thinking...</span>
+          </div>
+        )}
+        {!thinking && connecting && (
+          <div className="dk-canvas-input-thinking">
+            <Loader2 size={14} className="animate-spin" />
+            <span>Connecting to AI...</span>
           </div>
         )}
         <VoiceInputWrapper>

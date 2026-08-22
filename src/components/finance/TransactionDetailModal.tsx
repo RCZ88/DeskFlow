@@ -16,6 +16,7 @@ import { maskNumber } from '../../utils/maskNumber';
 import { convertAmount, formatCurrency as fmtCurrency } from './currency-data';
 import { CurrencyInput } from './CurrencyInput';
 import { FTPersonCombobox } from './FTPersonCombobox';
+import { MerchantCombobox } from './MerchantCombobox';
 import type {
   FinanceTransaction, FinanceAccount, FinanceCategory, FinanceWallet,
 } from './finance-types';
@@ -116,6 +117,9 @@ export function TransactionDetailModal({
   const [saving, setSaving] = useState(false);
   const [repaymentOpen, setRepaymentOpen] = useState(false);
   const amountRef = useRef<HTMLInputElement>(null);
+  const [merchants, setMerchants] = useState<{id: number; name: string; account_id?: number | null}[]>([]);
+
+  useEffect(() => { (window as any).deskflowAPI?.financeGetMerchants?.().then((m: any[]) => setMerchants(m || [])).catch(() => {}) }, []);
 
   useEffect(() => {
     if (transaction) {
@@ -177,6 +181,7 @@ export function TransactionDetailModal({
       tags: transaction.tags || '',
       fee: transaction.fee || 0,
       merchant: transaction.merchant || '',
+      merchant_id: (transaction as any).merchant_id || null,
     });
     setEditing(true);
     setTimeout(() => amountRef.current?.focus(), 100);
@@ -445,11 +450,12 @@ export function TransactionDetailModal({
                 {/* Merchant */}
                 {editing ? (
                   <InlineRow label="Merchant" icon={ShoppingCart} bgClass="bg-zinc-800/40">
-                    <input
-                      value={editData.merchant || ''}
-                      onChange={e => set('merchant', e.target.value)}
+                    <MerchantCombobox
+                      merchants={merchants}
+                      value={editData.merchant_id || null}
+                      onChange={(id, name) => { set('merchant_id', id); set('merchant', name); }}
+                      onAddMerchant={async (name) => { try { const res = await (window as any).deskflowAPI?.financeCreateMerchant?.({ name, account_id: transaction?.account_id }); if (res?.id) { setMerchants(prev => [...prev, res].sort((a, b) => a.name.localeCompare(b.name))); } } catch {} }}
                       placeholder="e.g. Netflix, Starbucks"
-                      className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-md px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 mt-1"
                     />
                   </InlineRow>
                 ) : transaction.merchant ? (
@@ -467,11 +473,12 @@ export function TransactionDetailModal({
                   if (editing) {
                     return (
                       <InlineRow label="Person" icon={Users} bgClass="bg-zinc-800/40">
-                        <input
-                          value={editData.personName || transactionPersonName || ''}
-                          onChange={e => set('personName', e.target.value)}
-                          placeholder="e.g. John, Mom"
-                          className="w-full bg-zinc-800/60 border border-zinc-700/50 rounded-md px-2 py-1 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-zinc-500 mt-1"
+                        <FTPersonCombobox
+                          persons={ftPersons}
+                          value={ftPersons.find(p => p.name.toLowerCase() === (editData.personName || transactionPersonName || '').toLowerCase())?.id ?? null}
+                          onChange={(_id, personName) => set('personName', personName)}
+                          onAddPerson={(name) => { set('personName', name); onAddFtPerson?.(name); }}
+                          placeholder="Who? (e.g. John, Mom)"
                         />
                       </InlineRow>
                     );

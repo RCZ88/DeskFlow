@@ -29,6 +29,10 @@ import { LayerMasteryDemo } from '../components/showcase/demos/LayerMasteryDemo'
 import { CalloutDemo } from '../components/showcase/demos/CalloutDemo';
 import { WidgetDemo } from '../components/showcase/demos/WidgetDemo';
 import { NotesDemo } from '../components/showcase/demos/NotesDemo';
+import { GroundingSourcesDemo } from '../components/showcase/demos/GroundingSourcesDemo';
+import { KnowledgeIntakeDemo } from '../components/showcase/demos/KnowledgeIntakeDemo';
+import { AIEditDemo } from '../components/showcase/demos/AIEditDemo';
+import { ClarificationNotesDemo } from '../components/showcase/demos/ClarificationNotesDemo';
 
 export const features: Feature[] = [
   { id: 'prose', name: 'Prose', icon: '📝', category: 'text', description: 'Rich text with bold, italic, inline code, links, and blockquotes.', whenUsed: 'Explanations, definitions, and narrative content.', demo: <ProseDemo />, syntax: 'Plain text with **bold**, *italic*, `code`, and [links](url).' },
@@ -60,4 +64,8 @@ export const features: Feature[] = [
   { id: 'callout', name: 'Callout', icon: '📢', category: 'structure', description: 'Info, warning, tip, and caution boxes.', whenUsed: 'Highlighting important notes and pitfalls.', demo: <CalloutDemo />, syntax: '::: callout warning\n**Misconception:** ...\n:::' },
   { id: 'widget', name: 'Widget', icon: '🧩', category: 'structure', description: 'Custom HTML/JS interactive elements.', whenUsed: 'Bespoke interactions not covered by other blocks.', demo: <WidgetDemo />, syntax: '::: html\n{\'<div>...</div>\'}\n:::' },
   { id: 'notes', name: 'Notes', icon: '📝', category: 'structure', description: 'User annotations and highlights on content.', whenUsed: 'Personal notes, bookmarks, study annotations.', demo: <NotesDemo />, syntax: 'IPC: learn:addNote' },
+  { id: 'grounding-sources', name: 'Grounding Sources', icon: '🔗', category: 'structure', description: 'Edit references and source links per node for citation grounding.', whenUsed: 'Managing research papers, docs, and URLs that back up lesson content.', demo: <GroundingSourcesDemo />, syntax: 'IPC: learnGetSources / learnUpdateSources' },
+  { id: 'knowledge-intake', name: 'Knowledge Intake', icon: '🧠', category: 'ai', description: 'Import what you know via survey Q&A, chat extraction, or topic-scoped analysis.', whenUsed: 'Bootstrapping your knowledge base before starting lessons.', demo: <KnowledgeIntakeDemo />, syntax: 'IPC: learn:aiChat (3 modes: survey / extract / topic-extract)' },
+  { id: 'ai-edit', name: 'AI Edit', icon: '✨', category: 'ai', description: 'Select text and rewrite it with AI — simplify, expand, fix, or restructure.', whenUsed: 'Refining unclear passages, simplifying complex explanations.', demo: <AIEditDemo />, syntax: 'Selection toolbar → Edit → TutorPanel rewrites text' },
+  { id: 'clarification-notes', name: 'Clarification Notes', icon: '💬', category: 'interactive', description: 'AI clarification Q&A saved as tagged notes in the lesson.', whenUsed: 'After AI asks clarifying questions during lesson generation.', demo: <ClarificationNotesDemo />, syntax: 'Notes tagged ["clarification"] on first node' },
 ];

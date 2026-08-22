@@ -95,11 +95,7 @@ function GroupCard({
           </span>
         </div>
 
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1 text-[10px] text-zinc-500">
-            <AppWindow className="w-3 h-3" style={{ color: accent }} />
-            Strictness picked at session start
-          </span>
+        <div className="flex items-center justify-end">
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 hover:opacity-100 transition-opacity">
             <button
               type="button"

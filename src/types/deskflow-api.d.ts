@@ -116,7 +116,9 @@ interface DeskflowAPI {
   getSessions: () => Promise<any[]>;
   getTableSchema: (tableName: string) => Promise<any>;
   getDatabaseTables: () => Promise<{ tables: string[]; type: string; error?: string }>;
-  getTableData: (tableName: string, limit?: number) => Promise<any[] | { error: string }>;
+  getTableData: (tableName: string, limit?: number, offset?: number) => Promise<any[] | { error: string }>;
+  getTableDataCount: (tableName: string) => Promise<{ total: number; error?: string }>;
+  getTableChanges: (tableName: string, limit?: number) => Promise<{ changes: any[]; error?: string }>;
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => Promise<{ success: boolean; updatedCount: number; error?: string }>;
   previewCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => Promise<{ success: boolean; preview: boolean; totalMismatch: number; mismatches: { kind: 'app' | 'domain'; key: string; current: string | null; next: string; count: number }[]; byCategory: Record<string, number>; error?: string }>;
   saveFile: (options: { content: string; filename: string; fileType: string }) => Promise<{ success: boolean; path?: string; message?: string }>;
@@ -327,8 +329,9 @@ interface DeskflowAPI {
   financeGetSummary: () => Promise<any>;
   financeGetSpendingByCategory: () => Promise<any[]>;
   financeGetMonthlyTrends: () => Promise<any[]>;
-  financeGetOnBehalfOfSummary: () => Promise<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] }>;
-  financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | null; phone: string | null; notes: string; created_at: string; updated_at: string; transaction_count: number; total_owed: number; total_paid: number; balance: number; wallet_id: number | null }[]>;
+financeGetOnBehalfOfSummary: () => Promise<{ totalExpense: number; breakdown: { label: string; total: number; count: number }[] }>;
+financeLastTransactionDate: () => Promise<{ lastUpdated: string; lastDate: string } | null>;
+financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | null; phone: string | null; notes: string; created_at: string; updated_at: string; transaction_count: number; total_owed: number; total_paid: number; balance: number; wallet_id: number | null }[]>;
   financeGetFtPersonBalances: () => Promise<{ id: number; name: string; email: string | null; phone: string | null; total_owed: number; total_repaid: number; transaction_count: number }[]>;
   financeCreateFtPerson: (data: { name: string; email?: string; phone?: string; notes?: string }) => Promise<{ id: number; name: string; email: string | null; phone: string | null; notes: string; transaction_count: number; total_owed: number; total_paid: number } | null>;
   financeUpdateFtPerson: (data: { id: number; name?: string; email?: string; phone?: string; notes?: string }) => Promise<{ success: boolean; error?: string }>;

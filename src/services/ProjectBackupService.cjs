@@ -126,6 +126,14 @@ function registerProjectBackupIPC(db) {
       const zipPath = getBackupPath(backupId);
       if (!fs.existsSync(zipPath)) return { success: false, error: 'Backup zip file not found' };
 
+      // Look up project path from DB
+      let projectPath = '';
+      if (db) {
+        const row = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId);
+        if (row) projectPath = row.path;
+      }
+      if (!projectPath) return { success: false, error: 'Project path not found' };
+
       await extractZip(zipPath, { dir: projectPath });
       return { success: true, data: { restoredCount: entry.fileCount } };
     } catch (err) {
@@ -142,6 +150,14 @@ function registerProjectBackupIPC(db) {
 
       const zipPath = getBackupPath(backupId);
       if (!fs.existsSync(zipPath)) return { success: false, error: 'Backup zip file not found' };
+
+      // Look up project path from DB
+      let projectPath = '';
+      if (db) {
+        const row = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId);
+        if (row) projectPath = row.path;
+      }
+      if (!projectPath) return { success: false, error: 'Project path not found' };
 
       loadDeps();
       const AdmZip = require('adm-zip');
@@ -233,14 +249,15 @@ function getSchedules() {
 
 function setProjectSchedule(projectId, minutes, projectPath) {
   try {
-    minutes = Math.max(5, Math.floor(Number(minutes) || 0));
-    if (!projectId || !minutes) {
+    minutes = Math.floor(Number(minutes) || 0);
+    if (!projectId || minutes <= 0) {
       const existing = schedules.get(projectId);
       if (existing && existing.timer) clearInterval(existing.timer);
       schedules.delete(projectId);
       saveSchedules();
       return { success: true, data: { projectId, minutes: 0, enabled: false } };
     }
+    minutes = Math.max(5, minutes);
     const existing = schedules.get(projectId);
     if (existing && existing.timer) clearInterval(existing.timer);
 

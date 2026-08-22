@@ -5490,11 +5490,51 @@ electron_1.ipcMain.handle('get-sessions', () => {
     }
 });
 const ALLOWED_TABLES = new Set([
-    'logs', 'sessions', 'terminal_sessions', 'projects', 'problems', 'requests',
-    'agent_prompts', 'external_activities', 'external_sessions', 'sleep_sessions',
-    'app_colors', 'app_category_overrides', 'categories', 'activity_feed',
-    'workspace_state', 'wallet_transactions', 'wallets', 'crypto_prices',
-    'goals', 'focus_sessions', 'daily_logs', 'website_logs',
+    'logs', 'sessions', 'terminal_sessions', 'terminal_messages', 'terminal_layouts',
+    'terminal_presets', 'terminal_bindings', 'session_parsed_items',
+    'projects', 'ides', 'extensions', 'tools', 'project_line_stats', 'project_tools',
+    'code_activity', 'commits', 'ai_attribution', 'dora_metrics',
+    'workspace_state', 'workspace_problems', 'workspace_requests',
+    'agent_prompts', 'bug_reports', 'touched_files',
+    'external_activities', 'external_sessions', 'external_settings', 'activity_log',
+    'ai_usage', 'ai_briefs', 'ai_interests', 'ai_feature_usage', 'ai_debug_events',
+    'ai_chat_messages', 'ai_chat_threads', 'ai_chat_memories',
+    'ai_context_captures', 'ai_context_groups', 'ai_memory_context',
+    'context_entities', 'context_facts', 'context_episodes', 'context_embeddings',
+    'context_extraction_jobs', 'user_context_profile', 'user_context_signals', 'context_backfill_meta',
+    'agent_memories',
+    'schedule_entries', 'deadlines', 'schedule_templates',
+    'category_overrides', 'domain_category_overrides', 'goals', 'goal_reviews',
+    'life_phases', 'life_timeline_meta',
+    'notes',
+    'finance_accounts', 'finance_wallets', 'finance_categories', 'finance_transactions',
+    'finance_settings', 'finance_crypto_prices', 'finance_crypto_history',
+    'finance_subscriptions', 'finance_transfer_routes', 'finance_daily_summaries',
+    'finance_wallet_snapshots', 'crypto_asset_history',
+    'finance_ft_persons', 'finance_fixed_expenses', 'finance_fixed_expense_payments',
+    'finance_budgets', 'finance_monthly_recaps', 'audit_log',
+    'routing_costs', 'manual_time_assignments',
+    'browser_profiles',
+    'conductor_missions', 'conductor_nodes', 'conductor_messages', 'conductor_escalations',
+    'conductor_configs', 'conductor_metrics', 'conductor_templates', 'conductor_budgets', 'conductor_sessions',
+    'deep_focus_sessions', 'deep_focus_events', 'focus_groups', 'focus_group_usage', 'focus_goal_config',
+    'content_ideas', 'content_episodes', 'themes', 'content_frameworks',
+    'content_videos', 'content_lessons', 'video_reflections', 'video_characteristics',
+    'process_timeline', 'score_calibrations', 'scoring_schemes',
+    'content_takes', 'take_segments', 'take_evaluations',
+    'presentations', 'presentation_slides',
+    'learn_lessons', 'learn_nodes', 'learn_node_prereqs', 'learn_sources', 'learn_chunks',
+    'learn_progress', 'learn_evidence', 'learn_tutor_cache', 'learn_media_cache',
+    'learn_profile', 'learn_notes', 'learn_actions', 'learn_conversations',
+    'learn_decks', 'learn_cards', 'learn_card_reviews', 'learn_viz_state',
+    'learn_sessions', 'learn_intents', 'learn_goals', 'learn_streaks',
+    'learn_achievements', 'learn_lesson_stats', 'learn_timer_queue', 'learn_velocity',
+    'learn_branches',
+    'composition_rules', 'composition_versions', 'composition_schedules',
+    'composition_conditions', 'composition_actions', 'composition_tag_links',
+    'composition_execution_log', 'composition_event_outbox', 'composition_execution_status',
+    'composition_settings',
+    'schema_migrations',
 ]);
 
 electron_1.ipcMain.handle('get-table-schema', (event, tableName) => {
@@ -5523,18 +5563,58 @@ electron_1.ipcMain.handle('get-database-tables', () => {
         return { tables: [], error: err.message };
     }
 });
-electron_1.ipcMain.handle('get-table-data', (event, tableName, limit = 50) => {
+electron_1.ipcMain.handle('get-table-data', (event, tableName, limit = 50, offset = 0) => {
     if (useJson)
         return { error: 'JSON mode' };
     if (!ALLOWED_TABLES.has(tableName))
         return { error: `table '${tableName}' not allowed` };
     try {
-        const stmt = db.prepare(`SELECT * FROM \`${tableName}\` ORDER BY ROWID DESC LIMIT ?`);
-        return stmt.all(limit);
+        const stmt = db.prepare(`SELECT * FROM \`${tableName}\` ORDER BY ROWID DESC LIMIT ? OFFSET ?`);
+        return stmt.all(limit, offset);
     }
     catch (err) {
         console.error('[DeskFlow] get-table-data error:', err);
         return { error: err.message };
+    }
+});
+electron_1.ipcMain.handle('get-table-data-count', (event, tableName) => {
+    if (useJson)
+        return { total: 0 };
+    if (!ALLOWED_TABLES.has(tableName))
+        return { total: 0, error: `table '${tableName}' not allowed` };
+    try {
+        const stmt = db.prepare(`SELECT COUNT(*) as total FROM \`${tableName}\``);
+        return stmt.get();
+    }
+    catch (err) {
+        console.error('[DeskFlow] get-table-data-count error:', err);
+        return { total: 0, error: err.message };
+    }
+});
+electron_1.ipcMain.handle('get-table-changes', (event, tableName, limit = 25) => {
+    if (useJson)
+        return { changes: [] };
+    if (!ALLOWED_TABLES.has(tableName))
+        return { changes: [], error: `table '${tableName}' not allowed` };
+    try {
+        const hasUpdated = db.prepare(`PRAGMA table_info(\`${tableName}\`)`).all().some(c => c.name === 'updated_at');
+        const hasCreated = db.prepare(`PRAGMA table_info(\`${tableName}\`)`).all().some(c => c.name === 'created_at');
+        const hasRowId = db.prepare(`PRAGMA table_info(\`${tableName}\`)`).all().some(c => c.name === 'rowid');
+        let changes = [];
+        if (hasUpdated) {
+            changes = db.prepare(`SELECT *, 'update' as _change_type FROM \`${tableName}\` ORDER BY updated_at DESC LIMIT ?`).all(limit);
+        }
+        else if (hasCreated) {
+            changes = db.prepare(`SELECT *, 'insert' as _change_type FROM \`${tableName}\` ORDER BY created_at DESC LIMIT ?`).all(limit);
+        }
+        else if (hasRowId) {
+            changes = db.prepare(`SELECT *, 'rowid' as _change_type FROM \`${tableName}\` ORDER BY rowid DESC LIMIT ?`).all(limit);
+        }
+        return { changes };
+    }
+    catch (err) {
+        console.error('[DeskFlow] get-table-changes error:', err);
+        return { changes: [], error: err.message };
     }
 });
 
@@ -5905,8 +5985,9 @@ while ($true) {
   try {
     $r = $sr.Recognize([TimeSpan]::FromSeconds(8))
   } catch {
-    Write-Output '{"type":"error","text":"Windows speech stopped unexpectedly"}'
-    exit 1
+    Write-Output ('{"type":"error","text":"Recognition error: ' + ($_.Exception.Message -replace '"', '\\"') + '"}')
+    Start-Sleep -Milliseconds 500
+    continue
   }
   if ($r -and $r.Text) {
     $t = ($r.Text -replace '"', '\\"')
@@ -5928,11 +6009,15 @@ function sttKillNative() {
     sttNativeSender = null;
 }
 electron_1.ipcMain.handle('stt:get-status', () => {
-    const apiConfigured = sttApiConfigured();
-    const nativeAvailable = process.platform === 'win32';
-    const engine = apiConfigured ? 'api' : (nativeAvailable ? 'native' : 'browser');
-    const label = apiConfigured ? 'Cloud API' : (nativeAvailable ? 'Windows speech' : 'Browser speech');
-    return { engine, apiConfigured, nativeAvailable, label };
+    try {
+        const apiConfigured = sttApiConfigured();
+        const nativeAvailable = process.platform === 'win32';
+        const engine = apiConfigured ? 'api' : (nativeAvailable ? 'native' : 'browser');
+        const label = apiConfigured ? 'Cloud API' : (nativeAvailable ? 'Windows speech' : 'Browser speech');
+        return { engine, apiConfigured, nativeAvailable, label };
+    } catch (err) {
+        return { engine: 'browser', apiConfigured: false, nativeAvailable: false, label: 'Browser speech' };
+    }
 });
 electron_1.ipcMain.handle('stt:transcribe', async (_event, payload) => {
     try {
@@ -6076,9 +6161,13 @@ electron_1.ipcMain.handle('stt:native-start', (event, lang) => {
                 sender.send('stt-native-event', { type: 'error', text: 'Windows speech failed to start' });
             }
         });
-        sttNativeChild.on('exit', () => {
+        sttNativeChild.on('exit', (code) => {
+            const sender = sttNativeSender;
             sttNativeChild = null;
             sttNativeSender = null;
+            if (sender && !sender.isDestroyed() && code !== 0 && code !== null) {
+                sender.send('stt-native-event', { type: 'error', text: 'Windows speech engine exited unexpectedly (code ' + code + ')' });
+            }
         });
         return { ok: true };
     }
@@ -15153,7 +15242,7 @@ electron_1.ipcMain.handle('assemble-context', async (_event, data: { projectId: 
   try {
     const parts = [];
     let totalChars = 0;
-    const budget = data.tokenBudget || 2000;
+    const budget = data.tokenBudget || 4000;
     const maxChars = budget * 4;
 
     const problems = db.prepare('SELECT id, title, status, priority, category, description FROM workspace_problems WHERE project_id = ? ORDER BY created_at DESC').all(data.projectId) as any[];
@@ -15244,6 +15333,49 @@ electron_1.ipcMain.handle('assemble-context', async (_event, data: { projectId: 
             if (userLines.length > 1) parts.push(userLines.join('\n'));
         }
     } catch (_e) { /* profile injection is best-effort */ }
+
+    // [STATE-MD] Inject condensed state.md
+    try {
+      const projectDir = db.prepare('SELECT path FROM projects WHERE id = ?').get(data.projectId) as any;
+      const statePath = require('path').join(projectDir?.path || '', 'agent', 'state.md');
+      const fs = require('fs');
+      if (fs.existsSync(statePath)) {
+        const stateRaw = fs.readFileSync(statePath, 'utf-8');
+        if (stateRaw && stateRaw.trim().length > 0) {
+          const CAP = 1500;
+          let stateMd = stateRaw;
+          if (stateRaw.length > CAP) {
+            const lines = stateRaw.split('\n');
+            const headerLines: string[] = [];
+            const dateSections: Array<{ header: string; lines: string[] }> = [];
+            let currentSection: { header: string; lines: string[] } | null = null;
+            for (const line of lines) {
+              const isDateHeader = /^#{2,3}\s+\[?\d{4}-\d{2}-\d{2}/.test(line);
+              if (isDateHeader) {
+                if (currentSection) dateSections.push(currentSection);
+                currentSection = { header: line, lines: [] };
+              } else if (currentSection) {
+                currentSection.lines.push(line);
+              } else if (headerLines.length < 10) {
+                headerLines.push(line);
+              }
+            }
+            if (currentSection) dateSections.push(currentSection);
+            const lastSections = dateSections.slice(-3);
+            stateMd = headerLines.join('\n') + '\n\n';
+            for (const s of lastSections) stateMd += s.header + '\n' + s.lines.join('\n') + '\n\n';
+            if (stateMd.length > CAP) stateMd = stateMd.slice(0, CAP - 30) + '\n... [state.md truncated]';
+          }
+          const remainingBudget = maxChars - totalChars - 200;
+          if (stateMd.length > 0 && stateMd.length < remainingBudget) {
+            parts.push(`## Agent State\n${stateMd.trim()}`);
+            totalChars += stateMd.length;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[assemble-context] state.md injection failed (non-fatal):', e);
+    }
 
     // [CONTEXT-BRAIN] Topic-based memory restoration (assemble-context gap fix)
     try {
@@ -20200,17 +20332,18 @@ function startBrowserTrackingServer() {
                     if (mainWindow && !mainWindow.isDestroyed()) {
                         const category = categorizeDomain(data.domain, data.title, data.url);
                         try {
-                            mainWindow.webContents.send('browser-tracking-event', {
-                                type: 'browser-data',
-                                domain: data.domain,
-                                url: data.url,
-                                title: data.title,
-                                category: category,
-                                duration: data.active_duration_ms,
-                                is_browser_focused: data.is_browser_focused,
-                                browser_name: data.browser_name || userPreferences.browserWithExtension || undefined,
-                                timestamp: Date.now()
-                            });
+                        mainWindow.webContents.send('browser-tracking-event', {
+                            type: 'browser-data',
+                            domain: data.domain,
+                            url: data.url,
+                            title: data.title,
+                            category: category,
+                            duration: data.active_duration_ms,
+                            is_browser_focused: data.is_browser_focused,
+                            browser_name: data.browser_name || userPreferences.browserWithExtension || undefined,
+                            profile_id: data.profileId || undefined,
+                            timestamp: Date.now()
+                        });
                         } catch (_err) {}
                     }
                     console.log(`[DeskFlow] ACCEPTED: ${data.domain} (${Math.round((data.active_duration_ms || 0) / 1000)}s)`);
@@ -29577,7 +29710,7 @@ electron_1.ipcMain.handle('finance:update-transaction', async (_event, data: any
   try {
     const id = data.id;
     if (!id) return null;
-    const ALLOWED = ['account_id', 'wallet_id', 'category_id', 'type', 'amount', 'description', 'note', 'date', 'time', 'on_behalf_of', 'on_behalf_of_label', 'ft_person_id', 'tags', 'fee', 'is_recurring', 'recurring_interval'];
+    const ALLOWED = ['account_id', 'wallet_id', 'category_id', 'type', 'amount', 'description', 'note', 'date', 'time', 'on_behalf_of', 'on_behalf_of_label', 'ft_person_id', 'tags', 'fee', 'is_recurring', 'recurring_interval', 'merchant', 'merchant_id', 'is_adjustment'];
     const fields: string[] = [];
     const values: any[] = [];
     for (const k of ALLOWED) {
@@ -29960,6 +30093,15 @@ electron_1.ipcMain.handle('finance:get-on-behalf-of-summary', async () => {
   } catch {
     return { totalExpense: 0, breakdown: [] };
   }
+});
+
+// ── Last Transaction Date ──
+electron_1.ipcMain.handle('finance:last-transaction-date', async () => {
+  if (!db) return null;
+  try {
+    const row = db.prepare(`SELECT MAX(updated_at) as last_updated, MAX(date) as last_date FROM finance_transactions`).get() as any;
+    return row ? { lastUpdated: row.last_updated, lastDate: row.last_date } : null;
+  } catch { return null; }
 });
 
 // ── Follow-Through Persons ──

@@ -68,7 +68,7 @@ export const CreditTransactionModal: React.FC<TxModalProps> = (props) => {
 								className="w-full rounded-lg border border-zinc-700/50 bg-zinc-800/30 px-3 py-2 text-xs text-white outline-none placeholder:text-zinc-600 focus:border-zinc-500" />
 						</div>
 
-						<AmountInput accent={ACCENT} value={f.fee} onChange={f.setFee} symbol={symbol} label="Transaction Fee" />
+						<AmountInput accent={ACCENT} value={f.fee} onChange={f.setFee} symbol={symbol} label={f.type === 'transfer' ? 'Transfer Fee' : 'Transaction Fee'} />
 
 						<OnBehalfOfSection accent={ACCENT} value={f.onBehalfOf} personId={f.ftPersonId} onValueChange={f.setOnBehalfOf} onPersonChange={(id, _name) => f.setFtPersonId(id)} persons={props.ftPersons} onAddPerson={props.onAddFtPerson} usePersonBalance={f.usePersonBalance} onUsePersonBalanceChange={f.setUsePersonBalance} personBalance={selectedPerson?.balance} />
 {(f.type === 'income' || f.type === 'transfer') && (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Select, SelectItem } from '../ui/select';
 
 export interface FocusGroupOption {
@@ -76,10 +76,17 @@ export function FocusGroupSelect({
   const { groups, loading, error } = useFocusGroups();
   const legacyValue = value && !isFocusGroupMatch(value) ? value : null;
 
+  const valueLabel = useMemo(() => {
+    const map: Record<string, string> = { '': 'Any app (total tracked time)' };
+    for (const g of groups) { map[focusGroupValue(g.id)] = g.name; }
+    if (legacyValue) map[legacyValue] = `Category: ${legacyValue} (legacy)`;
+    return map;
+  }, [groups, legacyValue]);
+
   return (
     <div>
       {label && <label className="text-[11px] text-zinc-500 mb-1 block">{label}</label>}
-      <Select value={value} onValueChange={onValueChange} className={className} disabled={loading}>
+      <Select value={value} onValueChange={onValueChange} className={className} disabled={loading} valueLabel={valueLabel}>
         {loading && <SelectItem value="" disabled>Loading focus groups…</SelectItem>}
         {!loading && allowAny && <SelectItem value="">Any app (total tracked time)</SelectItem>}
         {!loading && groups.map(g => (

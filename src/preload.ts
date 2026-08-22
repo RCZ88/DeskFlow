@@ -176,7 +176,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   getTableSchema: (tableName: string) => ipcRenderer.invoke('get-table-schema', tableName),
   getDatabaseTables: () => ipcRenderer.invoke('get-database-tables'),
-  getTableData: (tableName: string, limit?: number) => ipcRenderer.invoke('get-table-data', tableName, limit),
+  getTableData: (tableName: string, limit?: number, offset?: number) => ipcRenderer.invoke('get-table-data', tableName, limit, offset),
+  getTableDataCount: (tableName: string) => ipcRenderer.invoke('get-table-data-count', tableName),
+  getTableChanges: (tableName: string, limit?: number) => ipcRenderer.invoke('get-table-changes', tableName, limit),
   updateCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
     ipcRenderer.invoke('update-categories-from-overrides', appOverrides, domainOverrides, false),
   previewCategoriesFromOverrides: (appOverrides: Record<string, string>, domainOverrides: Record<string, string>) => 
@@ -1232,8 +1234,9 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   financeApplyRecalculatedBalance: (walletId: number) => ipcRenderer.invoke('finance:apply-recalculated-balance', walletId),
   financeUpdateTransactionSortOrder: (updates: { id: number; sort_order: number }[]) => ipcRenderer.invoke('finance:update-transaction-sort-order', updates),
   financeFixHistoricalDates: () => ipcRenderer.invoke('finance:fix-historical-dates'),
-  financeGetOnBehalfOfSummary: () => ipcRenderer.invoke('finance:get-on-behalf-of-summary'),
-  financeGetFtPersons: () => ipcRenderer.invoke('finance:get-ft-persons'),
+financeGetOnBehalfOfSummary: () => ipcRenderer.invoke('finance:get-on-behalf-of-summary'),
+financeLastTransactionDate: () => ipcRenderer.invoke('finance:last-transaction-date'),
+financeGetFtPersons: () => ipcRenderer.invoke('finance:get-ft-persons'),
   financeCreateFtPerson: (data: { name: string }) => ipcRenderer.invoke('finance:create-ft-person', data),
   financeFtPersonTopup: (data: { personId: number; walletId: number; amount: number; description?: string; date?: string }) => ipcRenderer.invoke('finance:ft-person-topup', data),
   financeFtPersonDeduct: (data: { personId: number; amount: number; description?: string }) => ipcRenderer.invoke('finance:ft-person-deduct', data),
@@ -1323,6 +1326,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   learnGenerateLdoc: (params: { prompt: string; systemPrompt: string }) =>
     ipcRenderer.invoke('learn:generateLdoc', params),
   learnListRecipes: () => ipcRenderer.invoke('learn:listRecipes'),
+  learnAiChat: (params: { systemPrompt: string; messages: { role: string; content: string }[] }) =>
+    ipcRenderer.invoke('learn:aiChat', params),
   learnBuildPromptFromRecipe: (params: { recipeSlug: string; topic?: string; userInput?: string }) =>
     ipcRenderer.invoke('learn:buildPromptFromRecipe', params),
 

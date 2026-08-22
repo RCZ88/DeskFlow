@@ -122,9 +122,19 @@ export function sttStartNative(lang: string | undefined, cb: SttCallbacks): SttS
   }
   let stopped = false;
   let unsubscribe: (() => void) | null = null;
+  let gotFirstEvent = false;
+
+  // Timeout: if no events arrive within 5s, the native engine likely failed to start
+  const startupTimer = setTimeout(() => {
+    if (!stopped && !gotFirstEvent) {
+      cb.onError('Windows speech engine not responding — check microphone access');
+    }
+  }, 5000);
 
   const handler = (ev: { type: string; text?: string }) => {
     if (stopped) return;
+    gotFirstEvent = true;
+    clearTimeout(startupTimer);
     if (ev.type === 'final' && ev.text) {
       cb.onFinal(ev.text);
     } else if (ev.type === 'error') {
@@ -152,6 +162,7 @@ export function sttStartNative(lang: string | undefined, cb: SttCallbacks): SttS
 
   return () => {
     stopped = true;
+    clearTimeout(startupTimer);
     if (unsubscribe) {
       try {
         unsubscribe();

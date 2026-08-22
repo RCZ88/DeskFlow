@@ -160,9 +160,10 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
               </div>
             ) : (
               <FocusAppPicker
-                knownApps={knownApps.filter(a => !a.is_browser_tracking)}
+                knownApps={knownApps}
                 selected={apps}
                 onChange={setApps}
+                showBrowserBadge
               />
             )}
           </div>
@@ -207,6 +208,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
 
           <p className="text-[10px] text-zinc-600 leading-relaxed">
             Strictness and duration are picked when you start a session — daily goals are set in the Focus goals card.
+            When a browser is in the allowed apps list and the group has allowed sites, websites are checked against those sites during sessions.
           </p>
 
           {err && <p className="text-[11px] text-rose-400">{err}</p>}

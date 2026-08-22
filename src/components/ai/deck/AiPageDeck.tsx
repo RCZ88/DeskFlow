@@ -24,6 +24,7 @@ export interface DeckProps {
   onCardAction?: (a: CardAction) => void
   streaming?: boolean
   thinking?: boolean
+  connecting?: boolean
   provider?: string
   online?: boolean
   suggestions?: ChatSuggestion[]
@@ -500,6 +501,7 @@ export function AiPageDeck(props: DeckProps) {
           messages={props.messages}
           streaming={props.streaming}
           thinking={props.thinking}
+          connecting={props.connecting}
           provider={props.provider}
           online={props.online}
           input={props.input}

@@ -365,7 +365,7 @@ function DraftCard({ note, onResume, onDiscard }: { note: Note; onResume: (n: No
 }
 
 // ── Note Card ──
-function NoteCard({ note, onClick }: { note: Note; onClick: (n: Note) => void }) {
+function NoteCard({ note, onClick, onDragStart, onDragEnd }: { note: Note; onClick: (n: Note) => void; onDragStart?: (id: string) => void; onDragEnd?: () => void }) {
   const groupColor = getGroupColor(note.group_name || 'Ungrouped')
   // Parse tags — DB may store as JSON string
   const safeTags = Array.isArray(note.tags) ? note.tags

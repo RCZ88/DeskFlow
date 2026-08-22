@@ -9,7 +9,44 @@ const CAPTURE_TRIGGERS = {
     /(?:wrong|incorrect|not right|that's not|should be|needs to be|must be)/i,
   ],
   selfReflect: /(?:i made a mistake|i was wrong|i forgot|i should have|next time i will|lesson learned)/i,
+  decisions: [
+    /(?:let's go with|we'll use|we're going with|the approach is|the plan is|decision[:\s])/i,
+    /(?:i've decided|we decided|going to use|settled on|final choice is)/i,
+    /(?:let's use|we should use|the solution is|the way to go is)/i,
+  ],
+  softCorrections: [
+    /(?:actually,?\s|no wait|hold on|that's wrong|change it to|switch to)/i,
+    /(?:not that|replace .* with|instead of .* use|correction[:\s])/i,
+    /(?:update:|fix:|revised:|corrected:)/i,
+  ],
+  preferences: [
+    /(?:i prefer|i like|i want|i don't want|don't use|always do|never use)/i,
+    /(?:my preference|i'd rather|keep it|i always|i never)/i,
+    /(?:please always|please never|make sure to|ensure that)/i,
+  ],
+  patterns: [
+    /(?:every time|whenever|the rule is|as a rule|by default|standard practice)/i,
+    /(?:in this project|for this repo|our convention|team rule|coding standard)/i,
+    /(?:always remember|keep in mind|note that|important[:\s])/i,
+  ],
 };
+
+const CAPTURE_COOLDOWN_MS = 30_000;
+const MAX_CAPTURES_PER_SESSION = 20;
+let lastCaptureTime = 0;
+let sessionCaptureCount = 0;
+
+export function shouldCapture(): boolean {
+  const now = Date.now();
+  if (now - lastCaptureTime < CAPTURE_COOLDOWN_MS) return false;
+  if (sessionCaptureCount >= MAX_CAPTURES_PER_SESSION) return false;
+  return true;
+}
+
+export function recordCapture(): void {
+  lastCaptureTime = Date.now();
+  sessionCaptureCount++;
+}
 
 export function captureMemoryFromMessage(
   message: string,

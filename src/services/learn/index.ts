@@ -337,6 +337,23 @@ export function registerLearnHandlers(
     return listRecipes();
   });
 
+  // ── Knowledge Intake: generic AI chat call ──
+  ipcMain.handle('learn:aiChat', async (_event, { systemPrompt, messages }: {
+    systemPrompt: string;
+    messages: { role: string; content: string }[];
+  }) => {
+    try {
+      const userMsg = messages.map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n\n');
+      const raw = await callAi(userMsg, systemPrompt, 4000);
+      if (!raw || typeof raw !== 'string') {
+        return { ok: false, error: 'AI returned an empty response.' };
+      }
+      return { ok: true, data: raw };
+    } catch (e: any) {
+      return { ok: false, error: e.message || 'AI call failed' };
+    }
+  });
+
   ipcMain.handle('learn:buildPromptFromRecipe', (_event, params: {
     recipeSlug: string;
     topic?: string;

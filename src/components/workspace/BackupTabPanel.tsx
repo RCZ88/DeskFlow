@@ -202,13 +202,15 @@ export function BackupTabPanel({ projectId, projectPath }: BackupTabPanelProps) 
 
   const handleSchedule = async (minutes: number) => {
     if (!projectId || !projectPath) return;
-    setAutoBackupInterval(minutes);
-    if (minutes > 0) {
-      setLastAutoBackup(new Date().toISOString());
-    }
     try {
-      await windowAPI?.projectBackup?.schedule(projectId, minutes);
-      setSuccessMsg(minutes > 0 ? `Auto-backup enabled: every ${minutes} min` : 'Auto-backup disabled');
+      const result = await windowAPI?.projectBackup?.schedule(projectId, minutes, projectPath);
+      if (result?.success) {
+        setAutoBackupInterval(minutes);
+        setLastAutoBackup(minutes > 0 ? new Date().toISOString() : null);
+        setSuccessMsg(minutes > 0 ? `Auto-backup enabled: every ${minutes} min` : 'Auto-backup disabled');
+      } else {
+        setError(result?.error || 'Failed to update schedule');
+      }
     } catch {
       setError('Failed to update schedule');
     }

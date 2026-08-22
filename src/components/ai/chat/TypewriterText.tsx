@@ -16,6 +16,7 @@ export function TypewriterText({ text, speed = 90, onDone, className }: Typewrit
   const rafRef = useRef<number | null>(null)
   const startRef = useRef<number | null>(null)
   const doneRef = useRef(false)
+  const lastRenderRef = useRef(0)
 
   useEffect(() => {
     if (reduce) {
@@ -26,11 +27,16 @@ export function TypewriterText({ text, speed = 90, onDone, className }: Typewrit
       if (startRef.current === null) startRef.current = t
       const elapsed = (t - startRef.current) / 1000
       const next = Math.min(text.length, Math.floor(elapsed * speed))
-      setCount(next)
+      // Only update state every ~60ms to avoid O(n²) markdown re-parses
+      if (next > count && (t - lastRenderRef.current) > 60) {
+        lastRenderRef.current = t
+        setCount(next)
+      }
       if (next < text.length) {
         rafRef.current = requestAnimationFrame(tick)
       } else if (!doneRef.current) {
         doneRef.current = true
+        setCount(text.length)
         onDone?.()
       }
     }

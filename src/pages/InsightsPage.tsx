@@ -526,7 +526,7 @@ export default function InsightsPage({
   const chartColors = ['rgba(168, 85, 247, 0.8)', 'rgba(34, 211, 238, 0.8)', 'rgba(52, 211, 153, 0.8)', 'rgba(251, 113, 133, 0.8)', 'rgba(245, 158, 11, 0.8)', 'rgba(96, 165, 250, 0.8)', 'rgba(129, 140, 248, 0.8)', 'rgba(251, 146, 60, 0.8)'];
 
   return (
-    <PageShell page="insights" variant="sticky-header" className="bg-[#0a0a0f]">
+    <PageShell page="insights" variant="sticky-header">
       <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/60 bg-zinc-900/40 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
