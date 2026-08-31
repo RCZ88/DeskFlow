@@ -1,7 +1,7 @@
 import React from 'react'
 import { useStudio } from '../../state/StudioProvider'
 import { FileJson, Play, Sparkles } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { BlurFade } from '../ui'
 
 export function ScenePlanView() {
   const { state, dispatch, activeSession } = useStudio()
@@ -18,7 +18,10 @@ export function ScenePlanView() {
     </div>
   )
 
-  if (!activeSession.scenePlan) return (
+  // Use overlayPlan (from episode handoff) or scenePlan
+  const scenes = activeSession.overlayPlan?.overlays || activeSession.scenePlan?.overlays || []
+
+  if (scenes.length === 0) return (
     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
       <FileJson size={28} className="mb-3 text-zinc-600" />
       <p className="text-[13px] font-medium text-zinc-400">No scene plan yet</p>
@@ -27,7 +30,6 @@ export function ScenePlanView() {
     </div>
   )
 
-  const scenes = activeSession.scenePlan.overlays || []
   return (
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between">
@@ -39,17 +41,18 @@ export function ScenePlanView() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {scenes.map((scene: any, i: number) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay: i * 0.05 }}
-            className="rounded-xl bg-zinc-800/30 border border-zinc-700/20 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] text-[#22d3ee] font-semibold">{scene.type || 'card'}</span>
-              <span className="text-[11px] text-zinc-600 font-mono">{Math.floor(scene.start_time / 60)}:{(scene.start_time % 60).toFixed(1).padStart(4, '0')} – {Math.floor(scene.end_time / 60)}:{(scene.end_time % 60).toFixed(1).padStart(4, '0')}</span>
+          <BlurFade key={i} delay={i * 0.03}>
+            <div className="rounded-xl bg-zinc-800/30 border border-zinc-700/20 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] text-[#22d3ee] font-semibold">{scene.type || 'card'}</span>
+                <span className="text-[11px] text-zinc-600 font-mono">{Math.floor(scene.start_time / 60)}:{(scene.start_time % 60).toFixed(1).padStart(4, '0')} – {Math.floor(scene.end_time / 60)}:{(scene.end_time % 60).toFixed(1).padStart(4, '0')}</span>
+              </div>
+              <div className="text-[13px] text-zinc-300 font-medium mb-1">{scene.text?.slice(0, 50)}{scene.text?.length > 50 ? '...' : ''}</div>
+              {scene.emphasis_words?.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">{scene.emphasis_words.map((w: string, j: number) => <span key={j} className="text-[11px] px-1.5 py-0.5 rounded bg-[#22d3ee]/10 text-[#22d3ee]">{w}</span>)}</div>
+              )}
             </div>
-            <div className="text-[13px] text-zinc-300 font-medium mb-1">{scene.text?.slice(0, 50)}{scene.text?.length > 50 ? '...' : ''}</div>
-            {scene.emphasis_words?.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1">{scene.emphasis_words.map((w: string, j: number) => <span key={j} className="text-[11px] px-1.5 py-0.5 rounded bg-[#22d3ee]/10 text-[#22d3ee]">{w}</span>)}</div>
-            )}
-          </motion.div>
+          </BlurFade>
         ))}
       </div>
     </div>

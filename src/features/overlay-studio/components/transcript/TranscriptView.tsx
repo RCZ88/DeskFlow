@@ -1,7 +1,7 @@
 import React from 'react'
 import { useStudio } from '../../state/StudioProvider'
-import { AlertTriangle, FileJson, LoaderCircle, Upload } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { FileJson, LoaderCircle, Upload } from 'lucide-react'
+import { BlurFade } from '../ui'
 
 export function TranscriptView() {
   const { activeSession, dispatch, state } = useStudio()
@@ -11,18 +11,17 @@ export function TranscriptView() {
     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
       <FileJson size={28} className="mb-3 text-zinc-600" />
       <p className="text-[13px] font-medium text-zinc-400">No session selected</p>
-      <p className="text-[11px] text-zinc-500 mt-1 mb-4">Select a video session from the sidebar.</p>
+      <p className="text-[11px] text-zinc-500 mt-1 mb-4">Overlay sessions always belong to an episode. Select one from the sidebar.</p>
     </div>
   )
 
-  // Transcribing in progress
   if (activeSession.status === 'transcribing' || asyncState.transcript.state === 'loading') return (
     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
       <LoaderCircle size={28} className="mb-3 text-cyan-400 animate-spin" />
       <p className="text-[13px] font-medium text-zinc-200">Transcribing...</p>
       <p className="text-[11px] text-zinc-500 mt-1">Using faster-whisper (local). This may take a moment.</p>
       <div className="mt-4 w-48 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-        <motion.div className="h-full bg-cyan-500 rounded-full" animate={{ width: ['0%', '80%'] }} transition={{ duration: 30, ease: 'linear' }} />
+        <div className="h-full bg-cyan-500 rounded-full animate-pulse" style={{ width: '60%' }} />
       </div>
     </div>
   )
@@ -34,13 +33,11 @@ export function TranscriptView() {
       <p className="text-[11px] text-zinc-500 mt-1 mb-4">
         {activeSession.sourceVideoPath && !activeSession.sourceVideoPath.endsWith('.json')
           ? 'Transcription failed or unavailable. You can import a transcript JSON file instead.'
-          : 'Import a video/audio file for auto-transcription, or load a transcript JSON.'
-        }
+          : 'Import a video/audio file for auto-transcription, or load a transcript JSON.'}
       </p>
       <div className="flex gap-2">
         <button onClick={() => dispatch({ type: 'SET_STAGE', stage: 'source' })} className="studio-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs"><Upload size={14} /> Import File</button>
         <button onClick={() => {
-          // Load sample transcript
           const sample = {
             video_id: 'sample_tutorial', duration: 320.5,
             segments: [
@@ -66,18 +63,17 @@ export function TranscriptView() {
           <h2 className="text-[13px] font-semibold text-zinc-200">Transcript</h2>
           <p className="text-[11px] text-zinc-500 mt-0.5">{transcript.segments?.length || 0} segments · {Math.floor((transcript.duration || 0) / 60)}:{((transcript.duration || 0) % 60).toFixed(0).padStart(2, '0')}</p>
         </div>
-        <button onClick={() => dispatch({ type: 'OPEN_BRIDGE', mode: 'cut-plan' })} className="studio-btn-primary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[11px]">
-          Generate Cut Plan
-        </button>
+        <button onClick={() => dispatch({ type: 'OPEN_BRIDGE', mode: 'cut-plan' })} className="studio-btn-primary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-[11px]">Generate Cut Plan</button>
       </div>
       <div className="space-y-1">
         {transcript.segments?.map((seg: any, i: number) => (
-          <motion.div key={seg.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: Math.min(i * 0.02, 0.3) }}
-            className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800/40 border border-transparent transition-all duration-150">
-            <span className="text-[11px] text-zinc-600 font-mono w-8 shrink-0 pt-0.5">#{seg.id}</span>
-            <span className="text-[11px] text-[#22d3ee] font-mono w-20 shrink-0 pt-0.5">{Math.floor(seg.start / 60)}:{(seg.start % 60).toFixed(1).padStart(4, '0')}</span>
-            <span className="text-[13px] text-zinc-300 leading-relaxed flex-1">{seg.text}</span>
-          </motion.div>
+          <BlurFade key={seg.id} delay={Math.min(i * 0.01, 0.2)}>
+            <div className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-zinc-800/40 border border-transparent transition-all duration-150">
+              <span className="text-[11px] text-zinc-600 font-mono w-8 shrink-0 pt-0.5">#{seg.id}</span>
+              <span className="text-[11px] text-[#22d3ee] font-mono w-20 shrink-0 pt-0.5">{Math.floor(seg.start / 60)}:{(seg.start % 60).toFixed(1).padStart(4, '0')}</span>
+              <span className="text-[13px] text-zinc-300 leading-relaxed flex-1">{seg.text}</span>
+            </div>
+          </BlurFade>
         ))}
       </div>
     </div>

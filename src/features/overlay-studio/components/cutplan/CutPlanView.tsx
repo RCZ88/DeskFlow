@@ -1,7 +1,7 @@
 import React from 'react'
 import { useStudio } from '../../state/StudioProvider'
-import { Check, FileJson, X } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { Check, FileJson } from 'lucide-react'
+import { BlurFade } from '../ui'
 
 export function CutPlanView() {
   const { state, dispatch, activeSession } = useStudio()
@@ -46,13 +46,14 @@ export function CutPlanView() {
         {activeSession.transcript?.segments?.map((seg: any, i: number) => {
           const k = kept.find((s: any) => s.segment_id === seg.id)
           return (
-            <motion.div key={seg.id} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, delay: Math.min(i * 0.02, 0.3) }}
-              className={`flex items-start gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${k ? 'bg-emerald-500/[0.06] border border-emerald-500/20' : 'bg-zinc-800/20 border border-transparent opacity-50'}`}>
-              <span className="text-[11px] text-zinc-600 font-mono w-8 shrink-0 pt-0.5">#{seg.id}</span>
-              <span className="text-[11px] text-[#22d3ee] font-mono w-20 shrink-0 pt-0.5">{Math.floor(seg.start / 60)}:{(seg.start % 60).toFixed(1).padStart(4, '0')}</span>
-              <span className="text-[13px] text-zinc-300 leading-relaxed flex-1">{seg.text}</span>
-              {k && <span className="text-[11px] text-emerald-400 font-semibold shrink-0 pt-0.5">{k.role || k.intent || 'kept'}</span>}
-            </motion.div>
+            <BlurFade key={seg.id} delay={Math.min(i * 0.01, 0.2)}>
+              <div className={`flex items-start gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${k ? 'bg-emerald-500/[0.06] border border-emerald-500/20' : 'bg-zinc-800/20 border border-transparent opacity-50'}`}>
+                <span className="text-[11px] text-zinc-600 font-mono w-8 shrink-0 pt-0.5">#{seg.id}</span>
+                <span className="text-[11px] text-[#22d3ee] font-mono w-20 shrink-0 pt-0.5">{Math.floor(seg.start / 60)}:{(seg.start % 60).toFixed(1).padStart(4, '0')}</span>
+                <span className="text-[13px] text-zinc-300 leading-relaxed flex-1">{seg.text}</span>
+                {k && <span className="text-[11px] text-emerald-400 font-semibold shrink-0 pt-0.5">{k.role || k.intent || 'kept'}</span>}
+              </div>
+            </BlurFade>
           )
         })}
       </div>

@@ -1,25 +1,25 @@
 import React, { useCallback } from 'react'
 import { useStudio } from '../../state/StudioProvider'
 import { AlertTriangle, Camera, Eye, FileJson, Film, Layers, Play, Plus, Scan, Search, Sparkles, Upload, Wand2 } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { BlurFade, NumberTicker } from '../ui'
 
 function ToolCard({ icon: Icon, title, description, status, onClick, delay = 0 }: {
   icon: React.FC<{ size?: number }>; title: string; description: string; status: string; onClick: () => void; delay?: number
 }) {
   return (
-    <motion.button whileHover={{ y: -2, scale: 1.01 }} whileTap={{ scale: 0.97 }}
-      initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, delay, ease: [0.16, 1, 0.3, 1] }}
-      onClick={onClick}
-      className="w-full text-left rounded-xl border border-zinc-700/30 bg-zinc-800/30 p-4 hover:border-[#ec4899]/30 hover:bg-zinc-800/50 transition-all duration-150 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-900">
-      <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-lg bg-[#ec4899]/10 flex items-center justify-center shrink-0"><Icon size={16} className="text-[#ec4899]" /></div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-zinc-200">{title}</div>
-          <div className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">{description}</div>
+    <BlurFade delay={delay} direction="up">
+      <button onClick={onClick}
+        className="w-full text-left rounded-xl border border-white/[0.08] bg-zinc-900/80 p-4 hover:border-white/[0.15] hover:bg-zinc-900 transition-all duration-200 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-white/[0.06] flex items-center justify-center shrink-0"><Icon size={16} className="text-white/70" /></div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-zinc-100">{title}</div>
+            <div className="text-[11px] text-zinc-500 mt-0.5 leading-relaxed">{description}</div>
+          </div>
+          <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${status === 'ready' ? 'bg-emerald-500/15 text-emerald-400' : status === 'needs-setup' ? 'bg-amber-500/15 text-amber-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{status === 'ready' ? 'Ready' : status === 'needs-setup' ? 'Setup' : 'Available'}</span>
         </div>
-        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full shrink-0 ${status === 'ready' ? 'bg-emerald-500/15 text-emerald-400' : status === 'needs-setup' ? 'bg-amber-500/15 text-amber-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{status === 'ready' ? 'Ready' : status === 'needs-setup' ? 'Setup' : 'Available'}</span>
-      </div>
-    </motion.button>
+      </button>
+    </BlurFade>
   )
 }
 
@@ -27,7 +27,7 @@ function LoadingSkeleton() {
   return (
     <div className="p-5 space-y-5">
       <div className="space-y-2"><div className="h-5 w-48 bg-zinc-800/50 rounded-lg animate-pulse" /><div className="h-3 w-80 bg-zinc-800/30 rounded-lg animate-pulse" /></div>
-      <div className="rounded-xl border border-zinc-700/30 bg-zinc-900/70 p-4"><div className="h-4 w-40 bg-zinc-800/50 rounded animate-pulse mb-2" /><div className="h-3 w-60 bg-zinc-800/30 rounded animate-pulse" /></div>
+      <div className="rounded-xl border border-white/[0.08] bg-zinc-900/80 p-4"><div className="h-4 w-40 bg-zinc-800/50 rounded animate-pulse mb-2" /><div className="h-3 w-60 bg-zinc-800/30 rounded animate-pulse" /></div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[1,2,3,4].map(i => <div key={i} className="h-24 bg-zinc-800/30 rounded-xl animate-pulse" />)}</div>
     </div>
   )
@@ -52,62 +52,43 @@ export function DashboardView() {
 
   return (
     <div className="p-5 space-y-5">
-      {/* Header — Frontend Design: SectionHeader pattern */}
-      <div>
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#ec4899] mb-1"><Sparkles size={14} /> Overlay Studio</div>
-        <h1 className="text-lg font-semibold text-zinc-100">Video Overlay Suggestion Studio</h1>
-        <p className="text-[11px] text-zinc-500 mt-1">Analyze videos, generate cut plans, preview overlays, and export suggestion plans.</p>
-      </div>
+      <BlurFade>
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-white/60 mb-1"><Sparkles size={14} /> Overlay Studio</div>
+          <h1 className="text-lg font-semibold text-zinc-100">Video Overlay Studio</h1>
+          <p className="text-[11px] text-zinc-500 mt-1">Episode-linked overlay creation. Analyze, plan, preview, export.</p>
+        </div>
+      </BlurFade>
 
-      {/* Active Session Summary */}
       {activeSession ? (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-zinc-700/30 bg-zinc-900/70 backdrop-blur-xl p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-[13px] font-semibold text-zinc-200">{activeSession.sourceVideoName}</div>
-              <div className="text-[11px] text-zinc-500 mt-0.5 truncate max-w-[400px]">{activeSession.sourceVideoPath}</div>
-              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.transcript ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.transcript ? 'Transcript ready' : 'No transcript'}</span>
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.cutPlan ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.cutPlan ? 'Cut plan ready' : 'No cut plan'}</span>
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.scenePlan ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.scenePlan ? 'Scene plan ready' : 'No scene plan'}</span>
-                <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.digest ? 'bg-cyan-500/15 text-cyan-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.digest ? 'Visual digest' : 'No visual digest'}</span>
-                {(activeSession.objects?.length || activeSession.faces?.length || activeSession.textRegions?.length) ? (
-                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400">{(activeSession.objects?.length || 0) + (activeSession.faces?.length || 0) + (activeSession.textRegions?.length || 0)} regions marked</span>
-                ) : null}
+        <BlurFade delay={0.1}>
+          <div className="rounded-xl border border-white/[0.08] bg-zinc-900/80 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[13px] font-semibold text-zinc-200">{activeSession.name}</div>
+                <div className="text-[11px] text-zinc-500 mt-0.5 truncate max-w-[400px]">Episode #{activeSession.episodeId} · {activeSession.sourceVideoName}</div>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.transcript ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.transcript ? 'Transcript ready' : 'No transcript'}</span>
+                  <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.cutPlan ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.cutPlan ? 'Cut plan ready' : 'No cut plan'}</span>
+                  <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${activeSession.overlayPlan ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-700/30 text-zinc-500'}`}>{activeSession.overlayPlan ? 'Overlay plan ready' : 'No overlay plan'}</span>
+                  {activeSession.motionAssets?.length ? <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-400"><NumberTicker value={activeSession.motionAssets.length} fontSize={11} /> motion</span> : null}
+                </div>
               </div>
+              <button onClick={() => dispatch({ type: 'SET_STAGE', stage: activeSession.transcript ? 'transcript' : 'source' })} className="studio-btn-primary rounded-lg px-4 py-2 text-xs">Continue</button>
             </div>
-            <button onClick={() => dispatch({ type: 'SET_STAGE', stage: activeSession.transcript ? 'transcript' : 'source' })} className="studio-btn-primary rounded-lg px-4 py-2 text-xs">Continue</button>
           </div>
-        </motion.div>
+        </BlurFade>
       ) : (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-dashed border-zinc-700 bg-zinc-950/30 p-8 text-center">
-          <Film size={28} className="mx-auto mb-3 text-zinc-600" />
-          <p className="text-[13px] font-medium text-zinc-400">No active video session</p>
-          <p className="text-[11px] text-zinc-500 mt-1 mb-4">Import a video to begin analyzing and generating overlays.</p>
-          <button onClick={handleImport} className="studio-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs"><Plus size={14} /> Import Video</button>
-          <button onClick={() => {
-            // Load sample transcript for testing
-            const sample = {
-              video_id: 'sample_tutorial', duration: 320.5,
-              segments: [
-                { id: 0, start: 0.0, end: 5.2, text: 'Welcome to this tutorial. Today we are going to cover three important concepts.' },
-                { id: 1, start: 5.5, end: 15.8, text: 'The first concept is the foundation. Without understanding this, everything else falls apart.' },
-                { id: 2, start: 16.2, end: 28.0, text: 'Let me show you a comparison between the old approach and the new approach.' },
-                { id: 3, start: 28.5, end: 42.0, text: 'Now let me explain how this works in practice. You can see the results here.' },
-                { id: 4, start: 42.5, end: 58.0, text: 'The key metric to watch is the efficiency ratio. When this number goes up, performance improves.' },
-                { id: 5, start: 58.5, end: 75.0, text: 'In summary, these three concepts form the basis of everything we will cover in this series.' },
-              ]
-            }
-            dispatch({ type: 'CREATE_SESSION', session: {
-              id: crypto.randomUUID(), name: 'sample_tutorial.mp4', sourceVideoPath: 'sample_tutorial.mp4', sourceVideoName: 'sample_tutorial.mp4',
-              durationSec: sample.duration, transcript: sample, status: 'transcript_ready', missingSource: false,
-              createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-            }})
-          }} className="studio-btn-secondary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs">Load sample</button>
-        </motion.div>
+        <BlurFade delay={0.1}>
+          <div className="rounded-xl border border-dashed border-white/[0.08] bg-zinc-950/30 p-8 text-center">
+            <Film size={28} className="mx-auto mb-3 text-zinc-600" />
+            <p className="text-[13px] font-medium text-zinc-400">No active overlay session</p>
+            <p className="text-[11px] text-zinc-500 mt-1 mb-4">Overlay sessions always belong to an episode. Select one from the sidebar or import a video.</p>
+            <button onClick={handleImport} className="studio-btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-xs"><Plus size={14} /> Import Video</button>
+          </div>
+        </BlurFade>
       )}
 
-      {/* Tool Grid — Frontend Design: stagger animation */}
       <div>
         <h3 className="text-[13px] font-semibold text-zinc-300 mb-3">Pipeline Tools</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -115,12 +96,11 @@ export function DashboardView() {
           <ToolCard icon={FileJson} title="Transcript" description="View and edit transcript segments." status={activeSession?.transcript ? 'ready' : activeSession ? 'available' : 'needs-setup'} onClick={() => { if (activeSession?.transcript) dispatch({ type: 'SET_STAGE', stage: 'transcript' }); else if (activeSession) dispatch({ type: 'OPEN_BRIDGE', mode: 'cut-plan' }); else dispatch({ type: 'SET_STAGE', stage: 'source' }) }} delay={0.05} />
           <ToolCard icon={Wand2} title="Manual Bridge" description="Generate prompts and paste AI responses." status="ready" onClick={() => dispatch({ type: 'OPEN_BRIDGE', mode: 'cut-plan' })} delay={0.1} />
           <ToolCard icon={Layers} title="Cut Planner" description="AI selects which segments to keep." status={activeSession?.cutPlan ? 'ready' : activeSession?.transcript ? 'available' : 'needs-setup'} onClick={() => { if (activeSession?.cutPlan) dispatch({ type: 'SET_STAGE', stage: 'cut-plan' }); else if (activeSession?.transcript) dispatch({ type: 'OPEN_BRIDGE', mode: 'cut-plan' }); else dispatch({ type: 'SET_STAGE', stage: 'source' }) }} delay={0.15} />
-          <ToolCard icon={Sparkles} title="Scene DSL" description="AI plans visual overlays for each moment." status={activeSession?.scenePlan ? 'ready' : activeSession?.cutPlan ? 'available' : 'needs-setup'} onClick={() => { if (activeSession?.scenePlan) dispatch({ type: 'SET_STAGE', stage: 'scene-plan' }); else if (activeSession?.cutPlan) dispatch({ type: 'OPEN_BRIDGE', mode: 'cut-plan' }); else dispatch({ type: 'SET_STAGE', stage: 'source' }) }} delay={0.2} />
-          <ToolCard icon={Play} title="Scene Visualizer" description="Preview overlays on a 9:16 canvas." status={activeSession?.scenePlan ? 'ready' : 'needs-setup'} onClick={() => { if (activeSession?.scenePlan) dispatch({ type: 'SET_STAGE', stage: 'visualizer' }); else dispatch({ type: 'SET_STAGE', stage: 'source' }) }} delay={0.25} />
+          <ToolCard icon={Sparkles} title="Scene DSL" description="AI plans visual overlays for each moment." status={activeSession?.overlayPlan ? 'ready' : activeSession?.cutPlan ? 'available' : 'needs-setup'} onClick={() => { if (activeSession?.overlayPlan) dispatch({ type: 'SET_STAGE', stage: 'scene-plan' }); else if (activeSession?.cutPlan) dispatch({ type: 'OPEN_BRIDGE', mode: 'scene-dsl' }); else dispatch({ type: 'SET_STAGE', stage: 'source' }) }} delay={0.2} />
+          <ToolCard icon={Play} title="Scene Visualizer" description="Preview overlays on a 9:16 canvas." status={activeSession?.overlayPlan ? 'ready' : 'needs-setup'} onClick={() => { if (activeSession?.overlayPlan) dispatch({ type: 'SET_STAGE', stage: 'visualizer' }); else dispatch({ type: 'SET_STAGE', stage: 'source' }) }} delay={0.25} />
         </div>
       </div>
 
-      {/* Visual Analysis Tools */}
       <div>
         <h3 className="text-[13px] font-semibold text-zinc-300 mb-3">Visual Analysis</h3>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
