@@ -65,8 +65,8 @@ export function StudioSidebar() {
                 className={`w-full text-left rounded-lg p-2.5 transition-all duration-150 min-h-[72px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ec4899]/50 focus-visible:ring-offset-1 focus-visible:ring-offset-zinc-900 active:scale-[0.98] ${
                   state.activeSessionId === session.id ? 'bg-[#ec4899]/8 border border-[#ec4899]/20' : 'hover:bg-zinc-800/50 border border-transparent'
                 }`}>
-                <div className="text-[13px] font-medium text-zinc-200 truncate">{session.sourceVideoName}</div>
-                <div className="text-[11px] text-zinc-500 mt-0.5 truncate">{session.sourceVideoPath}</div>
+                <div className="text-[13px] font-medium text-zinc-200 truncate">{session.name}</div>
+                <div className="text-[11px] text-zinc-500 mt-0.5 truncate">Episode #{session.episodeId} · {session.sourceVideoName}</div>
                 <div className="flex items-center gap-2 mt-1.5">
                   <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded-full ${
                     session.status.includes('ready') || session.status.includes('approved') ? 'bg-emerald-500/15 text-emerald-400' :
@@ -79,7 +79,7 @@ export function StudioSidebar() {
               </button>
             ))}
             {sessions.length === 0 && (
-              <div className="text-[10px] text-zinc-600 text-center py-4">No sessions yet</div>
+              <div className="text-[10px] text-zinc-600 text-center py-4">No overlay sessions yet — import a video or hand off from an episode</div>
             )}
           </div>
         </div>

@@ -14,6 +14,7 @@ import { GreenLightPanel } from './GreenLightPanel'
 import { CaptureView } from './CaptureView'
 import { AssembleView } from './AssembleView'
 import { LearnView } from './LearnView'
+import { OverlayAssignmentPanel } from './OverlayAssignmentPanel'
 import { TemplateSelector } from './TemplateSelector'
 import { PipelineView } from './PipelineView'
 import { HookStackDisplay } from './HookStackDisplay'
@@ -212,7 +213,13 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
   const [scoringLoading, setScoringLoading] = useState(false)
   const [rejectedFrames, setRejectedFrames] = useState<Set<number>>(new Set())
 
-  // External AI state
+  // Series state
+  const [seriesInfo, setSeriesInfo] = useState<any>(null)
+
+  useEffect(() => {
+    if (!ep.series_id) { setSeriesInfo(null); return }
+    api()?.seriesGet?.(ep.series_id).then((s: any) => setSeriesInfo(s)).catch(() => setSeriesInfo(null))
+  }, [ep.series_id])
   const [externalMode, setExternalMode] = useState(false)
   const [externalPrompt, setExternalPrompt] = useState('')
   const [externalPaste, setExternalPaste] = useState('')
@@ -870,6 +877,8 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
               </div>
             </Card>
           )}
+          {/* Overlay Sessions — ALWAYS belong to this episode */}
+          <OverlayAssignmentPanel episodeId={ep.id} episodeTitle={ep.title} seriesId={ep.series_id} seriesStyle={seriesInfo ? { visual_style: seriesInfo.visual_style, tone: seriesInfo.tone, pacing: seriesInfo.pacing, frame_mode: seriesInfo.frame_mode } : null} />
           {ep.overlay_session_id && (
             <Card className="p-4">
               <div className="flex items-center gap-2">

@@ -44,26 +44,29 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'CREATE_SESSION': return { ...state, sessions: [...state.sessions, action.session], activeSessionId: action.session.id, activeStage: 'source' }
     case 'LINK_EPISODE': {
       const p = action.payload
+      // Overlay sessions ALWAYS belong to an episode — episodeId is required
+      if (!p?.episodeId) return state
       const existing = state.sessions.find((s) => s.episodeId === p.episodeId)
       if (existing) {
         return {
           ...state,
           sessions: state.sessions.map((s) => s.episodeId === p.episodeId
-            ? { ...s, name: p.episodeTitle || s.name, transcript: p.transcriptSegments ? { segments: p.transcriptSegments } : s.transcript, cutPlan: p.cutList ? { cuts: p.cutList } : s.cutPlan, captionTrack: p.captionTrack || s.captionTrack, sourceVideoPath: p.sourceVideoPath || s.sourceVideoPath, status: 'linked' as const, updatedAt: new Date().toISOString() }
+            ? { ...s, name: p.episodeTitle || s.name, transcript: p.transcriptSegments ? { segments: p.transcriptSegments } : s.transcript, cutPlan: p.cutList ? { cuts: p.cutList } : s.cutPlan, captionTrack: p.captionTrack || s.captionTrack, overlayPlan: p.overlayPlan || s.overlayPlan, sourceVideoPath: p.sourceVideoPath || s.sourceVideoPath, status: 'linked' as const, updatedAt: new Date().toISOString() }
             : s),
           activeSessionId: existing.id,
           activeStage: 'visualizer',
         }
       }
-      const id = `ep-linked-${p.episodeId}-${Date.now().toString(36)}`
+      const id = `ov-${p.episodeId}-${Date.now().toString(36)}`
       const session: StudioSession = {
         id, name: p.episodeTitle || `Episode ${p.episodeId}`,
+        episodeId: p.episodeId,
         sourceVideoPath: p.sourceVideoPath || '', sourceVideoName: p.episodeTitle || `Episode ${p.episodeId}`,
         transcript: p.transcriptSegments ? { segments: p.transcriptSegments } : undefined,
         cutPlan: p.cutList ? { cuts: p.cutList } : undefined,
         captionTrack: p.captionTrack,
+        overlayPlan: p.overlayPlan,
         status: 'linked', missingSource: !p.sourceVideoPath,
-        episodeId: p.episodeId,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }
       return { ...state, sessions: [...state.sessions, session], activeSessionId: id, activeStage: 'visualizer' }

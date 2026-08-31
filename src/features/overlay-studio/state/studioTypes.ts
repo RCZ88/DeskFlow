@@ -9,13 +9,32 @@ export interface CaptionLine { id: string; start: number; end: number; text: str
 export interface CaptionTrack { sessionId: string; source: 'transcript' | 'bridge_styled'; lines: CaptionLine[]; createdAt: string }
 
 export interface StudioSession {
-  id: string; name: string; sourceVideoPath: string; sourceVideoName: string
-  durationSec?: number; transcriptPath?: string; cutPlanPath?: string; scenePlanPath?: string; exportPlanPath?: string
-  transcript?: any; cutPlan?: any; scenePlan?: DirectorCut; status: SessionStatus; missingSource: boolean
-  createdAt: string; updatedAt: string
-  episodeId?: number
+  id: string
+  name: string
+  episodeId: number  // REQUIRED — overlay sessions ALWAYS belong to an episode
+  sourceVideoPath: string
+  sourceVideoName: string
+  durationSec?: number
+  transcriptPath?: string
+  cutPlanPath?: string
+  scenePlanPath?: string
+  exportPlanPath?: string
+  transcript?: any
+  cutPlan?: any
+  scenePlan?: DirectorCut
+  motionAssets?: any[]
+  overlayPlan?: any
+  themeId?: number | null
+  status: SessionStatus
+  missingSource: boolean
+  createdAt: string
+  updatedAt: string
   captionTrack?: CaptionTrack
-  digest?: VisualDigest; objects?: DetectedObject[]; faces?: FaceRegion[]; textRegions?: TextRegion[]; shots?: ShotBoundary[]
+  digest?: VisualDigest
+  objects?: DetectedObject[]
+  faces?: FaceRegion[]
+  textRegions?: TextRegion[]
+  shots?: ShotBoundary[]
 }
 
 export interface PlaybackState { currentTime: number; duration: number; isPlaying: boolean; playbackRate: number; muted: boolean }

@@ -36,12 +36,13 @@ export function StudioWorkspace() {
         <div className="flex items-center gap-3 min-w-0">
           {activeSession ? (
             <>
-              <span className="text-xs font-medium text-zinc-200 truncate">{activeSession.sourceVideoName}</span>
+              <span className="text-xs font-medium text-zinc-200 truncate">{activeSession.name}</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#f5c518]/10 text-[#f5c518] font-mono">EP #{activeSession.episodeId}</span>
               <span className="text-[9px] text-zinc-600 truncate max-w-[200px]">{activeSession.sourceVideoPath}</span>
               <span className="text-[9px] font-medium px-2 py-0.5 rounded-full bg-zinc-700/30 text-zinc-400">{state.activeStage.replace(/-/g, ' ')}</span>
             </>
           ) : (
-            <span className="text-xs text-zinc-500">Overlay Studio — No session active</span>
+            <span className="text-xs text-zinc-500">Overlay Studio — No session active (episodes only)</span>
           )}
         </div>
       </div>

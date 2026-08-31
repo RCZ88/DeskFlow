@@ -4258,13 +4258,15 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 // 1. Renderer-side context (state.md, MEMORY.md, knowledge systems)
                 if (!config.resumeId && selectedProject && sessionName.length > 1) {
                   try {
-                    const { assembleContext: rendererAssemble } = await import('../services/ContextService');
-                    const rendererContext = await rendererAssemble(selectedProject, {} as any, { topic: sessionName, tokenBudget: 2000 });
-                    if (rendererContext && rendererContext.trim().length > 0) {
-                      initContent += `\n\n${rendererContext}`;
+                    const api = (window as any).deskflowAPI
+                    if (api?.assembleContext) {
+                      const rendererContext = await api.assembleContext({ projectId: selectedProject, topic: sessionName, tokenBudget: 2000 })
+                      if (rendererContext && rendererContext.trim().length > 0) {
+                        initContent += `\n\n${rendererContext}`
+                      }
                     }
                   } catch (e) {
-                    console.warn('[NewSession] ContextService assembly failed (non-fatal):', e);
+                    console.warn('[NewSession] ContextService assembly failed (non-fatal):', e)
                   }
                 }
                 // 2. Backend context (brain, memory, problems, requests, page, cross-session)

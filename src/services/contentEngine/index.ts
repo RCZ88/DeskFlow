@@ -208,11 +208,13 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
     const ts = now();
     if (ep.id) {
       db.prepare(
-        `UPDATE content_episodes SET title=?, idea_id=?, theme_id=?, status=?, niche=?, script=?, seo=?, gates=?, gate_override=?, scheme_id=?, published_at=?, updated_at=? WHERE id=?`
+        `UPDATE content_episodes SET title=?, idea_id=?, theme_id=?, series_id=?, episode_number=?, status=?, niche=?, script=?, seo=?, gates=?, gate_override=?, scheme_id=?, overlay_session_id=?, caption_track=?, published_at=?, updated_at=? WHERE id=?`
       ).run(
         ep.title,
         ep.idea_id || null,
         ep.theme_id || null,
+        ep.series_id || null,
+        ep.episode_number || null,
         ep.status || 'draft',
         ep.niche || null,
         JSON.stringify(ep.script || []),
@@ -220,6 +222,8 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
         JSON.stringify(ep.gates || null),
         ep.gate_override ? 1 : 0,
         ep.scheme_id || getScheme(ep.scheme_id).id,
+        ep.overlay_session_id || null,
+        JSON.stringify(ep.caption_track || null),
         ep.published_at || null,
         ts,
         ep.id
@@ -230,13 +234,15 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
     }
     const info = db
       .prepare(
-        `INSERT INTO content_episodes (title, idea_id, theme_id, status, niche, script, seo, gates, gate_override, scheme_id, published_at, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+        `INSERT INTO content_episodes (title, idea_id, theme_id, series_id, episode_number, status, niche, script, seo, gates, gate_override, scheme_id, overlay_session_id, caption_track, published_at, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
       )
       .run(
         ep.title,
         ep.idea_id || null,
         ep.theme_id || null,
+        ep.series_id || null,
+        ep.episode_number || null,
         ep.status || 'draft',
         ep.niche || null,
         JSON.stringify(ep.script || []),
@@ -244,12 +250,14 @@ export function registerContentEngineHandlers(db: any, aiCall: AiCall) {
         JSON.stringify(ep.gates || null),
         ep.gate_override ? 1 : 0,
         ep.scheme_id || getScheme(ep.scheme_id).id,
+        ep.overlay_session_id || null,
+        JSON.stringify(ep.caption_track || null),
         ep.published_at || null,
         ts,
         ts
       );
     const newId = info.lastInsertRowid;
-    logEvent(Number(newId), 'episode_created', `Episode created: ${ep.title}`);
+    logEvent(Number(newId), 'episode_created', `Episode created: ${ep.title}${ep.series_id ? ` in series ${ep.series_id}` : ''}`);
     try { writeContentEngineEpisode({ kind: 'episode', title: ep.title || 'Untitled episode', detail: ep.niche || '', refId: newId }); } catch (e) { console.error('[ContentEngine] brain sync failed', e); }
     return { ok: true, id: newId };
   });
@@ -1972,6 +1980,75 @@ ${rules.length ? rules.join('\n') : '(no rules yet)'}`;
     return { ok: true, captionTrack: track };
   });
 
+  // ── Overlay Sessions (ALWAYS belong to an episode) ──────────
+  // Create an overlay session for an episode
+  ipcMain.handle('overlay:session:create', async (_, { episodeId, name, sourceVideoPath, sourceVideoName, durationSec }: any) => {
+    if (!episodeId) return { ok: false, error: 'episodeId required — overlay sessions always belong to an episode' };
+    const ep = db.prepare('SELECT * FROM content_episodes WHERE id=?').get(episodeId) as any;
+    if (!ep) return { ok: false, error: 'Episode not found' };
+    const id = `ov-${episodeId}-${Date.now().toString(36)}`;
+    const sessionName = name || `Overlay — ${ep.title || `Episode ${episodeId}`}`;
+    db.prepare(`INSERT INTO overlay_sessions (id, episode_id, name, source_video_path, source_video_name, duration_sec, status, missing_source, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, episodeId, sessionName, sourceVideoPath || null, sourceVideoName || null, durationSec || null, 'linked', sourceVideoPath ? 0 : 1, now(), now());
+    // Link back to episode
+    db.prepare('UPDATE content_episodes SET overlay_session_id=?, updated_at=? WHERE id=?').run(id, now(), episodeId);
+    logEvent(episodeId, 'overlay_session_created', `Overlay session ${id} created`);
+    return { ok: true, id, session: { id, episodeId, name: sessionName, status: 'linked' } };
+  });
+
+  // Get overlay session by id
+  ipcMain.handle('overlay:session:get', async (_, id: string) => {
+    const row = db.prepare('SELECT * FROM overlay_sessions WHERE id=?').get(id) as any;
+    if (!row) return null;
+    return { ...row, transcript: safeJson(row.transcript), cutPlan: safeJson(row.cut_plan), scenePlan: safeJson(row.scene_plan), motionAssets: safeJson(row.motion_assets, []), captionTrack: safeJson(row.caption_track), overlayPlan: safeJson(row.overlay_plan) };
+  });
+
+  // List overlay sessions (optionally filtered by episodeId)
+  ipcMain.handle('overlay:session:list', async (_, { episodeId }: any = {}) => {
+    const rows = episodeId
+      ? db.prepare('SELECT * FROM overlay_sessions WHERE episode_id=? ORDER BY updated_at DESC').all(episodeId)
+      : db.prepare('SELECT * FROM overlay_sessions ORDER BY updated_at DESC').all();
+    return rows.map((r: any) => ({ ...r, transcript: safeJson(r.transcript), cutPlan: safeJson(r.cut_plan), scenePlan: safeJson(r.scene_plan), motionAssets: safeJson(r.motion_assets, []), captionTrack: safeJson(r.caption_track), overlayPlan: safeJson(r.overlay_plan) }));
+  });
+
+  // Update overlay session
+  ipcMain.handle('overlay:session:update', async (_, id: string, updates: any) => {
+    const existing = db.prepare('SELECT * FROM overlay_sessions WHERE id=?').get(id) as any;
+    if (!existing) return { ok: false, error: 'Overlay session not found' };
+    const fields: string[] = [];
+    const values: any[] = [];
+    const updatable = ['name', 'source_video_path', 'source_video_name', 'duration_sec', 'status', 'missing_source', 'transcript', 'cut_plan', 'scene_plan', 'motion_assets', 'caption_track', 'theme_id', 'overlay_plan'];
+    for (const key of updatable) {
+      if (updates[key] !== undefined) {
+        fields.push(`${key}=?`);
+        values.push(typeof updates[key] === 'object' ? JSON.stringify(updates[key]) : updates[key]);
+      }
+    }
+    if (fields.length === 0) return { ok: true, id };
+    fields.push('updated_at=?');
+    values.push(now());
+    values.push(id);
+    db.prepare(`UPDATE overlay_sessions SET ${fields.join(', ')} WHERE id=?`).run(...values);
+    return { ok: true, id };
+  });
+
+  // Delete overlay session
+  ipcMain.handle('overlay:session:delete', async (_, id: string) => {
+    const existing = db.prepare('SELECT episode_id FROM overlay_sessions WHERE id=?').get(id) as any;
+    if (existing) {
+      db.prepare('UPDATE content_episodes SET overlay_session_id=NULL WHERE id=? AND overlay_session_id=?').run(existing.episode_id, id);
+    }
+    db.prepare('DELETE FROM overlay_sessions WHERE id=?').run(id);
+    return { ok: true };
+  });
+
+  // Get overlay session for an episode
+  ipcMain.handle('episode:get-overlay', async (_, episodeId: number) => {
+    const row = db.prepare('SELECT * FROM overlay_sessions WHERE episode_id=? ORDER BY updated_at DESC LIMIT 1').get(episodeId) as any;
+    if (!row) return null;
+    return { ...row, transcript: safeJson(row.transcript), cutPlan: safeJson(row.cut_plan), scenePlan: safeJson(row.scene_plan), motionAssets: safeJson(row.motion_assets, []), captionTrack: safeJson(row.caption_track), overlayPlan: safeJson(row.overlay_plan) };
+  });
+
   // ── analytics correlate (Phase 5) ──────────────────────────
   ipcMain.handle('content:analytics:correlate', async () => {
     const videos = db.prepare('SELECT v.*, e.script FROM content_videos v LEFT JOIN content_episodes e ON v.episode_id=e.id WHERE v.views > 0 ORDER BY v.published_at DESC').all() as any[];
@@ -2069,15 +2146,42 @@ function ensureTables(db: any) {
       title TEXT NOT NULL,
       idea_id INTEGER,
       theme_id INTEGER,
+      series_id INTEGER,
+      episode_number INTEGER,
       status TEXT DEFAULT 'draft',
       niche TEXT,
       script JSON,
       seo JSON,
       gates JSON,
       gate_override INTEGER DEFAULT 0,
+      overlay_session_id TEXT,
+      caption_track JSON,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    -- Overlay sessions — ALWAYS belong to an episode (episode_id NOT NULL)
+    CREATE TABLE IF NOT EXISTS overlay_sessions (
+      id TEXT PRIMARY KEY,
+      episode_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      source_video_path TEXT,
+      source_video_name TEXT,
+      duration_sec REAL,
+      status TEXT DEFAULT 'linked',
+      missing_source INTEGER DEFAULT 0,
+      transcript JSON,
+      cut_plan JSON,
+      scene_plan JSON,
+      motion_assets JSON DEFAULT '[]',
+      caption_track JSON,
+      theme_id INTEGER,
+      overlay_plan JSON,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (episode_id) REFERENCES content_episodes(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_overlay_sessions_episode ON overlay_sessions(episode_id);
+    CREATE INDEX IF NOT EXISTS idx_episodes_series ON content_episodes(series_id);
     CREATE TABLE IF NOT EXISTS themes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -2352,7 +2456,7 @@ function mapBrainstorm(r: any) {
   return { ...r, summary: safeJson(r.summary) };
 }
 function mapEpisode(r: any) {
-  return { ...r, script: safeJson(r.script), seo: safeJson(r.seo), gates: safeJson(r.gates), gate_override: !!r.gate_override, process: safeJson(r.process, {}), phase: r.phase || 'idea', caption_track: safeJson(r.caption_track) };
+  return { ...r, script: safeJson(r.script), seo: safeJson(r.seo), gates: safeJson(r.gates), gate_override: !!r.gate_override, process: safeJson(r.process, {}), phase: r.phase || 'idea', caption_track: safeJson(r.caption_track), series_id: r.series_id || null, episode_number: r.episode_number || null, overlay_session_id: r.overlay_session_id || null };
 }
 function mapTheme(r: any) {
   return {

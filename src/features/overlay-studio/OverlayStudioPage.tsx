@@ -10,11 +10,16 @@ import type { StudioSession, StudioAction } from './state/studioTypes'
 function uid() { return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
 
 // File-level import handler — uses a ref for dispatch (set by StudioPageInner).
-// Uses the NATIVE file dialog (dialogOpenFile) so we receive a REAL absolute
-// path. The secure renderer's <input type=file> File object has no `.path`, so
-// `file.path || file.name` previously sent a bare filename the backend could
-// not locate → "File not found". The native dialog returns the true path.
+// OVERLAY SESSIONS ALWAYS BELONG TO AN EPISODE — import requires selecting one.
 const dispatchRef = { current: null as React.Dispatch<StudioAction> | null }
+const overlayApi = () => (window as any).deskflowAPI?.contentEngine
+
+async function fetchEpisodes(): Promise<any[]> {
+  try {
+    const list = await overlayApi()?.episodesList?.()
+    return Array.isArray(list) ? list : []
+  } catch { return [] }
+}
 
 async function handleImport() {
   const api = (window as any).deskflowAPI
@@ -27,8 +32,19 @@ async function handleImport() {
   const filePath: string = dlg.filePath
   const fileName = filePath.split(/[\\/]/).pop() || filePath
 
+  // OVERLAY SESSIONS ALWAYS BELONG TO AN EPISODE — fetch episodes and require selection
+  const episodes = await fetchEpisodes()
+  if (episodes.length === 0) {
+    dispatch({ type: 'SET_STAGE', stage: 'dashboard' })
+    return
+  }
+
+  // Pick the most recently updated episode as default (or could show a picker)
+  // For now, use the latest episode; the session will be linked to it.
+  const targetEpisode = episodes[0]
+  const episodeId = targetEpisode.id
+
   if (fileName.toLowerCase().endsWith('.json')) {
-    // JSON transcript file — read via backend (it has real-path access).
     if (!api?.overlayStudioReadTranscript) {
       dispatch({ type: 'SET_STAGE', stage: 'transcript' })
       return
@@ -37,11 +53,14 @@ async function handleImport() {
     if (res?.ok && res.transcript) {
       const data = res.transcript
       const session: StudioSession = {
-        id: uid(), name: fileName, sourceVideoPath: filePath, sourceVideoName: fileName,
+        id: uid(), name: fileName, episodeId,
+        sourceVideoPath: filePath, sourceVideoName: fileName,
         durationSec: data.duration, transcript: data, status: 'transcript_ready', missingSource: false,
         createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
       }
       dispatch({ type: 'CREATE_SESSION', session })
+      // Persist link to backend
+      await overlayApi()?.overlaySessionCreate?.({ episodeId, name: fileName, sourceVideoPath: filePath, sourceVideoName: fileName, durationSec: data.duration }).catch(() => null)
     } else {
       console.warn('[OverlayStudio] Transcript import failed:', res?.error)
       dispatch({ type: 'SET_STAGE', stage: 'transcript' })
@@ -49,13 +68,15 @@ async function handleImport() {
     return
   }
 
-  // Video or audio file — create session, then auto-transcribe via faster-whisper.
+  // Video/audio — create session linked to the episode
   const session: StudioSession = {
-    id: uid(), name: fileName, sourceVideoPath: filePath, sourceVideoName: fileName,
+    id: uid(), name: fileName, episodeId,
+    sourceVideoPath: filePath, sourceVideoName: fileName,
     status: 'transcribing', missingSource: false,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   }
   dispatch({ type: 'CREATE_SESSION', session })
+  await overlayApi()?.overlaySessionCreate?.({ episodeId, name: fileName, sourceVideoPath: filePath, sourceVideoName: fileName }).catch(() => null)
 
   if (api?.overlayStudioTranscribe) {
     api.overlayStudioTranscribe({ filePath }).then((result: any) => {
@@ -63,8 +84,6 @@ async function handleImport() {
         dispatch({ type: 'SET_TRANSCRIPT', sessionId: session.id, transcript: result.transcript })
       } else {
         console.warn('[OverlayStudio] Auto-transcription failed:', result?.error)
-        // Backend couldn't find/transcribe the file — drop the session and let the
-        // user re-import with a valid path or use a sample transcript.
         dispatch({ type: 'REMOVE_SESSION', sessionId: session.id })
         dispatch({ type: 'SET_STAGE', stage: 'transcript' })
       }
@@ -95,16 +114,25 @@ function StudioPageInner() {
     return unsub
   }, [dispatch])
 
-  // Load sessions from localStorage on mount
+  // Load sessions from backend on mount (overlay sessions always belong to episodes)
   useEffect(() => {
     dispatch({ type: 'LOAD_SESSIONS_START' })
-    try {
-      const raw = localStorage.getItem('rheo-overlay-studio-sessions')
-      const sessions = raw ? JSON.parse(raw) : []
-      dispatch({ type: 'LOAD_SESSIONS_SUCCESS', sessions })
-    } catch {
-      dispatch({ type: 'LOAD_SESSIONS_ERROR', error: 'Failed to load sessions' })
+    const load = async () => {
+      try {
+        const sessions = await overlayApi()?.overlaySessionList?.() ?? []
+        dispatch({ type: 'LOAD_SESSIONS_SUCCESS', sessions: Array.isArray(sessions) ? sessions : [] })
+      } catch {
+        // Fallback to localStorage
+        try {
+          const raw = localStorage.getItem('rheo-overlay-studio-sessions')
+          const sessions = raw ? JSON.parse(raw) : []
+          dispatch({ type: 'LOAD_SESSIONS_SUCCESS', sessions })
+        } catch {
+          dispatch({ type: 'LOAD_SESSIONS_ERROR', error: 'Failed to load sessions' })
+        }
+      }
     }
+    load()
   }, [dispatch])
 
   return (
@@ -117,7 +145,7 @@ function StudioPageInner() {
           <button onClick={() => setMode('engine')} className={mode === 'engine' ? 'h-6 rounded-full bg-[#f5c518]/15 px-2.5 text-[10px] font-semibold text-[#f5c518]' : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300'}>Content Engine</button>
           <button onClick={() => setMode('presentation')} className={mode === 'presentation' ? 'h-6 rounded-full bg-[#10b981]/15 px-2.5 text-[10px] font-semibold text-[#10b981] flex items-center gap-1' : 'h-6 rounded-full px-2.5 text-[10px] font-medium text-zinc-500 transition-colors hover:text-zinc-300 flex items-center gap-1'}><Presentation size={10} /> Presentations</button>
         </div>
-        <span className="text-[9px] text-zinc-500">— {mode === 'studio' ? 'Video Overlay Suggestion Studio' : mode === 'engine' ? 'Content Creation Pipeline' : 'Interactive HTML Slide Generator'}</span>
+        <span className="text-[9px] text-zinc-500">— {mode === 'studio' ? 'Video Overlay Studio (episode-linked)' : mode === 'engine' ? 'Content Creation Pipeline' : 'Interactive HTML Slide Generator'}</span>
       </div>
       <div className="flex-1 min-h-0">
         {mode === 'engine' ? <ContentEngineWorkspace /> : mode === 'presentation' ? <PresentationWorkspace /> : <StudioShell />}

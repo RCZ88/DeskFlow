@@ -200,6 +200,16 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   // App control
   quitApp: () => ipcRenderer.invoke('quit-app'),
   showWindow: () => ipcRenderer.invoke('show-window'),
+  windowMinimize: () => ipcRenderer.invoke('window:minimize'),
+  windowMaximize: () => ipcRenderer.invoke('window:maximize'),
+  windowClose: () => ipcRenderer.invoke('window:close'),
+  windowIsMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  windowIsFocused: () => ipcRenderer.invoke('window:isFocused'),
+  onWindowFocusChange: (callback: (focused: boolean) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('window:focus-change', handler);
+    return () => ipcRenderer.removeListener('window:focus-change', handler);
+  },
   getAutoStartStatus: () => ipcRenderer.invoke('get-auto-start-status'),
   setAutoStart: (enabled: boolean) => ipcRenderer.invoke('set-auto-start', enabled),
 
@@ -278,6 +288,13 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     episodeDelete: (id: number) => ipcRenderer.invoke('content:episodes:delete', id),
     episodeLinkOverlay: (payload: any) => ipcRenderer.invoke('content:episodes:link-overlay', payload),
     editCaption: (payload: any) => ipcRenderer.invoke('content:edit:caption', payload),
+    // Overlay sessions (always belong to an episode)
+    overlaySessionCreate: (payload: any) => ipcRenderer.invoke('overlay:session:create', payload),
+    overlaySessionGet: (id: string) => ipcRenderer.invoke('overlay:session:get', id),
+    overlaySessionList: (opts?: any) => ipcRenderer.invoke('overlay:session:list', opts),
+    overlaySessionUpdate: (id: string, updates: any) => ipcRenderer.invoke('overlay:session:update', id, updates),
+    overlaySessionDelete: (id: string) => ipcRenderer.invoke('overlay:session:delete', id),
+    episodeGetOverlay: (episodeId: number) => ipcRenderer.invoke('episode:get-overlay', episodeId),
     scriptGenerate: (payload: any) => ipcRenderer.invoke('content:script:generate', payload),
     scriptRegenerateLine: (payload: any) => ipcRenderer.invoke('content:script:regenerate-line', payload),
     validateScriptEvidence: (payload: any) => ipcRenderer.invoke('content:validate-script-evidence', payload),
@@ -309,6 +326,13 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     reflectionAnalyze: (payload: any) => ipcRenderer.invoke('content:reflection:analyze', payload),
     characteristicsGet: (payload: any) => ipcRenderer.invoke('content:characteristics:get', payload),
     characteristicsSave: (payload: any) => ipcRenderer.invoke('content:characteristics:save', payload),
+    // Series
+    seriesList: () => ipcRenderer.invoke('content:series:list'),
+    seriesGet: (id: number) => ipcRenderer.invoke('content:series:get', id),
+    seriesSave: (s: any) => ipcRenderer.invoke('content:series:save', s),
+    seriesDelete: (id: number) => ipcRenderer.invoke('content:series:delete', id),
+    seriesAddEpisode: (payload: any) => ipcRenderer.invoke('content:series:add-episode', payload),
+    seriesRemoveEpisode: (payload: any) => ipcRenderer.invoke('content:series:remove-episode', payload),
     analyticsParseRaw: (payload: any) => ipcRenderer.invoke('content:analytics:parse-raw', payload),
     scoringSchemes: () => ipcRenderer.invoke('content:scoring:schemes'),
     scoringCurrent: (payload: any) => ipcRenderer.invoke('content:scoring:current', payload),

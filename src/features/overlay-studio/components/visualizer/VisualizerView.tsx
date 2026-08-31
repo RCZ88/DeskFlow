@@ -25,13 +25,14 @@ export function VisualizerView() {
   const faces = activeSession?.faces || []
   const textRegions = activeSession?.textRegions || []
 
-  const activeOverlays = useMemo(() =>
-    (activeSession?.scenePlan?.overlays || []).filter((o: any) => playback.currentTime >= o.start_time && playback.currentTime <= o.end_time),
-    [activeSession?.scenePlan?.overlays, playback.currentTime]
-  )
+  const overlayPlan = activeSession?.overlayPlan
+  const activeOverlays = useMemo(() => {
+    const overlays = overlayPlan?.overlays || activeSession?.scenePlan?.overlays || []
+    return overlays.filter((o: any) => playback.currentTime >= o.start_time && playback.currentTime <= o.end_time)
+  }, [overlayPlan?.overlays, activeSession?.scenePlan?.overlays, playback.currentTime])
 
   const collisionWarnings = useMemo(() => {
-    if (!activeSession?.scenePlan) return []
+    if (!overlayPlan?.overlays?.length && !activeSession?.scenePlan?.overlays?.length) return []
     const warnings: string[] = []
     for (const overlay of activeOverlays) {
       const box: BoundingBox = { x: overlay.x || 0.08, y: overlay.y || 0.2, w: overlay.w || 0.84, h: overlay.h || 0.15 }
@@ -138,7 +139,7 @@ export function VisualizerView() {
 
       {/* Timeline scrubber */}
       <div className="shrink-0 relative h-11 rounded-lg bg-zinc-800/40 border border-zinc-700/30">
-        {(activeSession.scenePlan.overlays || []).map((o: any, i: number) => {
+        {(overlayPlan?.overlays || activeSession?.scenePlan?.overlays || []).map((o: any, i: number) => {
           const color = OVERLAY_TYPE_CONFIG[o.type as keyof typeof OVERLAY_TYPE_CONFIG]?.color || '#e2e8f0'
           const totalDur = playback.duration || 300
           return (
