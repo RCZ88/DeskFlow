@@ -1,7 +1,7 @@
 import { ShieldCheck, ShieldX, AlertTriangle, BarChart3 } from 'lucide-react'
 import type { ScoringSchemeInfo, FrameScoreBreakdown } from '@/types/deskflow-api'
 import { cn } from '@/lib/utils'
-import { Card, Spinner } from './ui'
+import { Card, EmptyState, Spinner } from './ui'
 
 interface EpisodeScoreSummaryProps {
   scheme: ScoringSchemeInfo | null
@@ -56,7 +56,15 @@ export function EpisodeScoreSummary({
   }
 
   if (!scheme || breakdown.length === 0) {
-    return null
+    return (
+      <Card className="p-5">
+        <EmptyState
+          icon={<BarChart3 size={28} />}
+          title="No scores yet"
+          hint="Generate a script and validate evidence to see the episode score breakdown."
+        />
+      </Card>
+    )
   }
 
   const pass = average >= threshold

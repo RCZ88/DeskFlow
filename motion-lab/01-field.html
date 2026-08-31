@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>01 — ASCII Flow Field</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#050506;color:rgba(255,255,255,.85);font-family:'JetBrains Mono',monospace}
+  canvas{display:block;position:absolute;top:0;left:0;width:100%;height:100%}
+  #hud{position:fixed;top:16px;right:16px;z-index:10;font-size:11px;line-height:1.6;color:rgba(255,255,255,.5);text-align:right;pointer-events:none}
+  #hud .val{color:rgba(255,255,255,.85);font-weight:500}
+  @media(prefers-reduced-motion:reduce){canvas{display:none}body::after{content:'Flow field — reduced motion';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:rgba(255,255,255,.3)}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">
+  <div>velocity <span class="val" id="vel">0.00</span></div>
+  <div>glyphs <span class="val" id="cnt">0</span></div>
+</div>
+<script type="module">
+import {noise2D} from 'https://cdn.jsdelivr.net/npm/simplex-noise@4.0.3/+esm';
+
+// ── Tunables ──
+const GRID       = 12;
+const DPR_CAP    = 1.5;
+const GLYPHS     = ' .·:;+=×#@';
+const DRIFT      = 0.0016;
+const K          = 0.00035;
+const VEL_CAP    = 8;
+const RECOVER_S  = 1.2;
+const REPULSE_R  = 90;
+const REPULSE_F  = 2.5;
+const MAX_GLYPHS = 1500;
+const ALPHA_BINS = 8;
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+
+let W, H, cols, rows;
+let noiseT = 0;
+let velSmooth = 0;
+let mouseX = -999, mouseY = -999;
+
+// Pre-render ALL glyph textures: [charIdx][alphaBin] = OffscreenCanvas
+const glyphSprites = [];
+{
+  const sz = GRID;
+  const off = new OffscreenCanvas(sz, sz);
+  const oc = off.getContext('2d');
+  oc.font = `500 ${sz - 2}px JetBrains Mono, monospace`;
+  oc.textAlign = 'center';
+  oc.textBaseline = 'middle';
+  for (let ci = 0; ci < GLYPHS.length; ci++) {
+    glyphSprites[ci] = [];
+    for (let ai = 0; ai < ALPHA_BINS; ai++) {
+      const alpha = (ai + 1) / ALPHA_BINS;
+      oc.clearRect(0, 0, sz, sz);
+      oc.fillStyle = `rgba(255,255,255,${alpha})`;
+      oc.fillText(GLYPHS[ci], sz / 2, sz / 2 + 1);
+      glyphSprites[ci][ai] = off.transferToImageBitmap();
+    }
+  }
+}
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  cols = Math.ceil(W / GRID); rows = Math.ceil(H / GRID);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Track pointer velocity
+let lastPX = 0, lastPY = 0, lastPT = 0;
+let pointerVel = 0;
+window.addEventListener('pointermove', e => {
+  const now = performance.now();
+  const dt = now - lastPT;
+  if (dt > 0 && lastPT > 0) {
+    const dx = e.clientX - lastPX, dy = e.clientY - lastPY;
+    pointerVel = Math.sqrt(dx * dx + dy * dy) / dt * 16;
+  }
+  lastPX = e.clientX; lastPY = e.clientY; lastPT = now;
+  mouseX = e.clientX; mouseY = e.clientY;
+});
+window.addEventListener('pointerleave', () => { mouseX = -999; mouseY = -999; });
+
+let lastFrame = performance.now();
+const hudVel = document.getElementById('vel');
+const hudCnt = document.getElementById('cnt');
+const G_IMAX = GLYPHS.length - 1;
+
+function tick(now) {
+  const dt = (now - lastFrame) / 1000;
+  lastFrame = now;
+
+  noiseT += DRIFT;
+  const targetVel = Math.min(pointerVel, VEL_CAP);
+  velSmooth += (targetVel - velSmooth) * (dt / RECOVER_S);
+  pointerVel *= 0.9;
+
+  const energy = 0.15 + Math.min(velSmooth * K * 1000, 0.85);
+  let count = 0;
+
+  ctx.clearRect(0, 0, W, H);
+
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      if (count >= MAX_GLYPHS) break;
+      const px = x * GRID + GRID / 2;
+      const py = y * GRID + GRID / 2;
+
+      // Repulsor
+      let rx = 0, ry = 0;
+      const ddx = px - mouseX, ddy = py - mouseY;
+      const dist = ddx * ddx + ddy * ddy;
+      if (dist < REPULSE_R * REPULSE_R && dist > 0) {
+        const d = Math.sqrt(dist);
+        const f = (1 - d / REPULSE_R) * REPULSE_F;
+        rx = (ddx / d) * f;
+        ry = (ddy / d) * f;
+      }
+
+      const angle = noise2D(x * 0.15, y * 0.15 + noiseT) * 6.283;
+      const nx = Math.cos(angle) + rx;
+      const ny = Math.sin(angle) + ry;
+      const mag = Math.sqrt(nx * nx + ny * ny);
+
+      const gi = Math.min((mag * energy * G_IMAX + 0.5) | 0, G_IMAX);
+      const ai = Math.min(((0.08 + mag * energy * 0.5) * ALPHA_BINS) | 0, ALPHA_BINS - 1);
+      ctx.drawImage(glyphSprites[gi][ai], x * GRID, y * GRID);
+      count++;
+    }
+    if (count >= MAX_GLYPHS) break;
+  }
+
+  hudVel.textContent = velSmooth.toFixed(2);
+  hudCnt.textContent = count;
+  requestAnimationFrame(tick);
+}
+
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  noiseT = 0.1;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const angle = noise2D(x * 0.15, y * 0.15 + noiseT) * 6.283;
+      const gi = Math.min((0.3 * G_IMAX + 0.5) | 0, G_IMAX);
+      ctx.drawImage(glyphSprites[gi][2], x * GRID, y * GRID);
+    }
+  }
+} else {
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

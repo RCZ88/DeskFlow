@@ -12,10 +12,20 @@ export interface ProviderTemplate {
   supportsStream?: boolean;
 }
 
+export interface ContentPartText {
+  type: 'text';
+  text: string;
+}
+export interface ContentPartImage {
+  type: 'image_url';
+  image_url: { url: string };
+}
+export type ContentPart = ContentPartText | ContentPartImage;
+
 export interface CanonicalRequest {
   model: string;
   systemPrompt: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string | ContentPart[] }>;
   maxTokens?: number;
   temperature?: number;
 }
@@ -54,5 +64,7 @@ export interface AiProvidersState {
     goalAssistant?: { providerId: string; model: string } | null;
     category?: { providerId: string; model: string } | null;
     colors?: { providerId: string; model: string } | null;
+    vision?: { providerId: string; model: string } | null;
+    presentation?: { providerId: string; model: string } | null;
   };
 }

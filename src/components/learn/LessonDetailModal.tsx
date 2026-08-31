@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Code2, BookOpen, Edit3, Trash2, Copy, Check, ChevronDown, AlertCircle, Loader2, FileText } from 'lucide-react';
 import { CURRICULUM_TOPICS, getTopic, getTopicsByBranch } from '../../services/learn/curriculum';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 import type { LessonSummary } from '../../shared/learn/types';
 
 const api = (window as any).deskflowAPI;
@@ -318,7 +319,17 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
             {tab === 'edit' && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">Title</label>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">Title
+                    <FieldAIButton
+                      fieldName="title"
+                      label="Lesson Title"
+                      value={editTitle}
+                      onUpdate={setEditTitle}
+                      allFields={{ title: editTitle, summary: editSummary, chapter: editChapter }}
+                      category="learn"
+                      context="Suggest a clear, descriptive title for this lesson"
+                    />
+                  </label>
                   <input
                     type="text"
                     value={editTitle}
@@ -364,7 +375,17 @@ export function LessonDetailModal({ lesson, open, onClose, onDeleted, onUpdated,
                   <p className="text-[10px] text-zinc-600 mt-1">Group lessons into groups within this topic. Leave blank for ungrouped.</p>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">Summary</label>
+                  <label className="block text-xs font-medium text-zinc-400 mb-1.5">Summary
+                    <FieldAIButton
+                      fieldName="summary"
+                      label="Lesson Summary"
+                      value={editSummary}
+                      onUpdate={setEditSummary}
+                      allFields={{ title: editTitle, summary: editSummary, chapter: editChapter }}
+                      category="learn"
+                      context="Write a concise one-sentence summary of this lesson"
+                    />
+                  </label>
                   <textarea
                     value={editSummary}
                     onChange={(e) => setEditSummary(e.target.value)}

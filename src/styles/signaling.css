@@ -1,0 +1,105 @@
+/* ============================================================================
+   Conductor signaling & orchestration UI
+   Central class vocabulary so every Conductor surface (Mission Control,
+   signal log, autonomy ladder, reviewer handoff, escalation queue) shares
+   one look. Token-driven; pulls from the app's existing CSS vars.
+   ========================================================================== */
+
+/* ---- Signal cards (live event feed) ---- */
+.signal-card {
+  border-left: 3px solid var(--signal-accent, #6366f1);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  transition: background 0.15s ease;
+}
+.signal-card:hover { background: rgba(255, 255, 255, 0.06); }
+.signal-card.info { --signal-accent: #38bdf8; }
+.signal-card.success { --signal-accent: #10b981; }
+.signal-card.warning { --signal-accent: #f59e0b; }
+.signal-card.danger { --signal-accent: #ef4444; }
+
+.signal-time { font-size: 0.7rem; color: rgba(255, 255, 255, 0.45); margin-left: auto; }
+.signal-msg { font-size: 0.85rem; }
+.signal-node { font-size: 0.7rem; color: rgba(255, 255, 255, 0.5); }
+
+/* ---- Autonomy ladder (L2 / L3 / L4) ---- */
+.autonomy-ladder {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+.autonomy-step {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.autonomy-step.active { background: var(--signal-accent, #6366f1); }
+.autonomy-step.L4.active { background: #10b981; }
+.autonomy-step.L3.active { background: #6366f1; }
+.autonomy-step.L2.active { background: #f59e0b; }
+
+/* ---- Escalation / review queue ---- */
+.escalation-item {
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.escalation-item.pending { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25); }
+.escalation-item.approved { border-color: rgba(16, 185, 129, 0.4); background: rgba(16, 185, 129, 0.08); }
+.escalation-item.rejected { border-color: rgba(120, 120, 120, 0.4); background: rgba(120, 120, 120, 0.08); }
+
+.review-handoff {
+  border: 1px dashed rgba(99, 102, 241, 0.5);
+  border-radius: 8px;
+  padding: 0.75rem;
+  background: rgba(99, 102, 241, 0.06);
+}
+
+/* ---- Budget meter ---- */
+.budget-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+.budget-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--signal-accent, #6366f1);
+}
+.budget-meter.over > span { background: #ef4444; }
+
+/* ---- Mission graph nodes (orchestration tree) ---- */
+.mission-node {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  background: rgba(20, 20, 27, 0.6);
+}
+.mission-node.director { border-color: #6366f1; }
+.mission-node.planner { border-color: #38bdf8; }
+.mission-node.worker { border-color: #10b981; }
+.mission-node.qa { border-color: #f59e0b; }
+.mission-node.auditor { border-color: #a855f7; }
+.mission-node.resolver { border-color: #ef4444; }
+.mission-node.blocked { opacity: 0.55; border-style: dashed; }
+.mission-node.done { opacity: 0.8; }
+
+/* ---- Status pills ---- */
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+.status-pill.running { background: rgba(16, 185, 129, 0.15); color: #34d399; }
+.status-pill.blocked { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.status-pill.awaiting-review { background: rgba(99, 102, 241, 0.15); color: #a5b4fc; }

@@ -5,6 +5,7 @@ import { getCurrencyInfo } from './currency-data';
 import { CurrencyInput } from './CurrencyInput';
 import { DUR } from './_fx/financeMotion';
 import type { FinanceAccount, FinanceCategory, FinanceWallet } from './finance-types';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 
 interface QuickAddModalProps {
   open: boolean;
@@ -230,13 +231,24 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
                   </motion.div>
 
                   <motion.div variants={stagger} custom={1} initial="hidden" animate="show">
-                    <input
-                      type="text"
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Description"
-                      className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={description}
+                        onChange={(e) => setDescription(e.target.value)}
+                        placeholder="Description"
+                        className="flex-1 bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                      />
+                      <FieldAIButton
+                        fieldName="description"
+                        label="Transaction Description"
+                        value={description}
+                        onUpdate={setDescription}
+                        allFields={{ description, note, type }}
+                        category="finance"
+                        context={`This is a ${type} transaction${categoryId ? ' (category selected)' : ''}. Write a short, clear description.`}
+                      />
+                    </div>
                   </motion.div>
 
                   {type === 'transfer' ? (
@@ -341,17 +353,32 @@ export function QuickAddModal({ open, onClose, accounts, categories, wallets, di
                   </motion.button>
 
                   {showNote && (
-                    <motion.textarea
+                    <motion.div
                       initial={{ opacity: 0, y: -4 }}
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, y: -4 }}
                       transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                      placeholder="Notes..."
-                      rows={2}
-                      className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
-                    />
+                    >
+                      <div className="mb-1 flex items-center gap-2">
+                        <span className="text-[10px] text-zinc-500">Notes</span>
+                        <FieldAIButton
+                          fieldName="note"
+                          label="Transaction Note"
+                          value={note}
+                          onUpdate={setNote}
+                          allFields={{ description, note, type }}
+                          category="finance"
+                          context={`This is a ${type} transaction. Add a useful note (context, receipt link, reason).`}
+                        />
+                      </div>
+                      <textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="Notes..."
+                        rows={2}
+                        className="w-full bg-zinc-800/80 border border-zinc-700/50 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
+                      />
+                    </motion.div>
                   )}
 
                   <div className="flex gap-2 pt-2">

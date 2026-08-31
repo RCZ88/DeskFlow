@@ -72,6 +72,9 @@ import FeatureSpecPanel from '../components/FeatureSpecPanel';
 import { BackupTabPanel } from '../components/workspace/BackupTabPanel';
 import AIToolsTab from '../components/ai/AIToolsTab';
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
+import { CurrentCanvas } from '../components/CurrentCanvas';
+import { renderMechanical } from '../lib/renderers/mechanical';
+import { startPhaseClock } from '../lib/currentPhase';
 
 ChartJS.register(CategoryScale, LinearScale, LogarithmicScale, PointElement, BarElement, LineElement, ArcElement, Tooltip, Legend, Filler);
 
@@ -219,14 +222,14 @@ function FreeUsageStats({ agent, dailyUsage, formatTokens }: { agent: AIAgent; d
     }
 
     const totalLimit = limit * days;
-    const avgDaily = daysWithData > 0 ? actualUsage / daysWithData : 0;
+    const avgDaily = days > 0 ? actualUsage / days : 0;
     const isEstimated = daysWithData > 0 && daysWithData < days;
     const estimatedTotal = isEstimated ? avgDaily * days : actualUsage;
     const available = Math.max(0, totalLimit - estimatedTotal);
     const overLimit = estimatedTotal > totalLimit;
     const usagePercent = totalLimit > 0 ? Math.min(100, Math.round((estimatedTotal / totalLimit) * 100)) : 0;
 
-    return { available, isEstimated, overLimit, usagePercent, avgDaily, actualUsage, totalLimit, daysWithData, estimatedTotal };
+    return { available, isEstimated, overLimit, usagePercent, avgDaily, actualUsage, totalLimit, daysWithData, estimatedTotal, timeframeDays: days };
   };
 
   const day = calculateStats(1);
@@ -273,7 +276,7 @@ function FreeUsageStats({ agent, dailyUsage, formatTokens }: { agent: AIAgent; d
       {/* Estimated badge */}
       {stats.isEstimated && (
         <div className="mt-1.5 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-[8px] text-amber-500/80 font-medium uppercase tracking-tighter">
-          Estimated ({stats.daysWithData}/{stats.daysWithData + (label === 'Today' ? 0 : label === 'This Week' ? 6 : 29)} days)
+          Estimated ({stats.daysWithData}/{stats.timeframeDays} days)
         </div>
       )}
     </div>
@@ -342,6 +345,7 @@ interface IDEProjectsPageProps {
 }
 
 export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 0 }: IDEProjectsPageProps) {
+  useEffect(() => { startPhaseClock(); }, []);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
@@ -1294,6 +1298,8 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
 
   return (
     <PageShell page="ide-projects" className="max-w-7xl mx-auto space-y-6 overflow-y-auto">
+      <CurrentCanvas accent="#6366f1" render={renderMechanical} />
+      <div className="relative z-10">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -4384,6 +4390,7 @@ export default function IDEProjectsPage({ selectedPeriod = 'week', dateOffset = 
           </motion.div>
         )}
       </AnimatePresence>
+      </div>
     </PageShell>
   );
 }

@@ -23,17 +23,19 @@ import { BlurFade } from '../../../components/ui/blur-fade'
 import { Skeleton } from '../../../components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../../components/ui/tabs'
 
+import { ACCENTS } from '../ContextGraphView'
+
 const api = () => (window as any).deskflowAPI
 
-const cardBg = 'rgba(24,24,27,0.5)'
+const cardBg    = 'rgba(24,24,27,0.55)'
 const cardBorder = '1px solid rgba(255,255,255,0.06)'
-const inputBg = 'rgba(24,24,27,0.6)'
+const inputBg   = 'rgba(24,24,27,0.6)'
 const inputBorder = '1px solid rgba(255,255,255,0.08)'
-const ACCENT = '#8b5cf6'
-const FAINT = '#52525b'
-const SECONDARY = '#d4d4d8'
-const PRIMARY = '#fafafa'
-const MUTED = '#a1a1aa'
+const ACCENT    = ACCENTS.purple
+const FAINT     = ACCENTS.slate
+const SECONDARY = ACCENTS.secondary
+const PRIMARY   = ACCENTS.primary
+const MUTED     = ACCENTS.muted
 
 // ═══ Stats Card (NumberTicker) ═══
 function StatsBar({ stats, loading }: { stats: any; loading: boolean }) {

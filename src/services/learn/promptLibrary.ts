@@ -11,6 +11,8 @@ export interface PromptLibrary {
   style: string;            // master-prompt.md
   persona: string;          // coach-persona.md
   guardrails: string;       // guardrails.md
+  visualGrounding: string;  // visual-grounding.md
+  pedagogy: string;         // pedagogy.md
 }
 
 export interface PromptRecipe {
@@ -126,6 +128,16 @@ export function composeLearnerProfileBlock(p: LearnerProfile): string {
     demanding: '- TONE: Demanding senior-engineer voice; call out gaps bluntly.',
   }[p.tone]);
 
+  // Dynamic pedagogical adaptation based on learner's native language
+  lines.push('');
+  lines.push('### Active Pedagogical Tactics (apply these during this lesson)');
+  lines.push('- **Known vs. Unknown:** Always bridge from the learner\'s strongest language/framework. Show comparison tables.');
+  lines.push('- **Crash First:** Show the WRONG code the learner would write, then the failure, then the fix.');
+  lines.push('- **Project Anchor:** Every example must connect to the learner\'s goal project. Never teach in a vacuum.');
+  lines.push('- **Practice Gate:** After each concept, the learner must produce a code snippet, prediction, or design decision. If not produced, loop back.');
+  lines.push('- **Switch Modalities:** If text fails, use a diagram. If a diagram fails, use an analogy. If an analogy fails, use a minimal code experiment.');
+  lines.push('- **No "it\'s simple":** Never dismiss complexity. If they\'re asking, it\'s not simple to them.');
+
   lines.push('\nNOTE: These change EMPHASIS, DIFFICULTY, ORDER, SCAFFOLDING, and PACING only. Never remove a modality or the required rigor for the topic.');
   return lines.join('\n');
 }
@@ -139,6 +151,8 @@ export function loadPromptLibrary(readResource: (rel: string) => string | null):
     style: readResource('prompts/master-prompt.md') ?? '',
     persona: readResource('prompts/coach-persona.md') ?? '',
     guardrails: readResource('prompts/guardrails.md') ?? '',
+    visualGrounding: readResource('prompts/visual-grounding.md') ?? '',
+    pedagogy: readResource('prompts/pedagogy.md') ?? '',
   };
 }
 
@@ -153,6 +167,16 @@ export function composeAuthorSystemPrompt(
 
   // 2. Style / master prompt
   parts.push(`## Teaching Style\n${lib.style}`);
+
+  // 2b. Visual Grounding — integrated widget authoring guide
+  if (lib.visualGrounding) {
+    parts.push(`## Visual Grounding\n${lib.visualGrounding}`);
+  }
+
+  // 2c. Pedagogical method — adaptive teaching engine
+  if (lib.pedagogy) {
+    parts.push(`## Pedagogical Method\n${lib.pedagogy}`);
+  }
 
   // 3. Persona — profile block REPLACES the static persona when present
   parts.push(`## Persona\n${opts?.profile ? composeLearnerProfileBlock(opts.profile) : lib.persona}`);

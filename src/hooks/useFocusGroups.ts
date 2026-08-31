@@ -47,6 +47,13 @@ export function useFocusGroups() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedIdState] = useState<number | null>(sharedSelectedId);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+
+  const toggleSelect = useCallback((id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }, []);
+  const isSelected = useCallback((id: number) => selectedIds.includes(id), [selectedIds]);
+  const clearSelection = useCallback(() => setSelectedIds([]), []);
 
   useEffect(() => {
     const l = () => setSelectedIdState(sharedSelectedId);
@@ -131,5 +138,5 @@ export function useFocusGroups() {
 
   const selected = groups.find(g => g.id === selectedId) ?? null;
 
-  return { groups, loading, error, refresh, save, remove, startWith, selected, selectedId, setSelectedId };
+  return { groups, loading, error, refresh, save, remove, startWith, selected, selectedId, setSelectedId, selectedIds, toggleSelect, isSelected, clearSelection };
 }

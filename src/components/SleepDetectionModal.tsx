@@ -76,60 +76,17 @@ export default function SleepDetectionModal({
   onDone?: () => void;
   activities?: Array<{ id: string | number; name: string; category?: string }>;
   sessions?: Array<{ app?: string; activity?: string; [k: string]: unknown }>;
+  onFillGapRequest?: (gaps: Array<{ start: string; end: string; duration_seconds: number }>) => void;
+  filledGapStarts?: string[];
 }) {
-  console.log('%c[SleepDetectionModal] v1.3 date picker + auto-fix', 'color: #fbbf24; font-weight: bold');
+  console.log('%c[SleepDetectionModal] v1.4 date picker + GapFillModal integration', 'color: #fbbf24; font-weight: bold');
 
-  const [autoFilling, setAutoFilling] = useState(false);
-  const [fillProgress, setFillProgress] = useState<{ done: number; total: number } | null>(null);
-  const [fillResults, setFillResults] = useState<{ gap: AdjacentSleepGap; filled: number; total: number }[]>([]);
-  const [fillError, setFillError] = useState<string | null>(null);
   const [dateManuallySet, setDateManuallySet] = useState(false);
 
   const handleDone = onDone || onDismiss;
 
-  const handleAutoFill = async () => {
-    if (adjacentGaps.length === 0 || autoFilling) return;
-    setAutoFilling(true);
-    setFillError(null);
-    setFillResults([]);
-    const results: { gap: AdjacentSleepGap; filled: number; total: number }[] = [];
-
-    for (let i = 0; i < adjacentGaps.length; i++) {
-      const g = adjacentGaps[i];
-      setFillProgress({ done: i, total: adjacentGaps.length });
-      try {
-        const pred = await (window as any).deskflowAPI?.predictGapFill?.(g.start, g.end, 'combined');
-        const slots = pred?.gaps?.[0]?.slots || [];
-        let filledCount = 0;
-        let cursor = new Date(g.start).getTime();
-        for (const slot of slots) {
-          const top = slot.predictions?.[0];
-          const act = top ? activities.find(a => a.name === top.app) : null;
-          const segEnd = cursor + (slot.durationSeconds || 0) * 1000;
-          if (act) {
-            filledCount++;
-            await (window as any).deskflowAPI?.addExternalTime?.(
-              act.id, Math.round((slot.durationSeconds || 0) / 60),
-              new Date(cursor).toISOString(), new Date(segEnd).toISOString()
-            );
-          }
-          cursor = segEnd;
-        }
-        results.push({ gap: g, filled: filledCount, total: slots.length });
-      } catch {
-        results.push({ gap: g, filled: 0, total: 0 });
-      }
-    }
-
-    setFillProgress({ done: adjacentGaps.length, total: adjacentGaps.length });
-    setFillResults(results);
-    const anyFilled = results.some(r => r.filled > 0);
-    if (!anyFilled) setFillError('Could not predict activities for these gaps');
-    window.dispatchEvent(new CustomEvent('external-data-changed'));
-    setAutoFilling(false);
-  };
-
   if (step === 'gaps') {
+    const allFilled = adjacentGaps.length > 0 && adjacentGaps.every(g => filledGapStarts?.includes(g.start));
     return (
       <motion.div
         initial={{ opacity: 0 }}
@@ -144,11 +101,10 @@ export default function SleepDetectionModal({
           transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
           className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-lg max-h-[min(680px,90vh)] overflow-y-auto shadow-2xl"
         >
-          {/* Decorative bar */}
           <div className="h-1 bg-gradient-to-r from-emerald-500/40 via-teal-500/40 to-emerald-500/40" />
 
           <div className="p-5">
-            {/* ── Header ── */}
+            {/* Header */}
             <div className="flex items-start justify-between mb-5">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center shrink-0 ring-1 ring-emerald-500/20">
@@ -157,9 +113,11 @@ export default function SleepDetectionModal({
                 <div>
                   <h3 className="text-base font-semibold text-zinc-100">Sleep saved</h3>
                   <p className="text-xs text-zinc-500 mt-0.5">
-                    {fillResults.length > 0
-                      ? 'Gaps filled with tracked activities'
-                      : 'Untracked time around it can be filled'}
+                    {allFilled
+                      ? 'All gaps filled'
+                      : adjacentGaps.length > 0
+                        ? 'Fill untracked time before & after sleep'
+                        : 'No untracked time found'}
                   </p>
                 </div>
               </div>
@@ -168,97 +126,84 @@ export default function SleepDetectionModal({
               </button>
             </div>
 
-            {/* ── Fill progress ── */}
-            {autoFilling && fillProgress && (
-              <div className="mb-4 flex items-center gap-3 rounded-xl border border-indigo-500/20 bg-indigo-500/10 px-4 py-3">
-                <LoaderCircle className="h-4 w-4 animate-spin text-indigo-400 shrink-0" />
-                <span className="text-xs text-indigo-200">
-                  Filling gap {fillProgress.done + 1} of {fillProgress.total}…
-                </span>
-              </div>
-            )}
-
-            {/* ── Fill results ── */}
-            {fillResults.length > 0 && !autoFilling && (
-              <div className="mb-4 space-y-2">
-                {fillResults.map((r, i) => (
-                  <div key={i} className={`flex items-center gap-3 rounded-xl px-4 py-2.5 text-xs ${
-                    r.filled > 0
-                      ? 'border border-emerald-500/20 bg-emerald-500/10 text-emerald-200'
-                      : 'border border-amber-500/20 bg-amber-500/10 text-amber-200'
-                  }`}>
-                    {r.filled > 0 ? (
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
-                    ) : (
-                      <Sparkles className="h-4 w-4 shrink-0 text-amber-400" />
-                    )}
-                    <span>
-                      {r.gap.relation === 'before' ? 'Before sleep' : 'After wake'}: {
-                        r.filled > 0
-                          ? `${r.filled} of ${r.total} slots filled`
-                          : 'No prediction available — fill manually from External page'
-                      }
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ── Error ── */}
-            {fillError && (
-              <div className="mb-4 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-200">
-                {fillError}
-              </div>
-            )}
-
             {adjacentGaps.length === 0 ? (
               <div className="p-4 rounded-xl bg-zinc-800/40 border border-zinc-700/30 text-center text-sm text-zinc-400">
                 No untracked gaps found around this sleep period.
               </div>
-            ) : fillResults.length === 0 && !autoFilling ? (
-              <div className="flex flex-col gap-2 mb-5">
-                {adjacentGaps.map((g) => (
-                  <div key={g.start} className="flex items-center gap-3 p-3 rounded-xl bg-zinc-800/40 border border-zinc-700/30">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${g.relation === 'before' ? 'bg-amber-500/10' : 'bg-emerald-500/10'}`}>
-                      {g.relation === 'before' ? (
-                        <Sunset className="w-4 h-4 text-amber-400" />
-                      ) : (
-                        <Sunrise className="w-4 h-4 text-emerald-400" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-zinc-200">
-                        {g.relation === 'before' ? 'Before sleep' : 'After wake'}
+            ) : (
+              <>
+              <div className="flex flex-col gap-3 mb-5">
+                {adjacentGaps.map((g) => {
+                  const isFilled = filledGapStarts?.includes(g.start);
+                  const durMin = Math.round(g.durationSeconds / 60);
+                  const h = Math.floor(durMin / 60);
+                  const m = durMin % 60;
+                  const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                  return (
+                    <div key={g.start} className={`rounded-xl border p-3 transition-colors ${
+                      isFilled
+                        ? 'border-emerald-500/20 bg-emerald-500/5'
+                        : 'border-zinc-700/30 bg-zinc-800/40'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                          g.relation === 'before' ? 'bg-amber-500/10' : 'bg-emerald-500/10'
+                        }`}>
+                          {g.relation === 'before' ? (
+                            <Sunset className="w-4 h-4 text-amber-400" />
+                          ) : (
+                            <Sunrise className="w-4 h-4 text-emerald-400" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] font-medium text-zinc-200">
+                            {g.relation === 'before' ? 'Before sleep' : 'After wake'}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 font-mono tabular-nums">
+                            {fmtGapRange(g.start, g.end)}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                            g.relation === 'before' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'
+                          }`}>
+                            {durStr}
+                          </span>
+                          {isFilled && (
+                            <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Filled
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-zinc-500 font-mono tabular-nums truncate">
-                        {fmtGapRange(g.start, g.end)}
-                      </div>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full shrink-0 ${g.relation === 'before' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                      {fmtGapDur(g.durationSeconds)}
-                    </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
-            ) : null}
-
-            {/* ── Action buttons ── */}
-            <div className="flex gap-3">
-              {fillResults.length === 0 && (
+              {adjacentGaps.some(g => !filledGapStarts?.includes(g.start)) && (
                 <button
-                  onClick={handleAutoFill}
-                  disabled={adjacentGaps.length === 0 || autoFilling}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-600/20"
+                  onClick={() => {
+                    const unfilled = adjacentGaps
+                      .filter(g => !filledGapStarts?.includes(g.start))
+                      .map(g => ({ start: g.start, end: g.end, duration_seconds: g.durationSeconds }));
+                    onFillGapRequest?.(unfilled);
+                  }}
+                  className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 transition-all mb-3"
                 >
-                  {autoFilling ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="h-4 w-4" />
-                  )}
-                  {autoFilling ? 'Filling…' : 'Fill gaps'}
+                  Fill all {adjacentGaps.filter(g => !filledGapStarts?.includes(g.start)).length} gaps
                 </button>
               )}
-            </div>
+              </>
+            )}
+
+            {/* Done button */}
+            <button
+              onClick={handleDone}
+              className="w-full px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 transition-all shadow-lg shadow-emerald-600/20"
+            >
+              {allFilled ? 'Done' : 'Skip — fill later from External page'}
+            </button>
           </div>
         </motion.div>
       </motion.div>
@@ -289,8 +234,7 @@ export default function SleepDetectionModal({
   })();
 
   function makeDayAwareDates() {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const base = new Date(sleepDate + 'T12:00:00');
     const bedMin = customBedtime.hours * 60 + customBedtime.minutes;
     const fallMin = fellAsleepAt.hours * 60 + fellAsleepAt.minutes;
     const wakeMin = wakeUpAt.hours * 60 + wakeUpAt.minutes;
@@ -302,12 +246,12 @@ export default function SleepDetectionModal({
     let wakeAdj = wakeMin + wakeDay * 1440;
     let onDay = onMin < wakeAdj ? wakeDay + 1 : wakeDay;
 
-    return { bedMin, fallMin, wakeMin, onMin, fallDay, wakeDay, onDay };
+    return { bedMin, fallMin, wakeMin, onMin, fallDay, wakeDay, onDay, base };
   }
 
   function fmtWithDay(h: number, m: number, dayOffset: number) {
-    const now = new Date();
-    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const base = new Date(sleepDate + 'T12:00:00');
+    const d = new Date(base);
     d.setDate(d.getDate() + dayOffset);
     d.setHours(h, m, 0, 0);
     const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -505,28 +449,52 @@ export default function SleepDetectionModal({
             </div>
           </div>
 
-          {/* ── Untracked time around sleep (info) ── */}
+          {/* ── Untracked time around sleep (with Fill buttons) ── */}
           {adjacentGaps.length > 0 && (
             <div className="mb-5 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
               <div className="flex items-center gap-1.5 text-amber-400/80 text-[10px] mb-2">
                 <Sparkles className="w-3 h-3" />
                 <span>Untracked time around your sleep</span>
               </div>
-              <div className="flex flex-col gap-1.5">
-                {adjacentGaps.map((g) => (
-                  <div key={g.start} className="flex items-center justify-between gap-2 text-[11px]">
-                    <span className="text-zinc-400">
-                      {g.relation === 'before' ? 'Before sleep' : 'After wake'}
-                      <span className="text-zinc-600 ml-1.5 font-mono">{fmtGapRange(g.start, g.end)}</span>
-                    </span>
-                    <span className={`font-medium shrink-0 ${g.relation === 'before' ? 'text-amber-300' : 'text-emerald-300'}`}>
-                      {fmtGapDur(g.durationSeconds)}
-                    </span>
-                  </div>
-                ))}
+              <div className="flex flex-col gap-1.5 mb-2">
+                {adjacentGaps.map((g) => {
+                  const isFilled = filledGapStarts?.includes(g.start);
+                  return (
+                    <div key={g.start} className="flex items-center justify-between gap-2 text-[11px]">
+                      <span className="text-zinc-400">
+                        {g.relation === 'before' ? 'Before sleep' : 'After wake'}
+                        <span className="text-zinc-600 ml-1.5 font-mono">{fmtGapRange(g.start, g.end)}</span>
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`font-medium ${g.relation === 'before' ? 'text-amber-300' : 'text-emerald-300'}`}>
+                          {fmtGapDur(g.durationSeconds)}
+                        </span>
+                        {isFilled && (
+                          <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Filled
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+              {adjacentGaps.some(g => !filledGapStarts?.includes(g.start)) && (
+                <button
+                  onClick={() => {
+                    const unfilled = adjacentGaps
+                      .filter(g => !filledGapStarts?.includes(g.start))
+                      .map(g => ({ start: g.start, end: g.end, duration_seconds: g.durationSeconds }));
+                    onFillGapRequest?.(unfilled);
+                  }}
+                  className="w-full px-3 py-1.5 rounded-lg text-[11px] font-medium text-white bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 transition-all mt-2"
+                >
+                  Fill all {adjacentGaps.filter(g => !filledGapStarts?.includes(g.start)).length} gaps
+                </button>
+              )}
               <p className="mt-2 text-[10px] text-zinc-500">
-                You'll get a chance to fill these right after confirming your sleep.
+                Fill these now or after confirming your sleep.
               </p>
             </div>
           )}

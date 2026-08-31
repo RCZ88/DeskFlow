@@ -1,7 +1,6 @@
 import { useMemo, useCallback, useState, useRef, useEffect } from 'react'
 import { useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
-import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { GraphNodeMesh } from './GraphNode'
 import { GraphEdge } from './GraphEdge'
@@ -12,14 +11,15 @@ interface GraphSceneProps {
   nodes: GraphNode[]
   links: GraphLink[]
   selectedNodeId: string | null
-  onNodeSelect: (node: GraphNode | null) => void
+  selectedNodeIds: Set<string>
+  onNodeClick: (node: GraphNode, event: any) => void
   hoveredNodeId: string | null
   onNodeHover: (nodeId: string | null) => void
   hiddenTypes: Set<string>
   searchQuery: string
 }
 
-export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hoveredNodeId, onNodeHover, hiddenTypes, searchQuery }: GraphSceneProps) {
+export function GraphScene({ nodes, links, selectedNodeId, selectedNodeIds, onNodeClick, hoveredNodeId, onNodeHover, hiddenTypes, searchQuery }: GraphSceneProps) {
   const { camera } = useThree()
   const controlsRef = useRef<any>(null)
 
@@ -65,9 +65,10 @@ export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hovered
   const isNodeDimmed = useCallback((node: GraphNode) => {
     if (hiddenTypes.has(node.type)) return true
     if (searchQuery && !node.name.toLowerCase().includes(searchQuery.toLowerCase())) return true
+    if (selectedNodeIds.has(node.id)) return false
     if (selectedNodeId && !connectedToSelected.has(node.id)) return true
     return false
-  }, [hiddenTypes, searchQuery, selectedNodeId, connectedToSelected])
+  }, [hiddenTypes, searchQuery, selectedNodeId, connectedToSelected, selectedNodeIds])
 
   const isEdgeDimmed = useCallback((link: GraphLink) => {
     if (selectedNodeId) {
@@ -85,6 +86,14 @@ export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hovered
     return sId === selectedNodeId || tId === selectedNodeId
   }, [selectedNodeId])
 
+  // Flash node on search match
+  const flashNodeId = useMemo(() => {
+    if (!searchQuery) return null
+    const q = searchQuery.toLowerCase()
+    const match = nodesWithDegree.find(n => n.name.toLowerCase().includes(q))
+    return match?.id || null
+  }, [searchQuery, nodesWithDegree])
+
   // Camera pan to selected node
   useEffect(() => {
     if (selectedNodeId) {
@@ -99,11 +108,6 @@ export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hovered
       }
     }
   }, [selectedNodeId, nodeMap, camera])
-
-  // Click empty space to deselect
-  const handlePointerMissed = useCallback(() => {
-    onNodeSelect(null)
-  }, [onNodeSelect])
 
   return (
     <>
@@ -120,10 +124,12 @@ export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hovered
         <GraphNodeMesh
           key={node.id}
           node={node}
-          isSelected={node.id === selectedNodeId}
+          isSelected={selectedNodeIds.has(node.id)}
+          isMultiSelected={selectedNodeIds.size > 1 && selectedNodeIds.has(node.id)}
           isDimmed={isNodeDimmed(node)}
-          onClick={() => onNodeSelect(node)}
-          onHover={(h) => onNodeHover(h ? node.id : null)}
+          flash={node.id === flashNodeId}
+          onClick={(e: any) => onNodeClick(node, e)}
+          onHover={(h: boolean) => onNodeHover(h ? node.id : null)}
         />
       ))}
 
@@ -138,16 +144,6 @@ export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hovered
         />
       ))}
 
-      {/* Postprocessing — Bloom */}
-      <EffectComposer>
-        <Bloom
-          luminanceThreshold={0.6}
-          luminanceSmoothing={0.4}
-          intensity={0.8}
-          mipmapBlur
-        />
-      </EffectComposer>
-
       <OrbitControls
         ref={controlsRef}
         enableDamping
@@ -156,12 +152,6 @@ export function GraphScene({ nodes, links, selectedNodeId, onNodeSelect, hovered
         maxDistance={30}
         makeDefault
       />
-
-      {/* Click empty space */}
-      <mesh visible={false} onClick={handlePointerMissed}>
-        <planeGeometry args={[100, 100]} />
-        <meshBasicMaterial transparent opacity={0} />
-      </mesh>
     </>
   )
 }

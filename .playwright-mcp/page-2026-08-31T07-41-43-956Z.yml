@@ -1,0 +1,42 @@
+- generic [ref=f3e3]:
+  - banner:
+    - heading "Kenichi Aikawa is a photographer from Japan." [level=1] [ref=f3e4]:
+      - link "Kenichi Aikawa" [ref=f3e5] [cursor=pointer]:
+        - /url: /about
+        - generic [ref=f3e6]:
+          - generic [ref=f3e7]: Kenichi
+          - generic [ref=f3e8]: Aikawa
+      - generic [ref=f3e12]:
+        - generic [ref=f3e13]: is
+        - generic [ref=f3e14]: a
+        - generic [ref=f3e15]: photographer
+        - generic [ref=f3e16]: from
+        - generic [ref=f3e17]: Japan.
+  - generic:
+    - main
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic: Portfolio
+          - generic:
+            - generic: Kenichi
+            - generic: Aikawa
+            - generic: (Photographer)
+    - generic: Details
+    - generic:
+      - generic:
+        - generic:
+          - article:
+            - generic: Work
+          - article:
+            - generic: Fashion
+          - article:
+            - generic: Journey
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: Kenichi Aikawa
+            - generic: 69%

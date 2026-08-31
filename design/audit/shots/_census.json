@@ -1,0 +1,128 @@
+[
+  {
+    "route": "dashboard",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\dashboard.png"
+  },
+  {
+    "route": "activity",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\activity.png"
+  },
+  {
+    "route": "ai",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\ai.png"
+  },
+  {
+    "route": "learn",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\learn.png"
+  },
+  {
+    "route": "resume",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\resume.png"
+  },
+  {
+    "route": "ide",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\ide.png"
+  },
+  {
+    "route": "finance",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\finance.png"
+  },
+  {
+    "route": "insights",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\insights.png"
+  },
+  {
+    "route": "life",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\life.png"
+  },
+  {
+    "route": "settings",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\settings.png"
+  },
+  {
+    "route": "guide",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\guide.png"
+  },
+  {
+    "route": "studio",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\studio.png"
+  },
+  {
+    "route": "agentic",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\agentic.png"
+  },
+  {
+    "route": "terminal",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\terminal.png"
+  },
+  {
+    "route": "external",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\external.png"
+  },
+  {
+    "route": "database",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\database.png"
+  },
+  {
+    "route": "rankings",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\rankings.png"
+  },
+  {
+    "route": "documentation",
+    "status": "OK",
+    "title": "RHEO",
+    "dataPage": "dashboard",
+    "file": "C:\\Users\\cleme\\Documents\\COMPUTAH_SAYENCE\\App Tracker\\design\\audit\\shots\\documentation.png"
+  }
+]

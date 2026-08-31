@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, SkipForward, Check, BookOpen, Plus, X } from 'lucide-react';
 import { saveProfile, hasProfile, markSetupComplete, loadProfile, loadUserLessons } from '../../services/learn/learnerProfile';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 import { DEFAULT_PROFILE, PROFILE_KNOBS } from '../../shared/learn/types';
 import type { LearnerProfile, Density, ModalityBias, ExampleStance, MathDepth, ChunkSize, Tone, MasteryLevel } from '../../shared/learn/types';
 
@@ -413,7 +414,17 @@ function Q9({ knowledge, setKnowledge, lessonTitles }: { knowledge: SetupKnowled
       ) : (
         <div className="space-y-3 rounded-xl border border-zinc-700/40 bg-zinc-800/30 p-3.5">
           <div>
-            <label className="block text-[10px] font-medium text-zinc-500 mb-1">What do you know? <span className="text-clay-400">*</span></label>
+            <label className="block text-[10px] font-medium text-zinc-500 mb-1">What do you know? <span className="text-clay-400">*</span>
+              <FieldAIButton
+                fieldName="statement"
+                label="Knowledge Statement"
+                value={draft.statement}
+                onUpdate={(v) => setDraft((d) => ({ ...d, statement: v }))}
+                allFields={{ statement: draft.statement, topic: draft.topic, level: draft.level, keywords: draft.keywords }}
+                category="learn"
+                context="Help articulate what the user knows about a topic"
+              />
+            </label>
             <textarea
               value={draft.statement}
               onChange={(e) => setDraft((d) => ({ ...d, statement: e.target.value }))}
@@ -423,7 +434,17 @@ function Q9({ knowledge, setKnowledge, lessonTitles }: { knowledge: SetupKnowled
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="block text-[10px] font-medium text-zinc-500 mb-1">Topic (optional)</label>
+              <label className="block text-[10px] font-medium text-zinc-500 mb-1">Topic (optional)
+                <FieldAIButton
+                  fieldName="topic"
+                  label="Topic"
+                  value={draft.topic}
+                  onUpdate={(v) => setDraft((d) => ({ ...d, topic: v }))}
+                  allFields={{ statement: draft.statement, topic: draft.topic, level: draft.level, keywords: draft.keywords }}
+                  category="learn"
+                  context="Categorize this knowledge entry"
+                />
+              </label>
               <input
                 value={draft.topic}
                 onChange={(e) => setDraft((d) => ({ ...d, topic: e.target.value }))}
@@ -444,7 +465,17 @@ function Q9({ knowledge, setKnowledge, lessonTitles }: { knowledge: SetupKnowled
             </div>
           </div>
           <div>
-            <label className="block text-[10px] font-medium text-zinc-500 mb-1">Keywords (comma-separated, for relevance)</label>
+            <label className="block text-[10px] font-medium text-zinc-500 mb-1">Keywords (comma-separated, for relevance)
+              <FieldAIButton
+                fieldName="keywords"
+                label="Keywords"
+                value={draft.keywords}
+                onUpdate={(v) => setDraft((d) => ({ ...d, keywords: v }))}
+                allFields={{ statement: draft.statement, topic: draft.topic, level: draft.level, keywords: draft.keywords }}
+                category="learn"
+                context="Extract relevant keywords from this knowledge statement"
+              />
+            </label>
             <input
               value={draft.keywords}
               onChange={(e) => setDraft((d) => ({ ...d, keywords: e.target.value }))}

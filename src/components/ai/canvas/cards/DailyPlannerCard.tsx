@@ -3,6 +3,7 @@ import { GoalTimeline } from './GoalTimeline'
 import { GoalItem } from './GoalItem'
 import { useGoalProgress } from '../../../../hooks/useGoalProgress'
 import { useFocusGoals } from '../../../../hooks/useFocusGoals'
+import { ExternalAIBridgeField } from '../../../../features/content-engine/components/ExternalAIBridgeField'
 import { useFocusGroups } from '../../../../hooks/useFocusGroups'
 import { setActiveGroup } from '../../../../hooks/useActiveFocusGroup'
 import type { Goal } from '../../../../services/GoalStore'
@@ -191,6 +192,15 @@ export function DailyPlannerCard({ date = new Date().toISOString().slice(0, 10) 
               autoFocus
               onKeyDown={e => { if (e.key === 'Enter') handleAddManualGoal(); if (e.key === 'Escape') setShowAddGoal(false) }}
               style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: '#e4e4e7', outline: 'none', width: '100%' }}
+            />
+            <ExternalAIBridgeField
+              fieldName="title"
+              label="Goal"
+              value={newGoalTitle}
+              onUpdate={setNewGoalTitle}
+              allFields={{ title: newGoalTitle, category: newGoalCategory, targetMinutes: String(newGoalTargetMinutes) }}
+              category="goals"
+              context="Help define a clear daily goal with measurable outcome"
             />
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <select

@@ -1,0 +1,328 @@
+# CONTEXT BUNDLE — Brain Visualization Redesign
+
+> **Task:** Redesign the brain visualization (NeuralFlow + CanvasGraph) for the Self page of the Life tab.
+> **Date:** 2026-08-31
+> **Target AI:** Lead Designer AND Engineer — design the visual spec AND the implementation architecture.
+
+---
+
+## 1. Raw Request (verbatim, from user)
+
+"i would like you to generate prompt skill for the only exclusively for the brain visaulziation part. the neurlas thing. i would like those to be properly made. generate a prompt for those"
+
+"like a prompt for an ai to fully think and ifnd a design"
+
+"use ur skills properly man use hte skill router and ur skills from hermes to improve the shit out of this. sue the 21st dev mcp and oteh mcps proeprly"
+
+---
+
+## 2. Problem Statement
+
+The brain visualization on the Life → Self page is "the most ugly fucking thing I have ever seen" (user's words from the originating session). The current state:
+
+- **NeuralFlow.tsx** — a flow-field canvas of 120 particles drifting in violet. It's a generic "tech background" effect with no semantic connection to the brain data. It could be loading animation for anything.
+- **CanvasGraph.tsx** — a force-directed knowledge graph (d3-force-3d) rendering entities/facts as nodes/edges. Functional but visually raw: flat white dots, thin grey lines, no depth, no glow, no sense of "a living brain."
+- The two are **visually disconnected**: NeuralFlow sits behind the content as an ambient backdrop; CanvasGraph is a separate card. They don't read as parts of one system.
+- The graph has no empty/loading/error state design — just a spinner and a text string.
+- No motion design intent: the "breathing" reheat every 8s is a simulation alpha tweak, not a designed animation.
+
+The user wants the brain visualization to be **beautiful, intentional, and orchestrated** — it should feel like a living neural organism, not a generic graph widget.
+
+---
+
+## 3. Current Implementation (verbatim source)
+
+### 3.1 NeuralFlow.tsx — `src/features/warmth/context-brain/NeuralFlow.tsx`
+
+```tsx
+// FULL FILE — 113 lines
+import { useRef, useEffect } from 'react'
+
+/**
+ * NeuralFlow — ambient background for the Self page.
+ * 
+ * Flow-field streamlines (Headway mechanic) in muted violet/cyan.
+ * Runs on a 2D canvas, no dependencies beyond React.
+ * Uses requestAnimationFrame, pauses on document.hidden.
+ */
+export function NeuralFlow({ opacity = 0.5 }: { opacity?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const container = containerRef.current
+    if (!canvas || !container) return
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const dpr = window.devicePixelRatio || 1
+    let W = 0, H = 0
+
+    function resize() {
+      W = container.clientWidth
+      H = container.clientHeight
+      canvas.width = W * dpr
+      canvas.height = H * dpr
+      canvas.style.width = W + 'px'
+      canvas.style.height = H + 'px'
+      ctx.scale(dpr, dpr)
+    }
+    resize()
+    window.addEventListener('resize', resize)
+
+    const pts: Array<{ x: number; y: number; vx: number; vy: number; hue: number }> = []
+    const NUM_PTS = 120
+    const SEED = 42
+    let rng = SEED
+    function rand() { rng = (rng * 16807) % 2147483647; return (rng - 1) / 2147483646 }
+
+    for (let i = 0; i < NUM_PTS; i++) {
+      pts.push({
+        x: rand() * W,
+        y: rand() * H,
+        vx: (rand() - 0.5) * 0.3,
+        vy: (rand() - 0.5) * 0.3,
+        hue: 250 + rand() * 30, // violet range
+      })
+    }
+
+    let t = 0
+    let raf: number
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H)
+
+      for (const p of pts) {
+        // Field: swirling flow derived from position
+        const angle = Math.sin(p.y * 0.005 + t * 0.0004) * 0.8
+          + Math.cos(p.x * 0.004 - t * 0.0003) * 0.8
+          + Math.sin((p.x + p.y) * 0.002 + t * 0.0002) * 0.4
+        const mag = 0.6
+
+        p.vx += Math.cos(angle) * mag * 0.02
+        p.vy += Math.sin(angle) * mag * 0.02
+        // Damping
+        p.vx *= 0.98
+        p.vy *= 0.98
+        // Clamp speed
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy)
+        if (speed > 1.2) { p.vx = (p.vx / speed) * 1.2; p.vy = (p.vy / speed) * 1.2 }
+
+        p.x += p.vx
+        p.y += p.vy
+
+        // Wrap around with soft edge
+        if (p.x < -10) p.x = W + 10
+        if (p.x > W + 10) p.x = -10
+        if (p.y < -10) p.y = H + 10
+        if (p.y > H + 10) p.y = -10
+
+        const nx = p.x + p.vx * 8
+        const ny = p.y + p.vy * 8
+
+        const alpha = (0.04 + 0.03 * Math.sin(t * 0.0008 + p.x * 0.008 + p.y * 0.006)) * opacity
+
+        ctx.strokeStyle = `hsla(${p.hue}, 45%, 55%, ${alpha})`
+        ctx.lineWidth = 0.6
+        ctx.beginPath()
+        ctx.moveTo(p.x, p.y)
+        ctx.lineTo(nx, ny)
+        ctx.stroke()
+      }
+
+      t += 1
+      raf = requestAnimationFrame(draw)
+    }
+    raf = requestAnimationFrame(draw)
+
+    return () => {
+      window.removeEventListener('resize', resize)
+      cancelAnimationFrame(raf)
+    }
+  }, [opacity])
+
+  return (
+    <div ref={containerRef} className="w-full h-full pointer-events-none">
+      <canvas ref={canvasRef} className="w-full h-full" style={{ display: 'block' }} />
+    </div>
+  )
+}
+```
+
+### 3.2 CanvasGraph.tsx — `src/features/warmth/context-brain/CanvasGraph.tsx`
+
+Key interface (lines 6-16):
+```tsx
+interface Props {
+  nodes: GraphNode[]
+  links: GraphLink[]
+  width: number
+  height: number
+  onNodeHover?: (node: GraphNode | null) => void
+  onNodeClick?: (node: GraphNode) => void
+  hoveredNode?: GraphNode | null
+  selectedNode?: GraphNode | null
+  selectionSet?: Set<string>
+}
+```
+
+The draw loop (lines 87-248) renders:
+- Edges: dim grey lines (`rgba(39,39,42,0.4)`), with gradient glow for selected links
+- Nodes: flat colored circles with radial gradient (white → color → color+aa)
+- Labels: 11px Inter, centered below node
+- Stats overlay: monospace node/edge count + hover info
+
+### 3.3 Shared types — `src/features/warmth/context-graph/types.ts`
+
+```tsx
+export interface GraphNode {
+  id: string
+  name: string
+  type: string
+  state: 'active' | 'blocked' | 'neutral'
+  degree: number
+  facts: { predicate: string; value: string }[]
+  source?: string
+  // Physics positions (mutated by d3-force, read by R3F)
+  x: number
+  y: number
+  z: number
+  vx: number
+  vy: number
+  vz: number
+}
+
+export interface GraphLink {
+  source: string
+  target: string
+  predicate: string
+}
+
+export const TYPE_COLORS: Record<string, string> = {
+  goal: '#22c55e',
+  project: '#3b82f6',
+  deadline: '#ef4444',
+  person: '#f59e0b',
+  tool: '#8b5cf6',
+  concept: '#06b6d4',
+  life_phase: '#ec4899',
+  default: '#71717a',
+}
+```
+
+### 3.4 IPC endpoints (preload.ts)
+
+```ts
+// src/preload.ts:1626-1630
+brainStats: () => ipcRenderer.invoke('brain:stats'),
+brainGetEntities: (opts?: any) => ipcRenderer.invoke('brain:get-entities', opts),
+brainGetFacts: (opts?: any) => ipcRenderer.invoke('brain:get-facts', opts),
+```
+
+Additional (from ContextGraphView usage, not yet in preload):
+- `brainGetEpisodes` — used by BrainGrowthChart
+- `learnGetNodes` — learn module nodes
+- `brainSearch` — used by ContextRetrievalPanel
+- `brainChat` — AI chat over brain context
+
+### 3.5 Design tokens (from `src/features/warmth/ContextGraphView.tsx`)
+
+```ts
+export const ACCENTS = {
+  purple:  '#8b5cf6',
+  green:   '#22c55e',
+  amber:   '#f59e0b',
+  cyan:    '#06b6d4',
+  rose:    '#f43f5e',
+  slate:   '#71717a',
+  surface: 'rgba(24,24,27,0.65)',
+  border:  'rgba(255,255,255,0.06)',
+}
+```
+
+### 3.6 Motion mechanics reference
+
+The project has 10 canonical motion mechanics at `agent/docs/motion_site_mechanics_10/`:
+
+| Mechanic | Semantic meaning | Relevance to brain |
+|----------|------------------|--------------------|
+| **Adjacent** | Force-directed citation neighbourhood graph | **Direct match** — the knowledge graph IS an adjacency map |
+| **Headway** | Flow-field streamlines | **Direct match** — NeuralFlow's streamlines |
+| Morphogen | Reaction-diffusion (LivingSubstrate) | Already used app-wide |
+| Overpass | Orbital ground track | — |
+| Nearside | Voronoi cells | Could map to entity "territories" |
+| Freeboard | Contour isolines | — |
+| Foreshock | Strip-chart seismograph | — |
+| Quorum | Cellular automaton | Could map to "active" node pulses |
+| Harmonic | Hidden-line wireframe | — |
+| Deident | Redaction bars | — |
+
+**Design rule (AGENTS.md):** Every visual mechanic MUST map to the page's information type. Never use a mechanic just because it looks cool.
+
+---
+
+## 4. What the Solution Must Include
+
+### A. Design Task (visual spec)
+1. **A single visual concept** driving the entire brain visualization — not "make it look nice." What is the ONE idea?
+2. **NeuralFlow redesign** — the ambient flow field must feel like neural activity (signals propagating, synapses firing), not generic particles.
+3. **CanvasGraph redesign** — the knowledge graph must feel like a living organism: depth, glow, breathing, signal propagation along edges.
+4. **Integration** — NeuralFlow and CanvasGraph must read as ONE system, not two separate widgets.
+5. **Empty / loading / error / populated states** — all four, designed.
+6. **Motion design** — pick a Liveliness Level (L1/L2/L3) with justification. Map each animation to the motion taxonomy (reactive/transitional/ambient).
+7. **Reduced-motion fallback** — mandatory.
+
+### B. Engineering Task (implementation architecture)
+1. **Data flow** — how brain data (entities, facts, episodes) feeds both the graph and the ambient layer.
+2. **Rendering strategy** — canvas vs SVG vs hybrid. Justify.
+3. **Performance** — the current graph re-renders every frame via requestAnimationFrame with O(n²) edge loop. How to handle 300+ nodes smoothly in Electron.
+4. **Component API** — props interface for the redesigned brain visualization.
+5. **Dependencies** — prefer zero new deps. If a new dep is needed, justify.
+
+### C. MCP Component Inventory (real components to pull)
+
+From 21st.dev (verified search results):
+- **Graphs in React** — 60 libraries/components for network diagrams
+- **Data Visualization** — 246 components (charts, progress rings, stat tiles)
+- **3D React** — 60 libraries for 3D development
+
+From the project's existing vendored Magic UI:
+- `AnimatedBeam` — connecting lines (could map to edge signals)
+- `Particles` — floating particles (could map to neural noise)
+- `NumberTicker` — already used in BrainGrowthChart
+
+**Source routing:** Standard UI → shadcn, Animated effects → Magic UI, Icons → Lucide, Specific component → 21st.dev.
+
+---
+
+## 5. Constraints
+
+- **Zero new dependencies preferred** — the project already has d3-force-3d, framer-motion, canvas API.
+- **Dark mode only** — zinc-950 base, glass cards.
+- **Fonts:** Inter (body), JetBrains Mono (data), Geist (display).
+- **Max rounded-xl** (12px), max p-5 padding.
+- **Must work in Electron** — no CSS features that fail in Chromium (e.g., `mask-composite: exclude` fails — see BorderBeam ban in MEMORY.md).
+- **No `git checkout` / `git restore` / `git reset --hard`** — Zero-Destruction Rule.
+- **IPC channels are fixed** — brain data comes from `brainStats`, `brainGetEntities`, `brainGetFacts`. No new IPC needed for the visualization itself.
+
+---
+
+## 6. Known Gaps
+
+1. The current NeuralFlow has **zero connection to actual brain data** — it's pure noise. The redesign should tie particle behavior to real entity/fact counts or activity.
+2. No **signal propagation** along edges — edges are static lines. A "firing" animation along edges would read as neural activity.
+3. No **depth/layering** — the graph is flat. The `z` coordinate from d3-force-3d is computed but never used visually.
+4. The **stats overlay** is plain monospace text — no design.
+5. **BrainGrowthChart** and **ContextRetrievalPanel** are separate components — the prompt focuses on NeuralFlow + CanvasGraph only, but the design should not conflict with sibling components.
+
+---
+
+## 7. Output Format
+
+The target AI must return:
+1. **Design spec** — the ONE visual concept, color palette, motion level, state designs.
+2. **Technical architecture** — rendering strategy, data flow, component API, performance plan.
+3. **Implementation plan** — ordered list of files to change, what changes in each.
+4. **MCP component table** — which real components to pull from where.

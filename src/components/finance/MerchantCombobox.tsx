@@ -11,7 +11,7 @@ interface MerchantComboboxProps {
   merchants: Merchant[];
   value: number | null;
   onChange: (merchantId: number | null, merchantName: string) => void;
-  onAddMerchant: (name: string) => void;
+  onAddMerchant: (name: string) => Promise<number | null>;
   disabled?: boolean;
   placeholder?: string;
 }
@@ -26,6 +26,7 @@ export function MerchantCombobox({
 }: MerchantComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -62,11 +63,21 @@ export function MerchantCombobox({
     setOpen(false);
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const name = query.trim();
-    if (!name) return;
-    onAddMerchant(name);
-    onChange(-1, name);
+    if (!name || creating) return;
+    setCreating(true);
+    try {
+      const newId = await onAddMerchant(name);
+      if (newId && newId > 0) {
+        onChange(newId, name);
+      } else {
+        onChange(null, name);
+      }
+    } catch {
+      onChange(null, name);
+    }
+    setCreating(false);
     setQuery('');
     setOpen(false);
   };
@@ -120,9 +131,10 @@ export function MerchantCombobox({
           {showCreate && (
             <button
               onClick={handleCreate}
-              className="w-full text-left px-2.5 py-2 text-xs text-emerald-400 hover:bg-emerald-500/10 transition-colors border-t border-amber-500/10"
+              disabled={creating}
+              className="w-full text-left px-2.5 py-2 text-xs text-emerald-400 hover:bg-emerald-500/10 transition-colors border-t border-amber-500/10 disabled:opacity-40"
             >
-              + Create &ldquo;{query.trim()}&rdquo;
+              {creating ? 'Creating...' : <>+ Create &ldquo;{query.trim()}&rdquo;</>}
             </button>
           )}
         </div>,

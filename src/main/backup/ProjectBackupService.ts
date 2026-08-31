@@ -289,6 +289,8 @@ export async function diffProjectBackup(projectId: string, backupId: string, pro
   }
 }
 
+let _db: any = null;
+
 const schedulerMap = new Map<string, ReturnType<typeof setInterval>>();
 
 export async function scheduleProjectBackup(projectId: string, projectPath: string, intervalMinutes: number): Promise<{ success: boolean; error?: string }> {
@@ -322,7 +324,9 @@ export function clearProjectBackupScheduler(projectId: string): void {
   }
 }
 
-export function registerProjectBackupIPC(): void {
+export function registerProjectBackupIPC(database?: any): void {
+  _db = database || _db;
+
   ipcMain.handle('projectBackup:create', async (_, projectId: string, projectPath: string, label?: string) => {
     return createProjectBackup(projectId, projectPath, label);
   });
@@ -332,7 +336,6 @@ export function registerProjectBackupIPC(): void {
   });
 
   ipcMain.handle('projectBackup:get', async (_, backupId: string) => {
-    // Search all projects for this backup
     const backupDir = getBackupDir();
     if (!fs.existsSync(backupDir)) return { success: false, error: 'No backups found' };
     const projectDirs = fs.readdirSync(backupDir).filter(d => fs.statSync(path.join(backupDir, d)).isDirectory());
@@ -349,18 +352,20 @@ export function registerProjectBackupIPC(): void {
   });
 
   ipcMain.handle('projectBackup:restore', async (_, projectId: string, backupId: string) => {
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!_db) return { success: false, error: 'Database not initialized' };
+    const project = _db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     return restoreProjectBackup(projectId, backupId, project?.path || '');
   });
 
   ipcMain.handle('projectBackup:diff', async (_, projectId: string, backupId: string) => {
-    const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!_db) return { success: false, error: 'Database not initialized' };
+    const project = _db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
     return diffProjectBackup(projectId, backupId, project?.path || '');
   });
 
   ipcMain.handle('projectBackup:schedule', async (_, projectId: string, intervalMinutes: number, projectPath?: string) => {
-    if (!projectPath) {
-      const project = db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
+    if (!projectPath && _db) {
+      const project = _db.prepare('SELECT path FROM projects WHERE id = ?').get(projectId) as { path: string } | undefined;
       projectPath = project?.path;
     }
     if (!projectPath) return { success: false, error: 'Project path not found' };

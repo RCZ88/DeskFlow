@@ -28,7 +28,7 @@ export interface ChatPanelProps {
   online?: boolean
   input?: string
   onInputChange?: (v: string) => void
-  onSend: (text: string) => void
+  onSend: (text: string, images?: string[]) => void
   onStop?: () => void
   onReset?: () => void
   listening?: boolean

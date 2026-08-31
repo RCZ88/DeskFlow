@@ -418,3 +418,28 @@
 - ProfileTab ("Identity & Profile"), ContextGraphView ("Knowledge Graph"),
   BrainManagementView ("Memory & Brain") — all stacked inside the `self` tab of LifePage
   (max-w-5xl space-y-10, uppercase section headers). Never re-split into separate tabs.
+
+## 🛠️ Tool Terms (IPC tools available to agents)
+
+### "architecture map" / "arch map" / "scan the codebase"
+- MEANS: the Architecture Map tool at `window.deskflowAPI.archMap` that scans `src/` and returns nodes (pages, components, services, hooks) with file paths, line counts, imports, exports, features, IPC handlers/calls, and child components.
+- IPC: `arch-map:generate` (full scan, cached 30s), `arch-map:get-node` (single node detail), `arch-map:search` (fuzzy search).
+- UI: **Insights → Architecture** subtab in the terminal workspace.
+- Prompt: `agent/docs/generate-prompt-docs/architecture-map/PROMPT.md` — paste into AI agent to generate `ARCHITECTURE.md` with file:line references.
+
+### "user dictionary" / "custom terms" / "my terminology"
+- MEANS: the User Dictionary system at `window.deskflowAPI.userDictionary` where users define their own word meanings. Terms are injected into every agent's system prompt via `assemble-context`.
+- IPC: `user-dictionary:list/add/update/delete/export/import`.
+- UI: **Context → Dictionary** subtab in the terminal workspace.
+- DB: `user_dictionary` table (term, definition, context, aliases).
+
+### "agent phase" / "agent state" / "is the agent ready"
+- MEANS: the 5-phase state machine tracking AI agent lifecycle: `launching → ready → busy → attention → error`.
+- Detection: prompt regex (per-agent patterns like `/^(?:opencode)?\s*>\s*$/i`), TUI settle heuristic (150B + 500ms silence), shell rejection, write verification (2.5s timer).
+- IPC events: `agent:status`, `agent:ready`, `agent:idle`, `agent:timeout`, `agent:init-error`, `agent:write-verified`, `terminal:anomaly`.
+- Preload: `agentGetPhase(terminalId)`, `agentGetStatus(terminalId)`, `agentSend(terminalId, data, agentType)`.
+
+### "context systems" / "system health"
+- MEANS: the 7 knowledge systems (LLM Wiki, Obsidian Skills, Graphify, PARA, QMD, Automations, Design Skills) tracked by `window.deskflowAPI.getContextSystems()`.
+- IPC: `get-context-systems` returns per-system: id, name, itemCount, itemLabel, available, lastBuilt, error.
+- UI: **Context → Maintenance** subtab + **New Agent dialog → Advanced Configuration**.

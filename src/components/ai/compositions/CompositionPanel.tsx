@@ -6,12 +6,14 @@ import { TEXT } from '../tokens'
 import { ListTransition } from '../primitives/ListTransition'
 import { AutomationCard } from '../automations/AutomationCard'
 import { VisualBuilderModal } from '../automations/VisualBuilder/VisualBuilderModal'
+import { AISuggestionModal } from './AISuggestionModal'
 import { useAutomationActions } from '../automations/lib/useAutomationActions'
 import type { AutomationConfig } from '../../types/automation'
 
 export function CompositionPanel() {
   const [showBuilder, setShowBuilder] = useState(false)
-  const { automations, loading, createAutomation, toggleAutomation, deleteAutomation, testRun } = useAutomationActions()
+  const [showSuggest, setShowSuggest] = useState(false)
+  const { automations, loading, createAutomation, toggleAutomation, deleteAutomation, testRun, reload } = useAutomationActions()
 
   const handleSaved = async (config: AutomationConfig) => {
     await createAutomation(config)
@@ -31,6 +33,12 @@ export function CompositionPanel() {
           className="flex items-center gap-2 rounded-xl bg-violet-600/80 hover:bg-violet-500/80 px-4 py-2 text-[12px] font-medium text-white transition-colors"
         >
           <Plus size={14} /> Create Automation
+        </button>
+        <button
+          onClick={() => setShowSuggest(true)}
+          className="flex items-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-4 py-2 text-[12px] font-medium text-emerald-300 transition-colors hover:bg-emerald-500/25"
+        >
+          <Zap size={14} /> Generate with AI
         </button>
       </div>
 
@@ -73,6 +81,11 @@ export function CompositionPanel() {
           />
         )}
       </AnimatePresence>
+
+      {/* AI Suggestion Modal */}
+      {showSuggest && (
+        <AISuggestionModal onClose={() => { setShowSuggest(false); reload() }} />
+      )}
     </div>
   )
 }

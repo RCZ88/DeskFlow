@@ -9,6 +9,7 @@ const StatsPage = lazy(() => import('./StatsPage'));
 const BrowserActivityPage = lazy(() => import('./BrowserActivityPage'));
 const ProductivityPage = lazy(() => import('./ProductivityPage'));
 const FocusTab = lazy(() => import('../features/focus/FocusSection').then(m => ({ default: m.FocusSection })));
+const ExternalPage = lazy(() => import('./ExternalPage'));
 
 interface ActivityPageProps {
   appStats: any[];
@@ -32,6 +33,7 @@ const TABS = [
   { key: 'websites', label: 'Websites', icon: Globe, accent: '#3b82f6' },
   { key: 'productivity', label: 'Productivity', icon: Target, accent: '#10b981' },
   { key: 'focus', label: 'Focus', icon: FocusIcon, accent: '#ec4899' },
+  { key: 'external', label: 'External', icon: Clock, accent: '#a855f7' },
 ] as const;
 
 type TabKey = typeof TABS[number]['key'];
@@ -47,7 +49,7 @@ export default function ActivityPage(props: ActivityPageProps) {
     try {
       const params = new URLSearchParams(window.location.search);
       const tab = params.get('tab');
-      if (tab === 'websites' || tab === 'productivity' || tab === 'focus') return tab;
+      if (tab === 'websites' || tab === 'productivity' || tab === 'focus' || tab === 'external') return tab;
     } catch {}
     return 'apps';
   });
@@ -134,6 +136,7 @@ export default function ActivityPage(props: ActivityPageProps) {
                   exit={crossfadeExit}
                   transition={crossfadeTransition}
                   className="p-5"
+                  data-section="activity.apps"
                 >
                   <StatsPage
                     embedded
@@ -157,6 +160,7 @@ export default function ActivityPage(props: ActivityPageProps) {
                   exit={crossfadeExit}
                   transition={crossfadeTransition}
                   className="p-5"
+                  data-section="activity.websites"
                 >
                   <BrowserActivityPage
                     embedded
@@ -177,6 +181,7 @@ export default function ActivityPage(props: ActivityPageProps) {
                   exit={crossfadeExit}
                   transition={crossfadeTransition}
                   className="p-5"
+                  data-section="activity.productivity"
                 >
                   <ProductivityPage
                     embedded
@@ -202,8 +207,26 @@ export default function ActivityPage(props: ActivityPageProps) {
                   exit={crossfadeExit}
                   transition={crossfadeTransition}
                   className="p-5"
+                  data-section="activity.focus"
                 >
                   <FocusTab />
+                </motion.div>
+              )}
+              {activeTab === 'external' && (
+                <motion.div
+                  key="external"
+                  initial={crossfadeInitial}
+                  animate={crossfadeAnimate}
+                  exit={crossfadeExit}
+                  transition={crossfadeTransition}
+                  className="p-5"
+                  data-section="activity.external"
+                >
+                  <ExternalPage
+                    selectedPeriod={props.selectedPeriod}
+                    dateOffset={props.dateOffset}
+                    onDateOffsetChange={props.onDateOffsetChange}
+                  />
                 </motion.div>
               )}
             </AnimatePresence>

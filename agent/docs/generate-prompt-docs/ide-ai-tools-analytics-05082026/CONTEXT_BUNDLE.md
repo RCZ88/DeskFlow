@@ -373,7 +373,7 @@ CREATE TABLE IF NOT EXISTS commits (
 ```
 voke('write-terminal', { terminalId, text })` A��'A.A�A�A�A��?sA�A.�?oA��'A+�?TA��?sA,A�A��'A+�?TA�A�A��?sA�A,A� `ipcRenderer.invoke('write-...
 ```
-(Visible mojibake: `â€"` for em-dash, `â€™` for apostrophe, `Ã©` for é, `A�A` garbage — double UTF-8 encoding of original UTF-8 bytes.) A standalone mojibake sample with clean ASCII context: the `â€œ`/`â€` sequences appear in problem titles/descriptions.
+(Visible mojibake: `â€"` for em-dash, `â€™` for apostrophe, `é` for é, `A�A` garbage — double UTF-8 encoding of original UTF-8 bytes.) A standalone mojibake sample with clean ASCII context: the `â€œ`/`â€` sequences appear in problem titles/descriptions.
 
 **Flow:** main.ts `sync` IPC (workspace sync) reads these JSONs and upserts rows into `workspace_problems` / `problems` tables → UI renders verbatim → "cursed letters". UI renderers: `ProblemsTab.tsx:28` (status colors), `IssuesWorkspace.tsx:37`, `components/workspace/_ds/badges.tsx:19`, `AnalyticsDashboard.tsx:369-406` (Problems Progress card). Repair must: (1) decode JSON content in place (detect mojibake bytes → re-decode as UTF-8), (2) repair already-synced DB rows (UPDATE, never DELETE), (3) add a render-time sanitizer util used by all problem/request title/description renderers so future mojibake never displays raw. Also consider a write-time guard so future JSON writes are clean UTF-8.
 

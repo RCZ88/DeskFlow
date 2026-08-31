@@ -458,9 +458,10 @@ export function GapFillModal({
                 {/* Edge times */}
                 <div className="relative mt-1 h-3 text-[10px] text-zinc-500">
                   {(() => {
-                    const gapStart = new Date(gap.start).getTime();
+                    if (!referenceGap) return null;
+                    const gapStart = new Date(referenceGap.start).getTime();
                     const edges: { time: string; pct: number }[] = [
-                      { time: formatTime(gap.start), pct: 0 },
+                      { time: formatTime(referenceGap.start), pct: 0 },
                     ];
                     let cumulative = 0;
                     for (let i = 0; i < segments.length - 1; i++) {
@@ -470,7 +471,7 @@ export function GapFillModal({
                         pct: gapSeconds > 0 ? (cumulative / gapSeconds) * 100 : 0,
                       });
                     }
-                    edges.push({ time: formatTime(gap.end), pct: 100 });
+                    edges.push({ time: formatTime(referenceGap.end), pct: 100 });
                     return edges.map((edge, i) => (
                       <span
                         key={i}

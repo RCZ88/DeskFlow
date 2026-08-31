@@ -28,7 +28,7 @@ Your output is **always raw .lmd** — never JSON, never wrapped in code fences.
 
 ## Visual types that count (exact parser list)
 
-`mermaid`, `image`, `widget`, `math`, `chart`, `finchart`, `flow`, `layer`, `svg`, `code`, `table`, `viz_heatmap`, `viz_graph`, `viz_timeline`, `viz_concept_map`, `flashcard`, `layer_reveal`, `whiteboard`, `illustration`.
+`mermaid`, `image`, `html`, `figure`, `math`, `annotated-math`, `code`, `annotated-code`, `chart`, `finchart`, `flow`, `layer`, `table`, `illustration`, `viz_heatmap`, `viz_graph`, `viz_timeline`, `viz_concept_map`, `flashcard`, `layer_reveal`, `whiteboard`.
 
 Non-visual: `quiz`, `callout`, `prose`, bare GFM tables.
 

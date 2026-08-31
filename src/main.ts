@@ -395,6 +395,10 @@ const MODEL_PRICING: Record<string, { input: number; output: number; cacheRead: 
     'qwen-coder': { input: 0.8, output: 2, cacheRead: 0.08, cacheWrite: 0.8 },
     'deepseek-chat': { input: 0.14, output: 0.28, cacheRead: 0.014, cacheWrite: 0.14 },
     'deepseek-coder': { input: 0.14, output: 0.28, cacheRead: 0.014, cacheWrite: 0.14 },
+    // Hermes / Nous Research / OpenRouter models
+    'nous-hermes': { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, // free-tier via Nous inference
+    'nousresearch': { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    'solar-pro': { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, // free on OpenRouter
     'default': { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2 },
 };
 
@@ -439,6 +443,15 @@ function calculateCost(session: ParsedSession): number {
     if (session.cacheReadTokens) cost += (session.cacheReadTokens / 1_000_000) * pricing.cacheRead;
     if (session.cacheWriteTokens) cost += (session.cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
     return Math.round(cost * 10000) / 10000;
+}
+
+// Local timezone date string (YYYY-MM-DD) — replaces .toISOString().split('T')[0]
+// which returns UTC dates, causing sessions at 11pm UTC-5 to be stored as "tomorrow"
+function getLocalDateStr(d: Date = new Date()): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }
 
 function detectLanguageFromProject(projectPath?: string): string | null {
@@ -1530,6 +1543,91 @@ async parse(filePath: string): Promise<ParsedSession[]> {
     }
 };
 
+// Hermes Plugin (Nous Research — local agent sessions via OpenRouter)
+const HermesPlugin: AIAgentPlugin = {
+    id: 'hermes',
+    name: 'Hermes',
+    color: '#8b5cf6',
+
+    async detect(): Promise<boolean> {
+        const localAppData = process.env.LOCALAPPDATA || path_1.default.join(require('os').homedir(), 'AppData', 'Local');
+        const hermesDir = path_1.default.join(localAppData, 'hermes', 'profiles');
+        return fs_1.default.existsSync(hermesDir);
+    },
+
+    getStoragePaths(): string[] {
+        const localAppData = process.env.LOCALAPPDATA || path_1.default.join(require('os').homedir(), 'AppData', 'Local');
+        const profilesDir = path_1.default.join(localAppData, 'hermes', 'profiles');
+        const paths: string[] = [];
+        try {
+            const profiles = fs_1.default.readdirSync(profilesDir);
+            for (const profile of profiles) {
+                const sessionsDir = path_1.default.join(profilesDir, profile, 'sessions');
+                if (fs_1.default.existsSync(sessionsDir)) {
+                    paths.push(sessionsDir);
+                }
+            }
+        } catch {}
+        return paths;
+    },
+
+    async parse(filePath: string): Promise<ParsedSession[]> {
+        const sessions: ParsedSession[] = [];
+        try {
+            const content = fs_1.default.readFileSync(filePath, 'utf8');
+            const data = JSON.parse(content);
+
+            // Hermes session files are single JSON objects (not JSONL)
+            const sessionId = data.session_id || path_1.default.basename(filePath, '.json').replace(/^request_dump_/, '');
+            const timestamp = data.timestamp ? new Date(data.timestamp) : new Date();
+
+            // Extract model from request body
+            const model = data.request?.body?.model || '';
+
+            // Extract tokens from response body usage
+            const usage = data.response?.body?.usage;
+            const inputTokens = toInt(usage?.prompt_tokens);
+            const outputTokens = toInt(usage?.completion_tokens);
+            const cacheReadTokens = toInt(usage?.prompt_tokens_details?.cache_read_tokens);
+            const cacheWriteTokens = toInt(usage?.prompt_tokens_details?.cache_creation_tokens);
+
+            // Count messages in the conversation
+            const messages = data.request?.body?.messages;
+            const messageCount = Array.isArray(messages) ? messages.length : 0;
+
+            // Only include sessions with actual token usage (skip errored/empty requests)
+            if (inputTokens > 0 || outputTokens > 0 || messageCount > 0) {
+                sessions.push({
+                    sessionId,
+                    timestamp,
+                    inputTokens,
+                    outputTokens,
+                    cacheReadTokens: cacheReadTokens || undefined,
+                    cacheWriteTokens: cacheWriteTokens || undefined,
+                    model: model || undefined,
+                    provider: 'openrouter',
+                    messageCount: messageCount > 0 ? messageCount : undefined,
+                });
+            }
+        } catch {}
+        return sessions;
+    },
+
+    async parseDir(dirPath: string): Promise<ParsedSession[]> {
+        const sessions: ParsedSession[] = [];
+        try {
+            const files = fs_1.default.readdirSync(dirPath).filter(f => f.endsWith('.json'));
+            for (let i = 0; i < files.length; i++) {
+                const filePath = path_1.default.join(dirPath, files[i]);
+                const fileSessions = await this.parse(filePath);
+                sessions.push(...fileSessions);
+                if (i % 10 === 0) await yieldToEventLoop();
+            }
+        } catch {}
+        return sessions;
+    }
+};
+
 // Register all plugins
 const AI_AGENT_PLUGINS: AIAgentPlugin[] = [
     ClaudeCodePlugin,
@@ -1540,6 +1638,7 @@ const AI_AGENT_PLUGINS: AIAgentPlugin[] = [
     KiloCodePlugin,
     QwenPlugin,
     AiderPlugin,
+    HermesPlugin,
 ];
 
 // Yield control back to the event loop to prevent UI freezing
@@ -1621,17 +1720,24 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
                     // For directories, recursively scan for relevant files (.jsonl, .json, .db).
                     // A simple readdirSync on the parent directory misses changes nested in
                     // subdirectories (e.g. ~/.claude/projects/<name>/chats/*.jsonl)
-                    const sig = getDirDataSignature(pluginPath);
-                    currentFileCount = sig.fileCount;
-                    currentMtime = sig.latestMtime;
+                    const stats = getDirDataSignature(pluginPath);
+                    currentFileCount = stats.fileCount;
+                    currentMtime = stats.latestMtime;
+                    const prevEntries = syncState.fileEntries?.[plugin.id]?.[pluginPath] || 0;
                 } else {
                     currentFileCount = 1;
                 }
 
                 newPathStates[pluginPath] = { mtime: currentMtime, fileCount: currentFileCount };
 
-                // Skip if path mtime and file count haven't changed
-                if (prevState && prevState.mtime === currentMtime && prevState.fileCount === currentFileCount) {
+                // Partial-sync guard: only skip when the stored mtime, file-count AND
+                // the number of DB entries already ingested for this path all match.
+                // Without the entry-count check, a dir whose files were rewritten in
+                // place (same mtime, same count) would never be re-synced after a DB
+                // wipe or first successful sync — past sessions would stay invisible.
+                const prevEntries = syncState.fileEntries?.[plugin.id]?.[pluginPath] ?? 0;
+                const entryCountMatches = prevEntries === currentFileCount;
+                if (prevState && prevState.mtime === currentMtime && prevState.fileCount === currentFileCount && entryCountMatches) {
                     if (DEBUG_TRACKING) console.log(`[DeskFlow] ${plugin.name}: ${pluginPath} unchanged, skipping`);
                     continue;
                 }
@@ -1669,7 +1775,7 @@ async function syncAllAIAgents(db: any): Promise<Record<string, number>> {
                         db!.transaction(() => {
                             for (const session of batch) {
                                 const id = `${plugin.id}-${session.sessionId}`;
-                                const date = session.timestamp.toISOString().split('T')[0];
+                                const date = getLocalDateStr(session.timestamp);
                                 const cost = calculateCost(session);
                                 const language = detectLanguageFromProject(session.projectPath);
                                 const avgResponseTime = (session as any).durationMs || 0;
@@ -2451,14 +2557,14 @@ function initializeStorage() {
             color TEXT DEFAULT '#71717a',
             created_at INTEGER DEFAULT (unixepoch() * 1000)
           );`);
-          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN nickname TEXT;`);
-          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN note TEXT;`);
-          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN tags TEXT;`);
-          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN group_id INTEGER;`);
-          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN pinned INTEGER DEFAULT 0;`);
-          db.exec(`ALTER TABLE ai_context_captures ADD COLUMN is_manual INTEGER DEFAULT 0;`);
-          db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_group ON ai_context_captures(group_id);`);
-          db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_pinned ON ai_context_captures(pinned DESC);`);
+          try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN nickname TEXT;`); } catch {}
+          try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN note TEXT;`); } catch {}
+          try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN tags TEXT;`); } catch {}
+          try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN group_id INTEGER;`); } catch {}
+          try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN pinned INTEGER DEFAULT 0;`); } catch {}
+          try { db.exec(`ALTER TABLE ai_context_captures ADD COLUMN is_manual INTEGER DEFAULT 0;`); } catch {}
+          try { db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_group ON ai_context_captures(group_id);`); } catch {}
+          try { db.exec(`CREATE INDEX IF NOT EXISTS idx_aic_pinned ON ai_context_captures(pinned DESC);`); } catch {}
         } catch (e) { console.warn('[DeskFlow] DB Migration partial/already applied:', e); }
 
         // Memory retrieval cache (per-thread recent context)
@@ -2954,6 +3060,8 @@ function initializeStorage() {
           ['reflection_source', 'TEXT DEFAULT NULL'],
           ['reflection_generated_at', 'TEXT DEFAULT NULL'],
           ['status', 'TEXT DEFAULT \'complete\''],
+          ['start_date', 'TEXT DEFAULT NULL'],
+          ['end_date', 'TEXT DEFAULT NULL'],
         ] as [string, string][]) {
           if (!lphHave.includes(col)) { try { db.exec(`ALTER TABLE life_phases ADD COLUMN ${col} ${type}`); } catch {} }
         }
@@ -2990,6 +3098,8 @@ function initializeStorage() {
         try { db.exec('ALTER TABLE notes ADD COLUMN status TEXT DEFAULT \'active\''); } catch {}
         try { db.exec('ALTER TABLE notes ADD COLUMN is_draft INTEGER DEFAULT 0'); } catch {}
         try { db.exec('ALTER TABLE notes ADD COLUMN links TEXT DEFAULT \'[]\''); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN group_color TEXT DEFAULT NULL'); } catch {}
+        try { db.exec('ALTER TABLE notes ADD COLUMN tag_colors TEXT DEFAULT NULL'); } catch {}
         try { db.exec('CREATE INDEX IF NOT EXISTS idx_notes_deadline ON notes(deadline)'); } catch {}
         try { db.exec('CREATE INDEX IF NOT EXISTS idx_notes_is_draft ON notes(is_draft)'); } catch {}
 
@@ -4766,7 +4876,8 @@ async function pollForeground() {
         // Notify focus manager on EVERY non-Electron poll (not just on app change).
         // The manager checks active state internally; this ensures overlay fires
         // immediately when a distracting app appears, even after same-app re-detection.
-        if (focusManager && appName) {
+        // Skip if the app is the browser-with-extension (website-level detection handles it via handleBrowserData -> onWebActivity)
+        if (focusManager && appName && !isBrowserWithExtension(appName)) {
             focusManager.onForegroundApp(appName, categorizeApp(appName));
         }
 
@@ -5165,6 +5276,26 @@ function createWindow() {
                     return { success: false, error: String(err) };
                 }
             });
+            electron_1.ipcMain.handle('focusGroup:startWithMany', (_e, ids: number[], durationSec?: number, strictness?: string) => {
+                try {
+                    if (!Array.isArray(ids) || ids.length === 0) return { success: false, error: 'At least one group ID required' };
+                    const result = focusGroupManager.toCombinedConfig(
+                        ids,
+                        typeof durationSec === 'number' ? durationSec : undefined,
+                        strictness === 'non_allowed' || strictness === 'distracting' ? strictness : undefined,
+                    );
+                    if (!result) return { success: false, error: 'No valid focus groups found' };
+                    const state = focusManager ? focusManager.start(result.config) : null;
+                    if (!state) return { success: false, error: 'Focus engine unavailable' };
+                    const sessionId = focusManager?.getActiveSessionId?.() ?? null;
+                    for (const gid of result.groupIds) {
+                        if (sessionId != null) focusGroupManager.recordUsage(gid, sessionId);
+                    }
+                    return { success: true, state, sessionId, groupIds: result.groupIds };
+                } catch (err) {
+                    return { success: false, error: String(err) };
+                }
+            });
             electron_1.ipcMain.handle('focusGroup:linkUsage', (_e, args: { sessionId?: number; groupId?: number; goalIds?: string[] }) => {
                 try {
                     const sessionId = Number(args?.sessionId);
@@ -5181,6 +5312,48 @@ function createWindow() {
                     return focusGroupManager.getUsage();
                 } catch (err) {
                     console.error('[DeskFlow] Failed to get focus group usage:', err);
+                    return [];
+                }
+            });
+            electron_1.ipcMain.handle('focusGroup:getUsageForDay', (_e, date: string) => {
+                try {
+                    // getUsage() returns group_id+session_id; join with sessions to filter by day
+                    const usage = focusGroupManager.getUsage();
+                    if (!usage.length) return [];
+                    const sessionRows = db.prepare(`
+                        SELECT id, start_time, end_time FROM sessions WHERE start_time IS NOT NULL
+                    `).all() as any[];
+                    const sessionMap = new Map(sessionRows.map(s => [s.id, s]));
+                    const dayMs = 86400000;
+                    const dateStart = new Date(date + 'T00:00:00').getTime();
+                    const dayEnd = dateStart + dayMs;
+                    const byGroup: Record<number, { seconds: number; appSeconds: Record<string, number>; sessionIds: number[] }> = {};
+                    for (const row of usage) {
+                        const sess = sessionMap.get(row.session_id);
+                        if (!sess) continue;
+                        const st = new Date(sess.start_time).getTime();
+                        if (st < dateStart || st >= dayEnd) continue;
+                        if (!byGroup[row.group_id]) byGroup[row.group_id] = { seconds: 0, appSeconds: {}, sessionIds: [] };
+                        const dur = Math.max(1, Math.round((Number(sess.end_time || sess.start_time) - st) / 1000));
+                        byGroup[row.group_id].seconds += dur;
+                        byGroup[row.group_id].sessionIds.push(row.session_id);
+                    }
+                    const groupNames = focusGroupManager.list();
+                    const groupMap = new Map(groupNames.map(g => [g.id, g]));
+                    const result = Object.entries(byGroup).map(([gid, data]) => {
+                        const g = groupMap.get(Number(gid));
+                        return {
+                            id: Number(gid),
+                            name: g?.name || `Group #${gid}`,
+                            color: g?.color || '#6366f1',
+                            seconds: data.seconds,
+                            appSeconds: data.appSeconds,
+                            sessionIds: data.sessionIds,
+                        };
+                    });
+                    return result.sort((a, b) => b.seconds - a.seconds);
+                } catch (err) {
+                    console.error('[DeskFlow] Failed to get daily focus group usage:', err);
                     return [];
                 }
             });
@@ -5591,6 +5764,28 @@ electron_1.ipcMain.handle('get-table-data-count', (event, tableName) => {
         return { total: 0, error: err.message };
     }
 });
+electron_1.ipcMain.handle('get-table-foreign-keys', (event, tableName) => {
+    if (useJson) return { fks: [] };
+    if (!ALLOWED_TABLES.has(tableName)) return { fks: [], error: `table '${tableName}' not allowed` };
+    try {
+        const fks = db.prepare(`PRAGMA foreign_key_list(\`${tableName}\`)`).all();
+        return { fks: fks.map((fk) => ({
+            id: fk.id,
+            seq: fk.seq,
+            table: fk.table,
+            from: fk.from,
+            to: fk.to,
+            on_update: fk.on_update,
+            on_delete: fk.on_delete,
+            match: fk.match,
+        })) };
+    }
+    catch (err) {
+        console.error('[DeskFlow] get-table-foreign-keys error:', err);
+        return { fks: [], error: err.message };
+    }
+});
+
 electron_1.ipcMain.handle('get-table-changes', (event, tableName, limit = 25) => {
     if (useJson)
         return { changes: [] };
@@ -5615,6 +5810,35 @@ electron_1.ipcMain.handle('get-table-changes', (event, tableName, limit = 25) =>
     catch (err) {
         console.error('[DeskFlow] get-table-changes error:', err);
         return { changes: [], error: err.message };
+    }
+});
+
+electron_1.ipcMain.handle('get-all-foreign-keys', () => {
+    if (useJson) return { allFks: [] };
+    try {
+        const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
+        const allFks = [];
+        for (const t of tables) {
+            const fks = db.prepare(`PRAGMA foreign_key_list(\`${t.name}\`)`).all();
+            for (const fk of fks) {
+                allFks.push({
+                    sourceTable: t.name,
+                    id: fk.id,
+                    seq: fk.seq,
+                    targetTable: fk.table,
+                    fromColumn: fk.from,
+                    toColumn: fk.to,
+                    on_update: fk.on_update,
+                    on_delete: fk.on_delete,
+                    match: fk.match,
+                });
+            }
+        }
+        return { allFks };
+    }
+    catch (err) {
+        console.error('[DeskFlow] get-all-foreign-keys error:', err);
+        return { allFks: [], error: err.message };
     }
 });
 
@@ -5730,15 +5954,352 @@ electron_1.ipcMain.handle('update-categories-from-overrides', (event, appOverrid
     }
 });
 
-electron_1.ipcMain.handle('get-stats', () => {
+electron_1.ipcMain.handle('get-period-rankings', async (_e: any, request: any) => {
+    let conn: better_sqlite3.DefaultDatabase | null = null;
     try {
-        return getStats();
+        if (!dbPath) return { success: false, error: 'DB not available' };
+        conn = better_sqlite3.default(dbPath, { readonly: true });
+
+        const { period, granularity, metric, dateOffset } = request ?? {};
+        const effectivePeriod = String(period ?? 'today');
+        const offsetMs = Number(dateOffset) || 0;
+
+        const activeApps = Object.keys(appProductivityMap);
+        const tierOrder: Record<string, number> = { 'productive': 3, 'neutral': 2, 'distracting': 1, 'entertainment': 0, 'gaming': -1 };
+        const productiveCategories = new Set(['Productivity', 'Developer Tools', 'Tools', 'Communication']);
+        const distractingCategories = new Set(['Entertainment', 'Gaming']);
+
+        type PeriodAgg = { date: string; app: string; category: string; total_sec: number; session_count: number };
+        type PeriodBucket = { label: string; start: string; end: string; days: number; appTotals: Record<string, { total_sec: number; session_count: number; categories: Set<string> }> };
+
+        function parseDate(s: string): Date {
+            const d = new Date(s + 'T00:00:00');
+            if (isNaN(d.getTime())) return new Date(0);
+            return d;
+        }
+
+        function fmtDay(d: Date): string { return d.toISOString().slice(0, 10); }
+
+        function getWindows(gran: string, today: Date, count: number): { start: Date; end: Date; label: string }[] {
+            const windows: { start: Date; end: Date; label: string }[] = [];
+            const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            for (let i = count - 1; i >= 0; i--) {
+                const start = new Date(end);
+                start.setDate(start.getDate() - i);
+                const windowEnd = new Date(start);
+                windowEnd.setDate(windowEnd.getDate() + 1);
+                let label: string;
+                if (gran === 'day') {
+                    label = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }
+                else if (gran === 'week') {
+                    const monday = new Date(start);
+                    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+                    const sunday = new Date(monday);
+                    sunday.setDate(sunday.getDate() + 6);
+                    label = `${monday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${sunday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                    windows.push({ start: monday, end: sunday, label });
+                    continue;
+                }
+                else {
+                    const year = start.getFullYear();
+                    const month = start.toLocaleDateString('en-US', { month: 'long' });
+                    label = `${month} ${year}`;
+                }
+                windows.push({ start, end: windowEnd, label });
+            }
+            return windows;
+        }
+
+        function aggregateWindows(rows: PeriodAgg[], windows: { start: Date; end: Date; label: string }[], gran: string): PeriodBucket[] {
+            const buckets: PeriodBucket[] = windows.map(w => ({
+                label: w.label, start: fmtDay(w.start), end: fmtDay(w.end), days: gran === 'day' ? 1 : gran === 'week' ? 7 : 30,
+                appTotals: {}
+            }));
+            for (const r of rows) {
+                const d = parseDate(r.date);
+                if (isNaN(d.getTime()) || d > new Date()) continue;
+                for (let i = 0; i < buckets.length; i++) {
+                    const b = buckets[i];
+                    if (d >= b.start && (gran === 'day' ? d < b.end : d < b.end)) {
+                        const app = (r.app ?? 'Unknown').trim();
+                        if (!app || !activeApps.includes(app)) continue;
+                        let at = b.appTotals[app];
+                        if (!at) { at = { total_sec: 0, session_count: 0, categories: new Set() }; b.appTotals[app] = at; }
+                        at.total_sec += r.total_sec;
+                        at.session_count += r.session_count;
+                        if (r.category) at.categories.add(r.category);
+                        break;
+                    }
+                }
+            }
+            return buckets;
+        }
+
+        function computeScore(b: PeriodBucket): number {
+            let totalSec = 0, productiveSec = 0, score = 0;
+            for (const app of Object.keys(b.appTotals)) {
+                const at = b.appTotals[app];
+                totalSec += at.total_sec;
+                const cats = at.categories;
+                const hasProductive = [...cats].some(c => productiveCategories.has(c));
+                const hasDistracting = [...cats].some(c => distractingCategories.has(c));
+                if (hasProductive && !hasDistracting) productiveSec += at.total_sec;
+            }
+            if (totalSec <= 0) return 0;
+            score = Math.round((productiveSec / totalSec) * 100);
+            if (b.session_count <= 0) return Math.max(0, score - 40);
+            return Math.min(100, Math.max(0, score));
+        }
+
+        const _db = db;
+
+        async function computeAll(gran: string, targetPeriod: string, startFrom: Date): Promise<{ periods: PeriodRank[]; summary: { avgScore: number; bestPeriod: PeriodRank | null; worstPeriod: PeriodRank | null; totalProductiveSec: number; totalSec: number; totalFocusSec: number; totalGoalsDone: number; totalSleepMin: number; periodCount: number; granularity: string; metric: string; currentStreak: number; longestStreak: number } }> {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (offsetMs) today.setTime(today.getTime() + offsetMs);
+
+            const windows = getWindows(gran, today, gran === 'day' ? 30 : gran === 'week' ? 12 : 12);
+            let rows: PeriodAgg[] = [];
+            try { rows = conn.prepare(`SELECT date, app, COALESCE(category,'Other') AS category, COALESCE(total_sec,0) AS total_sec, COALESCE(session_count,0) AS session_count FROM daily_aggregates WHERE date IS NOT NULL`).all() as PeriodAgg[]; }
+            catch { rows = []; }
+
+            let filteredWindows = windows;
+            if (targetPeriod !== 'all' && windows.length > 0) {
+                const idx = windows.findIndex(w => w.label.toLowerCase().includes(targetPeriod.toLowerCase()) || w.start.toISOString().slice(0, 10) === targetPeriod);
+                if (idx >= 0) filteredWindows = windows.slice(Math.max(0, idx - (gran === 'day' ? 0 : gran === 'week' ? 3 : 2)), idx + 1);
+                else if (["today", "week", "month"].includes(targetPeriod.toLowerCase())) {
+                    filteredWindows = windows.slice(-1);
+                }
+            }
+            const buckets = aggregateWindows(rows, filteredWindows, gran);
+
+            // First pass: compute productivity + app breakdowns per bucket
+            const bucketData: Array<{
+                label: string; start: string; end: string; days: number;
+                totalSec: number; prodSec: number; neutSec: number; distSec: number;
+                sessions: number; productiveApps: number; productivityScore: number;
+                focusCount: number; focusSec: number; focusCompleted: number; focusFailed: number; focusRate: number;
+                goalsDone: number; goalsAll: number; goalRate: number;
+                extTotal: number; extActivities: Record<string, number>; extTypes: Record<string, number>;
+                sleepSec: number; sleepSessions: number; sleepAvgMin: number; sleepDeficitMin: number;
+                groupUsage: Record<string, { sessions: number; sec: number }>;
+            }> = [];
+
+            for (const b of buckets) {
+                let totalSec = 0, prodSec = 0, neutSec = 0, distSec = 0, sessions = 0;
+                const appSec: Record<string, number> = {};
+                for (const app of Object.keys(b.appTotals)) {
+                    const at = b.appTotals[app];
+                    appSec[app] = at.total_sec;
+                    totalSec += at.total_sec;
+                    sessions += at.session_count;
+                    const cats = at.categories;
+                    const hasProductive = [...cats].some(c => productiveCategories.has(c));
+                    const hasDistracting = [...cats].some(c => distractingCategories.has(c));
+                    if (hasProductive && !hasDistracting) prodSec += at.total_sec;
+                    else if (hasDistracting) distSec += at.total_sec;
+                    else neutSec += at.total_sec;
+                }
+                const productivityScore = totalSec <= 0 ? 0 : Math.round((prodSec / totalSec) * 100);
+                bucketData.push({
+                    label: b.label, start: b.start, end: b.end, days: b.days,
+                    totalSec, prodSec, neutSec, distSec, sessions, productiveApps: Object.keys(b.appTotals).length,
+                    productivityScore,
+                    focusCount: 0, focusSec: 0, focusCompleted: 0, focusFailed: 0, focusRate: 0,
+                    goalsDone: 0, goalsAll: 0, goalRate: 0,
+                    extTotal: 0, extActivities: {}, extTypes: {},
+                    sleepSec: 0, sleepSessions: 0, sleepAvgMin: 0, sleepDeficitMin: 0,
+                    groupUsage: {},
+                });
+            }
+
+            // Second pass: DB-specific metrics
+            if (_db) {
+                for (let bi = 0; bi < buckets.length; bi++) {
+                    const b = buckets[bi];
+                    const bd = bucketData[bi];
+                    const startTs = new Date(b.start).getTime();
+                    const endTs = new Date(b.end).getTime();
+
+                    // Focus: deep_focus_sessions
+                    const fs = _db.prepare(`SELECT COUNT(*) AS cnt, COALESCE(SUM(duration_sec),0) AS sec, SUM(CASE WHEN outcome = 'completed' THEN 1 ELSE 0 END) AS done, SUM(CASE WHEN outcome = 'failed' OR outcome = 'aborted' THEN 1 ELSE 0 END) AS failed FROM deep_focus_sessions WHERE started_at >= ? AND started_at < ?`).get(startTs, endTs) as { cnt: number; sec: number; done: number; failed: number } | undefined;
+                    if (fs) {
+                        bd.focusCount = fs.cnt;
+                        bd.focusSec = fs.sec;
+                        bd.focusCompleted = fs.done;
+                        bd.focusFailed = fs.failed;
+                        bd.focusRate = fs.cnt > 0 ? Math.round((fs.done / fs.cnt) * 100) : 0;
+                    }
+
+                    // Goals
+                    const gs = _db.prepare(`SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS done FROM goals WHERE target_date BETWEEN ? AND ?`).get(b.start, b.end) as { total: number; done: number } | undefined;
+                    if (gs) {
+                        bd.goalsAll = gs.total;
+                        bd.goalsDone = gs.done;
+                        bd.goalRate = gs.total > 0 ? Math.round((gs.done / gs.total) * 100) : 0;
+                    }
+
+                    // External
+                    const es = _db.prepare(`SELECT COALESCE(SUM(duration_sec),0) AS total, COUNT(*) AS sessions FROM external_sessions WHERE started_at >= ? AND started_at < ? AND type != 'sleep'`).get(startTs, endTs) as { total: number; sessions: number } | undefined;
+                    if (es) {
+                        bd.extTotal = es.total;
+                        const acts: Record<string, number> = {};
+                        const types: Record<string, number> = {};
+                        const actRows = _db.prepare(`SELECT COALESCE(type,'Other') AS t, COUNT(*) AS c FROM external_sessions WHERE started_at >= ? AND started_at < ? AND type != 'sleep' GROUP BY t`).all() as { t: string; c: number }[];
+                        for (const r of actRows) { types[r.t] = r.c; }
+                        const actResult = _db.prepare(`SELECT COALESCE(app,'Other') AS a, COUNT(*) AS c FROM external_sessions WHERE started_at >= ? AND started_at < ? AND type != 'sleep' GROUP BY a`).all() as { a: string; c: number }[];
+                        for (const r of actResult) { acts[r.a] = r.c; }
+                        bd.extActivities = acts;
+                        bd.extTypes = types;
+                    }
+
+                    // Sleep
+                    const sl = _db.prepare(`SELECT COALESCE(SUM(duration_sec),0) AS total, COUNT(*) AS sessions, ROUND(AVG(COALESCE(duration_sec,0)/60.0),1) AS avgMin FROM external_sessions WHERE type = 'sleep' AND started_at >= ? AND started_at < ?`).get(startTs, endTs) as { total: number; sessions: number; avgMin: number | null } | undefined;
+                    if (sl) {
+                        bd.sleepSec = sl.total;
+                        bd.sleepSessions = sl.sessions;
+                        bd.sleepAvgMin = sl.avgMin ?? 0;
+                        // sleep deficit: 510min (8.5h) target per day
+                        const expected = b.days * 510 * 60;
+                        bd.sleepDeficitMin = Math.max(0, expected - sl.total);
+                    }
+
+                    // Groups
+                    const gu = _db.prepare(`SELECT fg.name, COUNT(*) AS sessions, COALESCE(SUM(fgu.duration_sec),0) AS sec FROM focus_group_usage fgu JOIN focus_groups fg ON fg.id = fgu.group_id WHERE fgu.started_at >= ? AND fgu.started_at < ? GROUP BY fg.id`).all() as { name: string; sessions: number; sec: number }[] | undefined;
+                    if (gu) {
+                        const usage: Record<string, { sessions: number; sec: number }> = {};
+                        for (const r of gu) { usage[r.name] = { sessions: r.sessions, sec: r.sec }; }
+                        bd.groupUsage = usage;
+                    }
+                }
+            }
+
+            // Streak: consecutive days with prodPct >= 30
+            let currentStreak = 0;
+            let longestStreak = 0;
+            const sortedByDate = [...bucketData].sort((a, b) => a.start.localeCompare(b.start));
+            for (let i = 0; i < sortedByDate.length; i++) {
+                const pct = sortedByDate[i].totalSec > 0 ? Math.round((sortedByDate[i].prodSec / sortedByDate[i].totalSec) * 100) : 0;
+                if (pct >= 30) {
+                    currentStreak++;
+                    if (currentStreak > longestStreak) longestStreak = currentStreak;
+                } else {
+                    currentStreak = 0;
+                }
+            }
+
+            const ranks: PeriodRank[] = bucketData.map((bd, i) => ({
+                key: bd.start,
+                label: bd.label,
+                start: bd.start,
+                end: bd.end,
+                days: bd.days,
+                rank: 0, // computed below
+                productivityScore: bd.productivityScore,
+                prodPct: bd.totalSec > 0 ? Math.round((bd.prodSec / bd.totalSec) * 100) : 0,
+                distPct: bd.totalSec > 0 ? Math.round((bd.distSec / bd.totalSec) * 100) : 0,
+                prodSec: bd.prodSec,
+                neutSec: bd.neutSec,
+                distSec: bd.distSec,
+                totalSec: bd.totalSec,
+                sessions: bd.sessions,
+                focusCount: bd.focusCount,
+                focusCompleted: bd.focusCompleted,
+                focusFailed: bd.focusFailed,
+                focusSec: bd.focusSec,
+                focusRate: bd.focusRate,
+                goalsDone: bd.goalsDone,
+                goalsAll: bd.goalsAll,
+                goalRate: bd.goalRate,
+                extTotal: bd.extTotal,
+                extActivities: bd.extActivities,
+                extTypes: bd.extTypes,
+                sleepSec: bd.sleepSec,
+                sleepSessions: bd.sleepSessions,
+                sleepAvgMin: bd.sleepAvgMin,
+                sleepDeficitMin: bd.sleepDeficitMin,
+                groupUsage: bd.groupUsage,
+            }));
+
+            // Assign ranks per metric
+            const rankFields: Record<string, (p: PeriodRank) => number> = {
+                productivity: p => p.productivityScore,
+                focus: p => p.focusCount,
+                goals: p => p.goalRate,
+                groups: p => Object.keys(p.groupUsage).length,
+                external: p => p.extTotal,
+                sleep: p => p.sleepAvgMin,
+                streak: p => p.prodPct,
+            };
+            const rf = rankFields[metric] || rankFields.productivity;
+            const withRank = [...ranks].sort((a, b) => rf(b) - rf(a));
+            for (let i = 0; i < withRank.length; i++) { withRank[i].rank = i + 1; }
+
+            // Summary
+            let sumScore = 0;
+            let totalProdSec = 0, totalSecAll = 0, totalFocusSec = 0, totalGoalsDone = 0, totalSleepMin = 0;
+            for (const p of ranks) {
+                sumScore += p.productivityScore;
+                totalProdSec += p.prodSec;
+                totalSecAll += p.totalSec;
+                totalFocusSec += p.focusSec;
+                totalGoalsDone += p.goalsDone;
+                totalSleepMin += Math.round(p.sleepSec / 60);
+            }
+            const avgScore = ranks.length > 0 ? Math.round(sumScore / ranks.length) : 0;
+
+            // best/worst by metric
+            // Already sorted by start descending above, re-sort only for best/worst comparison
+            const rankingCopy = [...ranks];
+            const bestPeriod = rankingCopy[0] || null;
+            const worstPeriod = rankingCopy[rankingCopy.length - 1] || null;
+
+            // Sort by date descending so newest appears first
+            ranks.sort((a, b) => (
+                a.start < b.start ? -1 :
+                a.start > b.start ? 1 : 0
+            ));
+            return {
+                periods: ranks,
+                summary: {
+                    avgScore,
+                    bestPeriod: bestPeriod ? { ...bestPeriod, rank: 1 } : null,
+                    worstPeriod: worstPeriod ? { ...worstPeriod, rank: ranks.length } : null,
+                    totalProductiveSec: Math.round(totalProdSec),
+                    totalSec: Math.round(totalSecAll),
+                    totalFocusSec: Math.round(totalFocusSec),
+                    totalGoalsDone,
+                    totalSleepMin: Math.round(totalSleepMin),
+                    periodCount: ranks.length,
+                    granularity,
+                    metric,
+                    currentStreak,
+                    longestStreak,
+                }
+            };
+        }
+
+        const startFrom = new Date();
+        startFrom.setHours(0, 0, 0, 0);
+        if (offsetMs) startFrom.setTime(startFrom.getTime() + offsetMs);
+
+        const { periods, summary } = await computeAll(granularity, effectivePeriod, startFrom);
+        return {
+            success: true,
+            data: {
+                periods,
+                summary,
+            }
+        };
     }
-    catch (err) {
-        console.error('[DeskFlow] get-stats error:', err);
-        return [];
+    catch (err: any) {
+        console.error('[DeskFlow] get-period-rankings error:', err);
+        return { success: false, error: err?.message || 'Failed to compute rankings' };
     }
+    finally { if (conn) { try { conn.close(); } catch { /* ignore */ } } }
 });
+
 electron_1.ipcMain.handle('toggle-tracking', () => {
     isTracking = !isTracking;
     console.log('[DeskFlow] Tracking:', isTracking ? 'ON' : 'OFF');
@@ -6228,6 +6789,23 @@ electron_1.ipcMain.handle('clear-ai-sync-state', () => {
     userPreferences.aiSyncState = null;
     saveAISyncState({ version: SYNC_STATE_VERSION, lastRunAt: null, agentLastRun: {}, paths: {} });
     return { success: true };
+});
+// Force a full re-sync of all AI agent data — clears per-path change tracking so
+// every plugin path is re-parsed regardless of mtime/fileCount. Used when the
+// extension connects with historical data or after a DB wipe to recover past sessions.
+electron_1.ipcMain.handle('force-sync-ai-usage', async () => {
+    if (useJson) return { success: false, message: 'AI sync requires SQLite' };
+    if (aiSyncRunning) return { success: false, message: 'Sync already running' };
+    aiSyncRunning = true;
+    try {
+        // Invalidate ALL path-level change tracking so every path is re-parsed
+        userPreferences.aiSyncState = null;
+        saveAISyncState({ version: SYNC_STATE_VERSION, lastRunAt: null, agentLastRun: {}, paths: {} });
+        const results = await syncAllAIAgents(db);
+        return { success: true, ...results };
+    } catch (err: any) {
+        return { success: false, error: String(err) };
+    } finally { aiSyncRunning = false; }
 });
 electron_1.ipcMain.handle('get-ai-sessions-paginated', (event, tool, limit = 10, offset = 0) => {
     if (useJson) return { sessions: [], total: 0, hasMore: false };
@@ -7569,11 +8147,135 @@ electron_1.ipcMain.handle('get-logs-by-period', (event, params) => {
         return [];
     }
 });
-// Get daily stats for a period
-electron_1.ipcMain.handle('get-daily-stats', (event, period) => {
+
+// ─── Overlay Studio: read an imported .json transcript by real (dialog-provided) path
+electron_1.ipcMain.handle('overlay-studio:readTranscript', async (_event, payload) => {
+    try {
+        const filePath = payload?.filePath;
+        if (!filePath || typeof filePath !== 'string') {
+            return { ok: false, error: 'No file path provided' };
+        }
+        if (!fs_1.default.existsSync(filePath)) {
+            return { ok: false, error: `File not found: ${filePath}` };
+        }
+        const ext = path_1.default.extname(filePath).toLowerCase();
+        if (ext !== '.json') {
+            return { ok: false, error: `Expected a .json transcript file, got: ${ext}` };
+        }
+        let raw: string;
+        try {
+            raw = fs_1.default.readFileSync(filePath, 'utf-8');
+        } catch (readErr) {
+            return { ok: false, error: `Cannot read transcript file: ${readErr.message}` };
+        }
+        let data: any;
+        try {
+            data = JSON.parse(raw);
+        } catch (parseErr) {
+            return { ok: false, error: `Transcript file is not valid JSON: ${parseErr.message}` };
+        }
+        if (!data || typeof data !== 'object') {
+            return { ok: false, error: 'Transcript file content is empty or invalid' };
+        }
+        const normalized: any = {};
+        if (data.duration != null) normalized.duration = Number(data.duration);
+        if (data.video_id != null) normalized.video_id = String(data.video_id);
+        if (Array.isArray(data.segments)) {
+            normalized.segments = data.segments.map((seg: any, idx: number) => ({
+                id: seg.id != null ? Number(seg.id) : idx,
+                start: seg.start != null ? Number(seg.start) : 0,
+                end: seg.end != null ? Number(seg.end) : 0,
+                text: seg.text != null ? String(seg.text).trim() : '',
+            }));
+        } else if (Array.isArray(data)) {
+            normalized.segments = data.map((seg: any, idx: number) => ({
+                id: seg.id != null ? Number(seg.id) : idx,
+                start: seg.start != null ? Number(seg.start) : 0,
+                end: seg.end != null ? Number(seg.end) : 0,
+                text: seg.text != null ? String(seg.text).trim() : '',
+            }));
+        }
+        if (!normalized.segments || normalized.segments.length === 0) {
+            return { ok: false, error: 'Transcript contains no segments' };
+        }
+        return { ok: true, transcript: normalized };
+    }
+    catch (err) {
+        return { ok: false, error: (err && err.message) ? err.message : 'Failed to read transcript' };
+    }
+});
+
+// ─── Overlay Studio: save a CaptionTrack to disk as .json or .srt
+electron_1.ipcMain.handle('overlay-studio:save-caption', async (event, payload) => {
+    try {
+        const { sessionId, caption, format } = payload as any;
+        if (!sessionId || typeof sessionId !== 'string') {
+            return { ok: false, error: 'No sessionId provided' };
+        }
+        if (!caption || typeof caption !== 'object') {
+            return { ok: false, error: 'No caption payload provided' };
+        }
+        const fmt = String(format || 'json').toLowerCase();
+        if (fmt !== 'json' && fmt !== 'srt') {
+            return { ok: false, error: 'Format must be json or srt' };
+        }
+        let content: string;
+        if (fmt === 'json') {
+            content = JSON.stringify(caption, null, 2);
+        } else {
+            content = renderSrt(caption as any);
+        }
+        const baseName = String(sessionId).replace(/[^a-zA-Z0-9_-]/g, '_') || 'caption';
+        const defaultName = `${baseName}-caption.${fmt}`;
+        const { dialog } = require('electron');
+        const win = event.sender;
+        const result = await dialog.showSaveDialog({
+            title: `Save caption as ${fmt.toUpperCase()}`,
+            defaultPath: defaultName,
+            filters: [
+                { name: fmt.toUpperCase(), extensions: [fmt] },
+                { name: 'All Files', extensions: ['*'] },
+            ],
+        });
+        if (result.canceled || !result.filePath) {
+            return { ok: false, error: 'Save dialog canceled' };
+        }
+        require('fs').writeFileSync(result.filePath, content, 'utf-8');
+        return { ok: true, path: result.filePath };
+    }
+    catch (err) {
+        return { ok: false, error: (err && err.message) ? err.message : 'Failed to save caption' };
+    }
+});
+
+function renderSrt(caption: any): string {
+    const lines = (caption?.lines || []) as Array<{ id: string; start: number; end: number; text: string }>;
+    if (lines.length === 0) return '';
+    return lines
+        .map((l, idx) => {
+            const start = fmtSrtTime(Number(l.start) || 0);
+            const end = fmtSrtTime(Number(l.end) || 0);
+            const text = String((l?.text) || '').replace(/\n/g, ' ');
+            return `${idx + 1}\n${start} --> ${end}\n${text}\n`;
+        })
+        .join('\n');
+}
+
+function fmtSrtTime(sec: number): string {
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    const cs = Math.floor((sec % 1) * 100);
+    return `${pad2(h)}:${pad2(m)}:${pad2(s)},${pad2(cs)}`;
+}
+
+function pad2(n: number): string {
+    return String(n).padStart(2, '0');
+}
+
+electron_1.ipcMain.handle('get-daily-stats', (event, period = 'week') => {
     try {
         if (useJson) {
-            // Compute from JSON logs
             const now = new Date();
             let filtered = jsonLogs.filter(l => !l.is_browser_tracking);
             if (period === 'week') {
@@ -7598,7 +8300,7 @@ electron_1.ipcMain.handle('get-daily-stats', (event, period) => {
             return grouped;
         }
         const days = period === 'week' ? 7 : period === 'month' ? 30 : 365;
-        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split(' ')[0];
         const stmt = db.prepare(`
       SELECT
         date(timestamp) as day,
@@ -10739,6 +11441,25 @@ electron_1.ipcMain.handle('open-url', (_, url: string) => {
     }
 });
 
+// shell:openUrl — opened by note links / chat links / browser quick-open.
+// Mirrors the safe scheme validation of 'open-url' (prevents file:// etc.).
+electron_1.ipcMain.handle('shell:openUrl', (_event, url?: string, _browserId?: string) => {
+    try {
+        if (!url) return { success: false, error: 'No URL provided' };
+        const { shell } = require('electron');
+        const { URL } = require('url');
+        const parsed = new URL(url);
+        const allowedSchemes = ['https:', 'http:', 'mailto:', 'file:'];
+        if (!allowedSchemes.includes(parsed.protocol)) {
+            return { success: false, error: 'Blocked scheme: ' + parsed.protocol };
+        }
+        shell.openExternal(url);
+        return { success: true, openedWith: 'system' };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
 // Scan for tools in a project
 function scanProjectTools(projectId: string, projectPath: string) {
     if (useJson || !db) return;
@@ -11067,15 +11788,15 @@ electron_1.ipcMain.handle('get-ai-usage-summary', (event, period = 'week', dateO
         if (period === 'today') {
             const d = new Date(now);
             d.setDate(d.getDate() - dateOffset);
-            sinceDateStr = d.toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(d);
         } else if (period === 'week') {
-            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000));
         } else if (period === '7day') {
-            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000));
         } else if (period === 'month') {
-            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000));
         } else if (period === '30day') {
-            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000));
         }
 
         let query = `
@@ -11144,15 +11865,15 @@ electron_1.ipcMain.handle('get-ai-usage-details', (event, period = 'all', dateOf
         if (period === 'today') {
             const d = new Date(now);
             d.setDate(d.getDate() - dateOffset);
-            sinceDateStr = d.toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(d);
         } else if (period === 'week') {
-            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000));
         } else if (period === '7day') {
-            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000));
         } else if (period === 'month') {
-            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000));
         } else if (period === '30day') {
-            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000));
         }
 
         let whereClause = '';
@@ -11570,11 +12291,11 @@ electron_1.ipcMain.handle('get-code-change-stats', (event, period = 'week', date
         if (period === 'today' || period === 'day') {
             const d = new Date(now);
             d.setDate(d.getDate() - dateOffset);
-            sinceDateStr = d.toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(d);
         } else if (period === 'week' || period === '7day') {
-            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000));
         } else if (period === 'month' || period === '30day') {
-            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000));
         } // 'all' ? null ? no date filter (full history)
 
         const conditions: string[] = [];
@@ -11645,11 +12366,11 @@ electron_1.ipcMain.handle('get-code-activity-stats', (event, period = 'week', da
         if (period === 'today' || period === 'day') {
             const d = new Date(now);
             d.setDate(d.getDate() - dateOffset);
-            sinceDateStr = d.toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(d);
         } else if (period === 'week' || period === '7day') {
-            sinceDateStr = new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (7 + dateOffset * 7) * 24 * 60 * 60 * 1000));
         } else if (period === 'month' || period === '30day') {
-            sinceDateStr = new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            sinceDateStr = getLocalDateStr(new Date(now.getTime() - (30 + dateOffset * 30) * 24 * 60 * 60 * 1000));
         } // 'all' ? null ? no date filter (full history)
 
         const conditions: string[] = [];
@@ -18393,6 +19114,27 @@ electron_1.ipcMain.handle('get-goals-batch', async (_event, startDate: string, e
   }
 });
 
+// Habits are goals flagged with is_habit = 1. HabitTracker calls this to render
+// the weekly habit grid. (Previously unregistered → "No handler registered".)
+electron_1.ipcMain.handle('goal:get-habits', async (_event, startDate: string, endDate: string) => {
+  try {
+    const rows = db!.prepare(
+      'SELECT * FROM goals WHERE date BETWEEN ? AND ? AND is_habit = 1 ORDER BY date ASC, created_at ASC'
+    ).all(startDate, endDate) as any[];
+    const habits = rows.map((r: any) => ({
+      id: r.id, title: r.title, description: r.description,
+      category: r.category, period: r.period, status: r.status, date: r.date,
+      source: r.source, is_habit: 1,
+      target: { type: r.target_type, targetSeconds: r.target_seconds, matchCategory: r.match_category },
+      links: JSON.parse(r.links || '[]'), parentId: r.parent_id, parentIds: parseGoalParentIds(r),
+      progressSeconds: r.progress_seconds, createdAt: r.created_at, completedAt: r.completed_at,
+    }));
+    return { success: true, habits };
+  } catch (err: any) {
+    return { success: false, error: err.message, habits: [] };
+  }
+});
+
 electron_1.ipcMain.handle('save-goal', async (_event, date: string, goal: any) => {
   try {
     const { parentId, parentIdsJson } = goalParentIdsToColumns(goal);
@@ -19276,12 +20018,16 @@ electron_1.ipcMain.handle('get-reminders', async () => {
 electron_1.ipcMain.handle('create-reminder', async (_event, data: { text: string; due_date?: string; goal_id?: string }) => {
   try {
     const id = 'rem_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    // Normalize any ISO timestamp to a YYYY-MM-DD date so the calendar grid
+    // (which keys by date) and daysUntil() line up. Raw timestamps previously
+    // produced NaN counts and never landed on the calendar.
+    const normDate = data.due_date ? data.due_date.slice(0, 10) : null;
     db!.prepare('INSERT INTO reminders (id, text, due_date, goal_id, done) VALUES (?, ?, ?, ?, 0)').run(
-      id, data.text, data.due_date || null, data.goal_id || null,
+      id, data.text, normDate, data.goal_id || null,
     );
     // Capture deadline episode into context brain
     try {
-      episodeWriters.writeDeadlineEpisode({ id, title: data.text, due_date: data.due_date || 'no date', course: undefined }, 'created');
+      episodeWriters.writeDeadlineEpisode({ id, title: data.text, due_date: normDate || 'no date', course: undefined }, 'created');
     } catch {}
     return { success: true, id };
   } catch (err: any) {
@@ -19339,6 +20085,7 @@ electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: strin
       notes: rows.map(r => ({
         ...r,
         tags: (() => { try { return JSON.parse(r.tags || '[]'); } catch { return []; } })(),
+        tag_colors: (() => { try { return r.tag_colors ? JSON.parse(r.tag_colors) : null; } catch { return null; } })(),
       })),
     };
   } catch (err: any) {
@@ -19346,11 +20093,12 @@ electron_1.ipcMain.handle('notes:list', async (_event, params?: { search?: strin
   }
 });
 
-electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string; content: string; tags?: string[]; group_name?: string; deadline?: string; deadline_time?: string; reminder?: string; is_draft?: number; links?: string[] }) => {
+electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string; content: string; tags?: string[]; group_name?: string; group_color?: string | null; tag_colors?: Record<string, string> | null; deadline?: string; deadline_time?: string; reminder?: string; is_draft?: number; links?: string[] }) => {
   try {
     const id = 'note_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-    db!.prepare('INSERT INTO notes (id, title, content, tags, group_name, deadline, deadline_time, reminder, is_draft, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    db!.prepare('INSERT INTO notes (id, title, content, tags, group_name, group_color, tag_colors, deadline, deadline_time, reminder, is_draft, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
       id, data.title || '', data.content, JSON.stringify(data.tags || []), data.group_name || '',
+      data.group_color || null, data.tag_colors ? JSON.stringify(data.tag_colors) : null,
       data.deadline || null, data.deadline_time || null, data.reminder || 'none', data.is_draft || 0,
       JSON.stringify(data.links || []),
     );
@@ -19360,7 +20108,7 @@ electron_1.ipcMain.handle('notes:create', async (_event, data: { title?: string;
   }
 });
 
-electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string; deadline?: string | null; deadline_time?: string | null; reminder?: string; is_draft?: number; status?: string; links?: string[] }) => {
+electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string; group_color?: string | null; tag_colors?: Record<string, string> | null; deadline?: string | null; deadline_time?: string | null; reminder?: string; is_draft?: number; status?: string; links?: string[] }) => {
   try {
     const sets: string[] = [];
     const args: any[] = [];
@@ -19368,6 +20116,8 @@ electron_1.ipcMain.handle('notes:update', async (_event, data: { id: string; tit
     if (data.content !== undefined) { sets.push('content = ?'); args.push(data.content); }
     if (data.tags !== undefined) { sets.push('tags = ?'); args.push(JSON.stringify(data.tags)); }
     if (data.group_name !== undefined) { sets.push('group_name = ?'); args.push(data.group_name); }
+    if (data.group_color !== undefined) { sets.push('group_color = ?'); args.push(data.group_color); }
+    if (data.tag_colors !== undefined) { sets.push('tag_colors = ?'); args.push(JSON.stringify(data.tag_colors)); }
     if (data.deadline !== undefined) { sets.push('deadline = ?'); args.push(data.deadline); }
     if (data.deadline_time !== undefined) { sets.push('deadline_time = ?'); args.push(data.deadline_time); }
     if (data.reminder !== undefined) { sets.push('reminder = ?'); args.push(data.reminder); }
@@ -19468,8 +20218,12 @@ electron_1.ipcMain.handle('get-deadlines', async (_event, opts?: { days?: number
 electron_1.ipcMain.handle('add-deadline', async (_event, dl: any) => {
   try {
     const id = 'dl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    // Normalize ISO timestamps to YYYY-MM-DD so the calendar grid (keyed by date)
+    // and daysUntil() line up. Raw timestamps previously produced NaN + never landed.
+    const normDue = dl.due_date ? dl.due_date.slice(0, 10) : null;
+    const normRemind = dl.remind_at ? dl.remind_at.slice(0, 10) : null;
     db!.prepare('INSERT INTO deadlines (id, title, course, due_date, priority, description, category, remind_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, dl.title, dl.course || null, dl.due_date, dl.priority || 'medium', dl.description || null, dl.category || null, dl.remind_at || null);
+      .run(id, dl.title, dl.course || null, normDue, dl.priority || 'medium', dl.description || null, dl.category || null, normRemind);
     return { success: true, id };
   } catch (err: any) { return { success: false, error: err.message }; }
 });
@@ -22299,13 +23053,37 @@ function detectAdjacentSleepGaps(gapStartIso, gapEndIso) {
             });
         };
 
-        // Only the merged gap that overlaps the sleep window qualifies — the sleep
-        // window itself is excluded (the sleep session will cover it).
+        // Strategy 1: Find merged intervals that OVERLAP the sleep/AFK window.
+        // Return the portions that extend before/after the window.
+        let foundOverlap = false;
         for (const g of merged) {
             if (g.start < sleepEnd && g.end > sleepStart) {
+                foundOverlap = true;
                 if (g.start < sleepStart) addPortion(g.start, sleepStart, 'before');
                 if (g.end > sleepEnd) addPortion(sleepEnd, g.end, 'after');
                 break;
+            }
+        }
+
+        // Strategy 2 (AFK case): No overlapping interval means the user was idle
+        // with no tracking during the window. Detect untracked gaps ADJACENT to the
+        // window: the gap between the last tracked interval's end and the window start,
+        // and the gap between the window end and the first tracked interval's start.
+        if (!foundOverlap && merged.length > 0) {
+            // Find the last interval that ends at or before sleepStart
+            let lastBefore = null;
+            let firstAfter = null;
+            for (const g of merged) {
+                if (g.end <= sleepStart) lastBefore = g;
+                if (g.start >= sleepEnd && !firstAfter) { firstAfter = g; break; }
+            }
+            // Before gap: last tracked session ended → sleep/AFK started
+            if (lastBefore && lastBefore.end < sleepStart) {
+                addPortion(lastBefore.end, sleepStart, 'before');
+            }
+            // After gap: sleep/AFK ended → first tracked session starts
+            if (firstAfter && firstAfter.start > sleepEnd) {
+                addPortion(sleepEnd, firstAfter.start, 'after');
             }
         }
         return adjacent;
@@ -22342,6 +23120,16 @@ electron_1.ipcMain.handle('check-sleep-detection', (event) => {
     } catch (err) {
         console.error('[DeskFlow] Failed to check sleep detection:', err);
         return { detected: false };
+    }
+});
+
+electron_1.ipcMain.handle('compute-adjacent-gaps', (event, params: { sleepStartIso: string; sleepEndIso: string }) => {
+    try {
+        const gaps = detectAdjacentSleepGaps(params.sleepStartIso, params.sleepEndIso);
+        return { ok: true, gaps };
+    } catch (err) {
+        console.error('[DeskFlow] compute-adjacent-gaps error:', err);
+        return { ok: false, gaps: [] };
     }
 });
 

@@ -69,6 +69,7 @@ export function LearnPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [selectedPart, setSelectedPart] = useState<CurriculumTopic | null>(null);
   const [lessonSeed, setLessonSeed] = useState<LessonSeed | null>(null);
+  const [savedIntentConfig, setSavedIntentConfig] = useState<Record<string, any> | null>(null);
   const [completedParts, setCompletedParts] = useState<string[]>([]);
   const [completedItems, setCompletedItems] = useState<string[]>([]);
   const [showProfilePanel, setShowProfilePanel] = useState(false);
@@ -661,6 +662,9 @@ export function LearnPage() {
             scope: intent.description ? intent.description.split('\n').filter(Boolean) : [],
             topicPrompt: intent.context || '',
           });
+          try {
+            setSavedIntentConfig(intent.config ? JSON.parse(intent.config) : null);
+          } catch { setSavedIntentConfig(null); }
           setShowCreateDialog(true);
         }}
       />
@@ -685,10 +689,11 @@ export function LearnPage() {
       <CreateLessonDialog
         seed={lessonSeed}
         open={showCreateDialog}
-        onClose={() => { setShowCreateDialog(false); setLessonSeed(null); }}
+        onClose={() => { setShowCreateDialog(false); setLessonSeed(null); setSavedIntentConfig(null); }}
         onImported={() => { loadLessons(); navigate('library'); }}
         onBrowseSavedIdeas={() => { setShowCreateDialog(false); setIntentPanelOpen(true); }}
-        onOpenLesson={(id) => { setShowCreateDialog(false); setLessonSeed(null); loadLesson(id); }}
+        onOpenLesson={(id) => { setShowCreateDialog(false); setLessonSeed(null); setSavedIntentConfig(null); loadLesson(id); }}
+        savedIntentConfig={savedIntentConfig}
       />
       <OnboardingPanel open={showOnboarding} onClose={() => setShowOnboarding(false)} />
       <LearnerSetup open={showSetup} onClose={() => setShowSetup(false)} />

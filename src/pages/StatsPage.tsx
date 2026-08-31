@@ -39,6 +39,9 @@ import { format, subDays, eachDayOfInterval, startOfWeek, addWeeks } from 'date-
 import { getDateRange } from '../lib/dateRange';
 import { glassBackdrop, centerText, makeGradient, sharedTooltipStyle, sharedScales, formatAxisTick, barAnimation, pieAnimation } from '../lib/chart-plugins';
 import type { Period } from '../lib/dateRange';
+import { CurrentCanvas } from '../components/CurrentCanvas';
+import { renderSignal } from '../lib/renderers/signal';
+import { startPhaseClock } from '../lib/currentPhase';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler, glassBackdrop, centerText);
 
@@ -120,6 +123,7 @@ function formatDuration(seconds: number): string {
 }
 
 export default function StatsPage({ embedded, appStats, logs, allLogs, selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange, timeMode = 'total', tierAssignments, liveActivityLogs }: StatsPageProps) {
+  useEffect(() => { startPhaseClock(); }, []);
   const [selectedApp, setSelectedApp] = useState<string | null>(null);
   const [detailPeriod, setDetailPeriod] = useState<Period>('week');
   const [detailDateOffset, setDetailDateOffset] = useState(0);
@@ -1622,5 +1626,12 @@ export default function StatsPage({ embedded, appStats, logs, allLogs, selectedP
   );
 
   if (embedded) return pageContent;
-  return <PageShell page="stats">{pageContent}</PageShell>;
+  return (
+    <PageShell page="stats">
+      <CurrentCanvas accent="#06b6d4" render={renderSignal} />
+      <div className="relative z-10">
+        {pageContent}
+      </div>
+    </PageShell>
+  );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, RotateCcw, RefreshCw, Plus, Pencil, Trash2, BookOpen, Maximize2, Minimize2, Brain } from 'lucide-react';
 import { loadProfile, saveProfile, updateKnob, resetProfile, addKnowledgeEntry, updateKnowledgeEntry, removeKnowledgeEntry, loadUserLessons } from '../../services/learn/learnerProfile';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 import { PROFILE_KNOBS } from '../../shared/learn/types';
 import { ImageGenSettings } from './ImageGenSettings';
 import { KnowledgeIntakePanel } from './KnowledgeIntakePanel';
@@ -255,7 +256,17 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
                   >
                     <div className="space-y-2.5 rounded-xl border border-zinc-700/40 bg-zinc-800/30 p-3">
                       <div>
-                        <label className="block text-[10px] font-medium text-zinc-500 mb-1">What do you know? <span className="text-clay-400">*</span></label>
+                        <label className="block text-[10px] font-medium text-zinc-500 mb-1">What do you know? <span className="text-clay-400">*</span>
+                          <FieldAIButton
+                            fieldName="statement"
+                            label="Knowledge Statement"
+                            value={kbForm.statement}
+                            onUpdate={(v) => setKbForm((f) => ({ ...f, statement: v }))}
+                            allFields={{ statement: kbForm.statement, topic: kbForm.topic, level: kbForm.level, keywords: kbForm.keywords }}
+                            category="learn"
+                            context="Help articulate what the user knows about a topic"
+                          />
+                        </label>
                         <textarea
                           value={kbForm.statement}
                           onChange={(e) => setKbForm((f) => ({ ...f, statement: e.target.value }))}
@@ -265,7 +276,17 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
                       </div>
                       <div className="flex gap-2">
                         <div className="flex-1">
-                          <label className="block text-[10px] font-medium text-zinc-500 mb-1">Topic (optional)</label>
+                          <label className="block text-[10px] font-medium text-zinc-500 mb-1">Topic (optional)
+                            <FieldAIButton
+                              fieldName="topic"
+                              label="Topic"
+                              value={kbForm.topic}
+                              onUpdate={(v) => setKbForm((f) => ({ ...f, topic: v }))}
+                              allFields={{ statement: kbForm.statement, topic: kbForm.topic, level: kbForm.level, keywords: kbForm.keywords }}
+                              category="learn"
+                              context="Categorize this knowledge entry"
+                            />
+                          </label>
                           <input
                             value={kbForm.topic}
                             onChange={(e) => setKbForm((f) => ({ ...f, topic: e.target.value }))}
@@ -286,7 +307,17 @@ export function LearnerProfilePanel({ open, onClose, onRerunSetup }: Props) {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-medium text-zinc-500 mb-1">Keywords (comma-separated, for relevance)</label>
+                        <label className="block text-[10px] font-medium text-zinc-500 mb-1">Keywords (comma-separated, for relevance)
+                          <FieldAIButton
+                            fieldName="keywords"
+                            label="Keywords"
+                            value={kbForm.keywords}
+                            onUpdate={(v) => setKbForm((f) => ({ ...f, keywords: v }))}
+                            allFields={{ statement: kbForm.statement, topic: kbForm.topic, level: kbForm.level, keywords: kbForm.keywords }}
+                            category="learn"
+                            context="Extract relevant keywords from this knowledge statement"
+                          />
+                        </label>
                         <input
                           value={kbForm.keywords}
                           onChange={(e) => setKbForm((f) => ({ ...f, keywords: e.target.value }))}

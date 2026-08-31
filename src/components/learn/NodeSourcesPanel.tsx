@@ -110,25 +110,24 @@ export function NodeSourcesPanel({ nodeId, open, onClose }: NodeSourcesPanelProp
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-full max-w-lg rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <h3 className="text-sm font-semibold text-zinc-200">Edit Grounding Sources</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition">
-            <X size={16} />
-          </button>
-        </div>
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 shrink-0">
+        <h3 className="text-sm font-semibold text-zinc-200">Grounding Sources</h3>
+        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition" aria-label="Close sources panel">
+          <X size={16} />
+        </button>
+      </div>
 
-        <div className="max-h-96 overflow-y-auto p-4 space-y-3">
-          {loading && (
-            <div className="flex items-center gap-2 text-sm text-zinc-500">
-              <LoaderCircle size={14} className="animate-spin" /> Loading sources…
-            </div>
-          )}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {loading && (
+          <div className="flex items-center gap-2 text-sm text-zinc-500">
+            <LoaderCircle size={14} className="animate-spin" /> Loading sources…
+          </div>
+        )}
 
-          {!loading && sources.length === 0 && !adding && (
-            <p className="text-sm text-zinc-600">No sources linked to this node yet.</p>
-          )}
+        {!loading && sources.length === 0 && !adding && (
+          <p className="text-xs text-zinc-600">No sources linked to this node yet.</p>
+        )}
 
           {sources.map(src => (
             <div key={src.id} className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3">
@@ -207,21 +206,16 @@ export function NodeSourcesPanel({ nodeId, open, onClose }: NodeSourcesPanelProp
             </div>
           )}
 
-          {error && <p className="text-[11px] text-red-400">{error}</p>}
-        </div>
+        {error && <p className="text-[11px] text-red-400">{error}</p>}
+      </div>
 
-        <div className="border-t border-zinc-800 px-4 py-3 flex justify-between">
-          {!adding && (
-            <button onClick={() => { setAdding(true); setError(null); }}
-              className="flex items-center gap-1 rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 transition">
-              <Plus size={12} /> Add Source
-            </button>
-          )}
-          <button onClick={onClose}
-            className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 ml-auto">
-            Close
+      <div className="border-t border-zinc-800 px-4 py-3 shrink-0">
+        {!adding && (
+          <button onClick={() => { setAdding(true); setError(null); }}
+            className="flex items-center gap-1 rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 transition">
+            <Plus size={12} /> Add Source
           </button>
-        </div>
+        )}
       </div>
     </div>
   );

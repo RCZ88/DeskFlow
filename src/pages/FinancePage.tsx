@@ -39,6 +39,9 @@ import type {
   FinanceSummary, FinanceSpendingByCategory, FinanceMonthlyTrend, FinanceTabKey,
   FinanceFixedExpense, FixedExpenseSummary, FinanceBudget, BudgetStatus
 } from '../components/finance/finance-types';
+import { CurrentCanvas } from '../components/CurrentCanvas';
+import { renderFlow } from '../lib/renderers/flow';
+import { startPhaseClock } from '../lib/currentPhase';
 
 const SEED_CATEGORIES = [
   { name: 'Salary', type: 'income' as const, icon: 'CircleDollarSign', color: '#10b981', sort_order: 1 },
@@ -71,6 +74,7 @@ const tabs: { key: string; label: string; icon: React.ReactNode }[] = [
 ];
 
 export function FinancePage() {
+  useEffect(() => { startPhaseClock(); }, []);
   const [isLocked, setIsLocked] = useState(true);
   const [isFirstTime, setIsFirstTime] = useState(false);
   const [lockError, setLockError] = useState<string | null>(null);
@@ -1044,6 +1048,8 @@ export function FinancePage() {
 
   return (
     <PageShell page="finance" variant="sticky-header" style={{ ['--page-accent' as string]: '#10b981' }}>
+      <CurrentCanvas accent="#10b981" render={renderFlow} />
+      <div className="relative z-10">
       <AuroraBackground />
 
       <div className="relative isolate min-h-full px-6 pt-4 pb-28 mx-auto w-full max-w-full">
@@ -1638,6 +1644,7 @@ export function FinancePage() {
           {notifMsg}
         </motion.div>
       )}
+      </div>
     </PageShell>
   );
 }

@@ -21,10 +21,11 @@ export const MASTERY_SHORT: Record<MasteryLevel, string> = {
   L4: 'Deep knowledge',
   L5: 'Can teach it',
 };
-export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer' | 'chart' | 'table' | 'flow' | 'finchart' | 'svg' | 'tutor' | 'proposal' | 'conversation' | 'notes'
+export type BlockType = 'prose' | 'math' | 'mermaid' | 'code' | 'image' | 'video' | 'widget' | 'quiz' | 'callout' | 'layer' | 'chart' | 'table' | 'flow' | 'finchart' | 'svg' | 'html' | 'figure' | 'tutor' | 'proposal' | 'conversation' | 'notes'
   | 'viz_heatmap' | 'viz_graph' | 'viz_timeline' | 'viz_concept_map'
   | 'flashcard' | 'flashcard_occlusion' | 'layer_reveal' | 'whiteboard'
-  | 'illustration';
+  | 'illustration'
+  | 'animation' | 'video_asset';
 export type QuizFormat = 'mcq' | 'numeric' | 'open';
 export type LessonStatus = 'draft' | 'valid' | 'published';
 export type EvidenceSource = 'tutor' | 'quiz' | 'self-report';
@@ -75,6 +76,8 @@ export type LdocBlock =
   | FlowBlock
   | FinChartBlock
   | SvgBlock
+  | HtmlBlock
+  | FigureBlock
   | TutorBlock
   | ProposalBlock
   | ConversationBlock
@@ -86,7 +89,11 @@ export type LdocBlock =
   | FlashcardBlockType
   | LayerRevealBlockType
   | WhiteboardBlockType
-  | IllustrationBlockType;
+  | IllustrationBlockType
+  | AnnotatedCodeBlock
+  | AnnotatedMathBlock
+  | AnimationBlock
+  | VideoAssetBlock;
 
 export interface BaseBlock {
   id: string;
@@ -205,6 +212,18 @@ export interface LayerBlock extends BaseBlock {
 
 export interface SvgBlock extends BaseBlock {
   type: 'svg';
+  svg: string;
+  caption?: string;
+}
+
+export interface HtmlBlock extends BaseBlock {
+  type: 'html';
+  html: string;
+  caption?: string;
+}
+
+export interface FigureBlock extends BaseBlock {
+  type: 'figure';
   svg: string;
   caption?: string;
 }
@@ -555,6 +574,58 @@ export interface IllustrationBlockType extends BaseBlock {
     annotations?: string[];
     error?: string;
   };
+}
+
+export interface AnimationBlock extends BaseBlock {
+  type: 'animation';
+  meta: {
+    engine: 'elucim';
+    dsl: Record<string, unknown> | null;
+    title?: string;
+    concept?: string;
+    preset?: string;
+    generated: boolean;
+    poster?: string;
+    error?: string;
+  };
+}
+
+export interface VideoAssetBlock extends BaseBlock {
+  type: 'video_asset';
+  meta: {
+    engine: 'manim';
+    python_source: string;
+    scene_name?: string;
+    quality?: 'low' | 'medium' | 'high';
+    video_path?: string;
+    poster_path?: string;
+    generated: boolean;
+    render_status: 'pending' | 'rendering' | 'done' | 'error' | 'unavailable';
+    error?: string;
+    caption?: string;
+  };
+}
+
+export interface AnnotatedCodeBlock extends BaseBlock {
+  type: 'annotated-code';
+  lang: string;
+  code: string;
+  targets: Array<{
+    id: string;
+    line: number;
+    label: string;
+    entries: string[];
+  }>;
+}
+
+export interface AnnotatedMathBlock extends BaseBlock {
+  type: 'annotated-math';
+  latex: string;
+  targets: Array<{
+    id: string;
+    symbol: string;
+    entries: string[];
+  }>;
 }
 
 export interface ConversationAction {

@@ -1,4 +1,4 @@
-# Skill Router — Universal Skill Dispatcher v1.2.0
+# Skill Router — Universal Skill Dispatcher v1.3.1
 
 > **PURPOSE:** This is the master routing table for ALL skills in `agent/skills/`. It maps every task/scenario to the correct skill(s), enforces load order, and ensures no skill is forgotten. Load this skill FIRST whenever you begin a task.
 >
@@ -55,6 +55,12 @@ User task enters
 ├─ "add a tutorial" / "walkthrough" / "onboarding steps"
 │  └─ TUTORIAL category
 │
+├─ Learn / Lyceum / lesson generation / curriculum / knowledge intake / quiz / flashcard
+│  └─ LEARN category
+│
+├─ "send to external AI" / "paste into ChatGPT" / "let my AI decide" / format-only prompts / import from AI
+│  └─ EXTERNAL AI BRIDGE category
+│
 ├─ "generate a license" / "add license" / "choose license"
 │  └─ LICENSE category
 │
@@ -91,21 +97,22 @@ User task enters
 
 | Priority | Skill | Why |
 |----------|-------|-----|
-| MANDATORY | Backandforth package (`agent/docs/backandfourth-docs/tugo-signature-motion/`) | Load FIRST — contains the design brief, codebase reference, 10 motion mechanics vocabulary, page-to-mechanic mapping, and conversation protocol. This is the canonical design reference for RHEO. |
-| MANDATORY | `frontend-external-infra` | Never design from zero — pull from MCP component libraries first. Check Source Routing table. |
-| MANDATORY | `humancentred-UIUX` | Mandated by AGENTS.md §5b. Every UI must cover all 4 states (empty/loading/error/populated). |
-| MANDATORY | `frontend-design` | DeskFlow design system — colors, spacing, typography, page patterns, component patterns |
-| MANDATORY | `signature-design` | Page-level redesign / hero work: ONE concept-true centerpiece per screen ("more than one hero = no hero"), fit rubric, restraint guardrails |
-| RECOMMENDED | `design-taste` + `taste-skill` | When the user wants to set design direction, variance, or aesthetic |
-| RECOMMENDED | `impeccable` | When doing detailed styling, CSS, typography, color work |
-| RECOMMENDED | `motion-alive` | When the UI needs micro-interactions, transitions, animations — pick a Liveliness Level first |
-| RECOMMENDED | `ui-ux-pro-max` | When choosing industry-specific styles or color palettes |
+| **MANDATORY** | `frontend-external-infra` | Never design from zero — pull from MCP component libraries first. Check Source Routing table. |
+| **MANDATORY** | `frontend-design` | DeskFlow design system — colors, spacing, typography, page patterns, component patterns |
+| **MANDATORY** | `Human-Centric UX` | Mandated by AGENTS.md §5b. Every UI must cover all 4 states (empty/loading/error/populated). 6 pillars: clarity, progressive disclosure, visual hierarchy, state coverage, feedback, forgiveness. |
+| **MANDATORY** | `Impeccable` | 7 domains (typography, color, spatial, motion, interaction, responsive, UX writing) + 23 commands + 27 anti-patterns. Catches the details other skills miss. |
+| **MANDATORY** | `Motion — Bring the UI Alive` | Pick a Liveliness Level (L1/L2/L3) first. Motion taxonomy: reactive, transitional, ambient, narrative. Reduced-motion fallback mandatory. |
+| **MANDATORY** | `Design Taste System` | Master dispatcher — knobs (variance/motion/density), aesthetic matrix, anti-repetition rules, decision tree. |
+| **MANDATORY** | `UI UX Pro Max` | Industry-specific rules (developer tools, finance, AI/ML, analytics), style library, color palettes, typography pairings. |
+| **MANDATORY** | `Taste Skill` | 3 tunable knobs (variance/motion/density), aesthetic variant matrix, anti-repetition rules. Prevents generic output. |
+| RECOMMENDED | `signature-design` | Page-level redesign / hero work: ONE concept-true centerpiece per screen |
 | RECOMMENDED | `google-stitch` | When the user mentions "mockup", "Stitch", "vibe design", "DESIGN.md" |
-| RECOMMENDED | `font-selection` | When choosing/verifying fonts — never invent a font; pick from the installed families |
-| RECOMMENDED | `beautiful-charts` | When the work includes charts, graphs, data visualization, or chart styling |
-| RECOMMENDED | `layout-deck-fix` | When touching the AI-deck layout (deck.css / `--dk-*` tokens / deck pages) |
+| RECOMMENDED | `font-selection` | When choosing/verifying fonts — never invent a font |
+| RECOMMENDED | `beautiful-charts` | When the work includes charts, graphs, data visualization |
 
-**Load order:** Backandforth package → frontend-external-infra → frontend-design → signature-design → humancentred-UIUX → [impeccable → motion-alive → taste-skill → beautiful-charts depending on scope]
+**Load order:** ALL 8 MANDATORY skills first (frontend-external-infra → frontend-design → Human-Centric UX → Impeccable → Motion → Design Taste System → UI UX Pro Max → Taste Skill), then RECOMMENDED as needed.
+
+**NEVER load only 2 skills. The user has raged about this repeatedly. ALL 8 MANDATORY skills must be loaded for ANY UI work.**
 
 **If this is a page-level redesign** that also changes how data flows, also load `max-security` to review backend changes.
 
@@ -182,6 +189,40 @@ User task enters
 | RECOMMENDED | `backandfourth-skill` | If the task is BACK-AND-FORTH collaboration with an external AI (INITIAL_PROMPT/CONTEXT_BUNDLE/CONTEXT_GAPS/CONVERSATION_PROTOCOL, rounds in `conversation/`) |
 
 **Load order:** generate-prompt (+ generate-problem if applicable) → backandfourth-skill (if back-and-forth collaboration) → humancentred-UIUX
+
+---
+
+### LEARN / LYCEUM
+**Trigger:** "create a lesson", "generate lesson", "edit lesson", "quiz", "flashcard", "curriculum", "knowledge intake", "learner profile", "mastery level", "learning node"
+**Goal:** Generate, edit, or improve Learn (Lyceum) module content — lessons, quizzes, flashcards, curriculum, knowledge base, visual grounding
+
+| Priority | Skill | Why |
+|----------|-------|-----|
+| MANDATORY | `visual-grounding-authoring` | Every lesson MUST follow integrated-widget authoring patterns (not paired decoration blocks). Pattern catalog, @ref rules, self-check. |
+| MANDATORY | `humancentred-UIUX` | Lesson UI must have empty/loading/error states, human-comprehensible labels, accessible interactions |
+| RECOMMENDED | `frontend-external-infra` | If building new Learn UI components — use real MCP-served components (shadcn, Magic UI, Lucide) |
+| RECOMMENDED | `generate-prompt` | If generating prompts for lesson creation or AI-powered features |
+
+**Load order:** visual-grounding-authoring → humancentred-UIUX → frontend-external-infra (if UI work) → generate-prompt (if prompt generation)
+
+---
+
+### EXTERNAL AI BRIDGE
+**Trigger:** "send to external AI", "paste into ChatGPT", "let my AI decide", format-only prompts, import from external AI, copy prompt for AI, browser-extension prompt panel, dynamic prompt field selection
+**Goal:** Build features where the app generates a format instruction, user pastes into existing AI conversation, AI outputs structured JSON, user pastes back and app parses it
+
+| Priority | Skill | Why |
+|----------|-------|-----|
+| MANDATORY | `external-ai-bridge` | Core pattern — format-only prompts, parsing rules, series context, frame modes, anti-patterns |
+| MANDATORY | `frontend-external-infra` | UI components: TemplateSelector, paste-back cards, "Send to External AI" buttons |
+| RECOMMENDED | `humancentred-UIUX` | Ensure paste-back flow has clear empty/loading/error states |
+| RECOMMENDED | `agent-forge` | If the feature also needs internal AI agents alongside the external bridge |
+
+**Delivery surfaces (all use the same `/ai-prompts/build` + `/ai-prompts/import` contract):**
+- **Desktop app** — Content Engine / Learn / AI Tools tabs with "Send to External AI" buttons.
+- **Browser extension overlay** (`browser-extension/overlay.js`) — the AI Context Bridge panel's prompt selector is a TWO-STEP dynamic flow: (1) pick a prompt type, (2) `renderPromptConfig` shows selectable sections (content-engine), fields-to-fill (learn/ai-tools), frame-mode strict/loose, writing style, and an optional context box, then "Build & Inject" posts to `/ai-prompts/build` and injects the result into the chat input. The `fields` param is a key→value map (empty value = `[FILL THIS]` marker); `sections` controls which content-engine parts are built; `frameMode` and `style` shape the instruction.
+
+**Load order:** external-ai-bridge → frontend-external-infra → humancentred-UIUX (if UI work) → agent-forge (if hybrid)
 
 ---
 

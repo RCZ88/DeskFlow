@@ -160,7 +160,8 @@ export function CanvasContainer({
     const contentW = bounds.maxX - bounds.minX + 200
     const contentH = bounds.maxY - bounds.minY + 200
     const fitZoom = Math.min(viewportSize.w / contentW, viewportSize.h / contentH, 1.5)
-    const clampedZoom = Math.max(0.3, Math.min(1.5, fitZoom))
+    // Floor raised from 0.3 → 0.6 so "fit" never shrinks cards to specks
+    const clampedZoom = Math.max(0.6, Math.min(1.5, fitZoom))
     const centerX = (bounds.minX + bounds.maxX) / 2
     const centerY = (bounds.minY + bounds.maxY) / 2
     setZoom(clampedZoom)
@@ -196,7 +197,8 @@ export function CanvasContainer({
   }, [zoom])
 
   const handleZoomOut = useCallback(() => {
-    const newZoom = Math.max(0.15, zoom / 1.2)
+    // Floor raised from 0.15 → 0.5 so users cannot zoom the canvas into tiny specks
+    const newZoom = Math.max(0.5, zoom / 1.2)
     setZoom(newZoom)
   }, [zoom])
 

@@ -107,7 +107,7 @@ export default function GapFillModal({
         id: 'app:' + a.app,
         name: a.app,
         category: a.category || 'Other',
-        color: '#6366f1',
+        color: a.color || '#71717a',
         type: 'app' as const,
       })))
       setExternalActivities(ext.filter((a: any) => a.name !== 'AFK').map((a: any) => ({
@@ -367,24 +367,22 @@ export default function GapFillModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-4"
           onClick={onClose}
         >
           <motion.div
             initial={{ scale: 0.92, opacity: 0, y: 10 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.92, opacity: 0, y: 10 }}
-            transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
-            className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-2xl max-h-[min(700px,85vh)] overflow-hidden flex flex-col"
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="bg-zinc-900/80 border border-white/10 rounded-xl w-full max-w-2xl max-h-[min(700px,85vh)] overflow-hidden flex flex-col"
             onClick={e => e.stopPropagation()}
           >
-            <div className="h-1 bg-gradient-to-r from-indigo-500/40 via-emerald-500/40 to-indigo-500/40 shrink-0" />
-
             {/* Header */}
             <div className="flex items-start justify-between p-5 pb-3 shrink-0">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0 ring-1 ring-indigo-500/20">
-                  <Clock className="w-5 h-5 text-indigo-400" />
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center shrink-0 ring-1 ring-amber-500/20">
+                  <Clock className="w-5 h-5 text-amber-400" />
                 </div>
                 <div>
                   <h3 className="text-base font-semibold text-zinc-100">Fill Time Gaps</h3>
@@ -404,7 +402,7 @@ export default function GapFillModal({
                 <button
                   onClick={autofillAll}
                   disabled={autoFilling}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/20 disabled:opacity-40"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/20 disabled:opacity-40"
                 >
                   <Sparkles className="w-4 h-4" />
                   {autoFilling ? 'Predicting…' : 'Auto-fill all gaps'}
@@ -469,7 +467,7 @@ export default function GapFillModal({
                           <div
                             key={seg.id}
                             className="h-full flex items-center justify-center text-[10px] font-medium text-white/80 truncate px-1 transition-colors"
-                            style={{ flex: `${pct} 1 0%`, backgroundColor: act?.color || (seg.activityId ? '#6366f1' : '#52525b') }}
+                            style={{ flex: `${pct} 1 0%`, backgroundColor: act?.color || (seg.activityId ? '#71717a' : '#3f3f46') }}
                           >
                             <span className="truncate">{pct > 0.1 ? fmtElapsed(seg.durationSeconds) : ''}</span>
                           </div>,
@@ -555,7 +553,7 @@ export default function GapFillModal({
                               onClick={() => setPickingFor(isPicking ? null : { gapId: gi, segId: seg.id })}
                               className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700/60 transition text-left"
                             >
-                              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: act?.color || '#52525b' }} />
+                              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: act?.color || 'var(--text-disabled)' }} />
                               <span className={`text-xs ${act ? 'text-zinc-200' : 'text-zinc-500 italic'}`}>
                                 {act ? act.name : 'Choose activity'}
                               </span>
@@ -666,7 +664,7 @@ function ActivityPickerGrid({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search activities…"
-          className="w-full rounded-lg border border-zinc-700/40 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 mb-2"
+          className="w-full rounded-lg border border-zinc-700/40 bg-zinc-900/60 px-2.5 py-1.5 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/30 mb-2"
           autoFocus
         />
 
@@ -683,7 +681,7 @@ function ActivityPickerGrid({
                   onClick={() => onPick(act)}
                   className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition text-xs ${
                     currentId === act.id
-                      ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/30'
+                      ? 'bg-amber-500/20 text-amber-200 ring-1 ring-amber-500/30'
                       : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
@@ -708,7 +706,7 @@ function ActivityPickerGrid({
                   onClick={() => onPick(act)}
                   className={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition text-xs ${
                     currentId === act.id
-                      ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/30'
+                      ? 'bg-amber-500/20 text-amber-200 ring-1 ring-amber-500/30'
                       : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200'
                   }`}
                 >

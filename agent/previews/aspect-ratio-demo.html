@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  body{margin:0;background:#0a0a0b;color:#e5e5e5;font-family:system-ui,sans-serif;padding:24px}
+  .wrap{display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;gap:8px}
+  .label{font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.08em}
+  .ratio{font-family:ui-monospace,monospace;font-size:13px;color:#d4d4d4}
+  input[type=range]{accent-color:#10b981;width:200px;cursor:pointer}
+  .stage{background:#fff;border-radius:10px;overflow:hidden;position:relative}
+  .stage iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .btn{font-size:10px;padding:2px 6px;border-radius:6px;border:1px solid #2a2a2e;background:#131316;color:#a1a1aa}
+  .chip{font-size:10px;padding:2px 6px;border-radius:6px;border:1px solid #3b2a52;background:#1a0f2e;color:#c084fc}
+</style></head><body>
+  <h3 style="color:#10b981;font-size:14px">Aspect Ratio = 9:N (9 fixed, N scrolls 8↔16)</h3>
+  <div class="wrap">
+    <div class="col">
+      <div class="label">Controls</div>
+      <div class="ratio" id="rlabel">9:12</div>
+      <button class="btn" onclick="setN(16)">9:16</button>
+      <button class="btn" onclick="setN(8)">9:8</button>
+      <input type="range" id="rng" min="8" max="16" step="0.1" value="12" oninput="setN(parseFloat(this.value))">
+      <button class="btn" onclick="savePreset()">Save</button>
+      <div id="presets"></div>
+    </div>
+    <div class="col">
+      <div class="label">Live slide preview</div>
+      <div class="stage" id="stage"><div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#999;font-size:12px">Slide 1</div></div>
+    </div>
+  </div>
+<script>
+  let N = 12;
+  const presets = [];
+  function apply(){
+    document.getElementById('rlabel').textContent = '9:' + N.toFixed(1).replace(/\.0$/,'');
+    document.getElementById('rng').value = N;
+    const w=360, h=360*(N/9);
+    const s=document.getElementById('stage');
+    s.style.width=w+'px'; s.style.height=h+'px';
+  }
+  function setN(n){ N=n; apply(); }
+  function savePreset(){
+    presets.push(N);
+    const p=document.getElementById('presets');
+    const b=document.createElement('button'); b.className='chip'; b.textContent='9:'+N; b.onclick=()=>setN(N); p.appendChild(b);
+  }
+  apply();
+</script>
+</body></html>

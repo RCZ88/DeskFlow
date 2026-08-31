@@ -11,6 +11,7 @@ import {
 import { Button } from '../../components/ui/button';
 import { FocusAppPicker, type KnownApp } from './FocusAppPicker';
 import type { GroupDraft, FocusGroup } from '../../hooks/useFocusGroups';
+import { cn } from '@/lib/utils';
 
 interface FocusGroupEditorProps {
   open: boolean;
@@ -92,7 +93,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
   };
 
   const fieldLabel = (icon: React.ReactNode, label: string) => (
-    <span className="text-[10px] uppercase tracking-wider text-zinc-500 flex items-center gap-1 mb-1.5">
+    <span className="text-[10px] uppercase tracking-wider text-zinc-500 flex items-center gap-1.5 mb-1.5">
       {icon}
       {label}
     </span>
@@ -103,44 +104,53 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
       <DialogContent className="sm:max-w-md bg-zinc-950 border border-zinc-800/60 max-h-[85vh] flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
-            <Layers className="w-4 h-4 text-pink-400" />
+            <Layers className="w-4 h-4 text-[var(--page-accent)]" />
             {group ? 'Edit focus group' : 'New focus group'}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-[11px]">
             A named set of exact apps &amp; sites, plus a category buffer that lenient sessions tolerate. Strictness is picked when you start a session.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 overflow-y-auto min-h-0 ws-scroll pr-1">
+        <div className="space-y-3.5 overflow-y-auto min-h-0 ws-scroll pr-1">
+          {/* Name */}
           <div>
             {fieldLabel(null, 'Name')}
             <input
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="e.g. Development"
-              className="w-full px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-800/50 outline-none text-[13px] text-zinc-200 placeholder:text-zinc-600 focus:border-pink-500/40"
+              className={cn(
+                'w-full px-3 py-2 rounded-lg bg-zinc-800/40 border outline-none text-[13px] text-zinc-200 placeholder:text-zinc-600 transition-colors',
+                'focus:border-[var(--page-accent)]/40 focus:ring-1 focus:ring-[var(--page-accent)]/20'
+              )}
             />
           </div>
 
+          {/* Description */}
           <div>
             {fieldLabel(null, 'Description')}
             <input
               value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="Optional — what is this group for?"
-              className="w-full px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-800/50 outline-none text-[13px] text-zinc-200 placeholder:text-zinc-600 focus:border-pink-500/40"
+              className={cn(
+                'w-full px-3 py-2 rounded-lg bg-zinc-800/40 border outline-none text-[13px] text-zinc-200 placeholder:text-zinc-600 transition-colors',
+                'focus:border-[var(--page-accent)]/40 focus:ring-1 focus:ring-[var(--page-accent)]/20'
+              )}
             />
           </div>
 
+          {/* Allowed apps */}
           <div>
             {fieldLabel(<AppWindow className="w-3 h-3" />, 'Allowed apps — always')}
             {appsLoading ? (
-              <div className="p-3 rounded-xl bg-zinc-800/40 border border-zinc-800/50 flex items-center gap-2">
-                <Loader2 className="w-3.5 h-3.5 text-pink-400 animate-spin" />
+              <div className="p-3 rounded-lg bg-zinc-800/40 border border-zinc-800/50 flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 text-[var(--page-accent)] animate-spin" />
                 <span className="text-[11px] text-zinc-500">Loading tracked apps…</span>
               </div>
             ) : appsError ? (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30">
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30">
                 <p className="text-[11px] text-rose-300">{appsError}</p>
                 <button
                   type="button"
@@ -153,7 +163,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
                       .catch((e: any) => setAppsError(String(e?.message ?? e) || 'Could not fetch tracked apps'))
                       .finally(() => setAppsLoading(false));
                   }}
-                  className="text-[11px] text-pink-300 hover:text-pink-200 mt-1.5 underline"
+                  className="text-[11px] text-[var(--page-accent)] hover:text-[var(--page-accent)]/80 mt-1.5 underline"
                 >
                   Retry
                 </button>
@@ -168,18 +178,20 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
             )}
           </div>
 
+          {/* Allowed sites */}
           <div>
             {fieldLabel(<Globe className="w-3 h-3" />, 'Allowed sites — always')}
             <FocusAppPicker
               knownApps={knownSites}
               selected={domains}
               onChange={setDomains}
-              placeholder="Type to add sites…"
-              emptyText="Type a site domain, e.g. github.com"
+              placeholder="Type a site domain, e.g. github.com"
+              emptyText="Type a site domain to add"
               addLabel="custom site"
             />
           </div>
 
+          {/* Tolerance categories */}
           <div>
             {fieldLabel(<Tag className="w-3 h-3" />, 'Tolerance buffer — lenient only')}
             <FocusAppPicker
@@ -195,10 +207,12 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
               addLabel="custom category"
             />
             <p className="text-[10px] text-zinc-600 leading-relaxed mt-1.5">
-              Apps from these categories are <span className="text-zinc-400">tolerated in LENIENT sessions only</span>. In STRICT sessions they are blocked — only the exact apps &amp; sites above are allowed.
+              Apps from these categories are{' '}
+              <span className="text-zinc-400">tolerated in LENIENT sessions only</span>. In STRICT sessions they are blocked — only the exact apps &amp; sites above are allowed.
             </p>
           </div>
 
+          {/* Empty warning */}
           {apps.length === 0 && domains.length === 0 && categories.length === 0 && (
             <p className="text-[11px] text-amber-400/90 flex items-center gap-1.5">
               <AlertTriangle className="w-3 h-3 shrink-0" />
@@ -206,6 +220,7 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
             </p>
           )}
 
+          {/* Footer note */}
           <p className="text-[10px] text-zinc-600 leading-relaxed">
             Strictness and duration are picked when you start a session — daily goals are set in the Focus goals card.
             When a browser is in the allowed apps list and the group has allowed sites, websites are checked against those sites during sessions.
@@ -214,9 +229,18 @@ export function FocusGroupEditor({ open, onOpenChange, group, onSave }: FocusGro
           {err && <p className="text-[11px] text-rose-400">{err}</p>}
         </div>
 
-        <DialogFooter className="shrink-0">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave} disabled={saving} className="gap-1.5">
+        <DialogFooter className="shrink-0 gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="text-zinc-400 hover:text-zinc-200">
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className={cn(
+              'gap-1.5 rounded-lg',
+              saving ? 'opacity-60 cursor-not-allowed' : ''
+            )}
+          >
             <Save className="w-3.5 h-3.5" />
             {saving ? 'Saving…' : group ? 'Save changes' : 'Create group'}
           </Button>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>06 — Console Cycle</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#050506;color:rgba(255,255,255,.85);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center}
+  .console{width:min(90vw,700px);min-height:360px;border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:20px;font-size:12px;line-height:1.7;position:relative}
+  .line{opacity:0;white-space:pre-wrap;word-break:break-all}
+  .line.visible{opacity:1}
+  .prompt-line{color:rgba(255,255,255,.5)}
+  .prompt-line .caret{display:inline-block;width:7px;height:14px;background:rgba(255,255,255,.6);vertical-align:middle;margin-left:2px;animation:blink 1s step-end infinite}
+  .trace{color:rgba(255,255,255,.35)}
+  .answer{color:rgba(255,255,255,.85);font-weight:500}
+  .chart{display:flex;align-items:flex-end;gap:4px;height:60px;margin-top:8px}
+  .bar{width:12px;background:rgba(255,255,255,.15);border-radius:2px 2px 0 0;height:0;transition:height .4s cubic-bezier(0.34,1.56,0.64,1)}
+  .bar.spring{height:var(--h)}
+  .label{position:absolute;bottom:8px;right:12px;font-size:10px;color:rgba(255,255,255,.15)}
+  @keyframes blink{50%{opacity:0}}
+  @media(prefers-reduced-motion:reduce){.caret{animation:none}.bar{transition:none}}
+</style>
+</head>
+<body>
+<div class="console" id="con">
+  <div class="line prompt-line" id="prompt"><span class="caret"></span></div>
+  <div class="line trace" id="t1"></div>
+  <div class="line trace" id="t2"></div>
+  <div class="line trace" id="t3"></div>
+  <div class="line answer" id="answer"></div>
+  <div class="chart" id="chart">
+    <div class="bar" style="--h:80%"></div>
+    <div class="bar" style="--h:45%"></div>
+    <div class="bar" style="--h:92%"></div>
+    <div class="bar" style="--h:30%"></div>
+    <div class="bar" style="--h:65%"></div>
+    <div class="bar" style="--h:50%"></div>
+    <div class="bar" style="--h:70%"></div>
+  </div>
+  <div class="label">S5 console cycle</div>
+</div>
+<script>
+const prompt = document.getElementById('prompt');
+const t1 = document.getElementById('t1');
+const t2 = document.getElementById('t2');
+const t3 = document.getElementById('t3');
+const answer = document.getElementById('answer');
+const bars = document.querySelectorAll('.bar');
+
+const USER_LINE = '> analyze session productivity';
+const TRACES = [
+  '  scanning 847 log entries...',
+  '  computing focus ratio: 0.73...',
+  '  categorizing 12 app transitions...'
+];
+const ANSWER_TEXT = '  Focus score: 73% — above weekly avg (+8%)';
+const LOOP_MS = 7000;
+const TYPE_SPEED = 40;
+const STAGGER_MS = 150;
+
+let paused = false;
+document.addEventListener('visibilitychange', () => { paused = document.hidden; });
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function typeText(el, text) {
+  el.classList.add('visible');
+  el.textContent = '';
+  for (let i = 0; i < text.length; i++) {
+    if (paused) await new Promise(r => { const check = () => { if (!paused) r(); else requestAnimationFrame(check); }; requestAnimationFrame(check); });
+    el.textContent = text.slice(0, i + 1);
+    await sleep(TYPE_SPEED);
+  }
+}
+
+async function runCycle() {
+  // Reset
+  prompt.classList.remove('visible'); prompt.innerHTML = '<span class="caret"></span>';
+  t1.classList.remove('visible'); t1.textContent = '';
+  t2.classList.remove('visible'); t2.textContent = '';
+  t3.classList.remove('visible'); t3.textContent = '';
+  answer.classList.remove('visible'); answer.textContent = '';
+  bars.forEach(b => b.classList.remove('spring'));
+
+  await sleep(400);
+
+  // Type user line
+  await typeText(prompt, USER_LINE);
+  prompt.querySelector('.caret').style.animation = 'none';
+  prompt.querySelector('.caret').style.opacity = '0';
+
+  await sleep(300);
+
+  // Staggered trace lines
+  const traceEls = [t1, t2, t3];
+  for (let i = 0; i < TRACES.length; i++) {
+    await typeText(traceEls[i], TRACES[i]);
+    await sleep(STAGGER_MS);
+  }
+
+  await sleep(200);
+
+  // Answer fades in
+  answer.classList.add('visible');
+  answer.style.opacity = '0';
+  answer.textContent = ANSWER_TEXT;
+  await sleep(50);
+  answer.style.transition = 'opacity 0.4s ease';
+  answer.style.opacity = '1';
+
+  await sleep(300);
+
+  // Bar chart springs up
+  bars.forEach(b => b.classList.add('spring'));
+
+  await sleep(LOOP_MS - 2000);
+
+  // Restart
+  await sleep(500);
+  runCycle();
+}
+
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  prompt.classList.add('visible');
+  prompt.textContent = USER_LINE;
+  t1.classList.add('visible'); t1.textContent = TRACES[0];
+  t2.classList.add('visible'); t2.textContent = TRACES[1];
+  t3.classList.add('visible'); t3.textContent = TRACES[2];
+  answer.classList.add('visible'); answer.textContent = ANSWER_TEXT;
+  bars.forEach(b => b.classList.add('spring'));
+} else {
+  runCycle();
+}
+</script>
+</body>
+</html>

@@ -8,6 +8,8 @@ import { ProseBlock } from './ProseBlock';
 import { MathBlock } from './MathBlock';
 import { MermaidBlock } from './MermaidBlock';
 import { CodeBlock } from './CodeBlock';
+import { AnnotatedCodeBlock } from './AnnotatedCodeBlock';
+import { AnnotatedMathBlock } from './AnnotatedMathBlock';
 import { ImageBlock } from './ImageBlock';
 import { VideoBlock } from './VideoBlock';
 import { QuizBlock } from './QuizBlock';
@@ -31,11 +33,14 @@ import { ConceptMapBlock } from './ConceptMapBlock';
 import { MasteryTimelineBlock } from './MasteryTimelineBlock';
 import { WhiteboardBlock } from './WhiteboardBlock';
 import { IllustrationBlock } from './IllustrationBlock';
+import { AnimationBlock } from './AnimationBlock';
+import { VideoAssetBlock } from './VideoAssetBlock';
 
 interface BlockRendererProps {
   block: LdocBlock;
   onAsk?: (blockId: string, question: string) => void;
   onQuizSubmit?: (nodeId: string, blockId: string, response: string) => void;
+  onQuizSkip?: (nodeId: string, blockId: string) => void;
   currentLevel?: string;
   nodeId?: string;
   onApproveProposal?: (blockId: string) => void;
@@ -50,7 +55,7 @@ interface BlockRendererProps {
 
 const VISUAL_TYPES = new Set(['mermaid', 'chart', 'flow', 'finchart', 'table', 'image', 'widget', 'svg', 'math', 'code', 'video', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'whiteboard', 'illustration']);
 
-export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, onQuizSubmit, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, onIllustrationGenerated }: BlockRendererProps) {
+export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, onQuizSubmit, onQuizSkip, currentLevel, nodeId, onApproveProposal, onRejectProposal, onAddMessage, onResolveConversation, onAddNote, onDeleteNote, onTogglePin, onIllustrationGenerated }: BlockRendererProps) {
   const [showSource, setShowSource] = useState(false);
   const sharedProps = { block, onAsk };
   const isVisual = VISUAL_TYPES.has(block.type);
@@ -66,13 +71,17 @@ export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, o
         return <MermaidBlock {...sharedProps} block={block} />;
       case 'code':
         return <CodeBlock {...sharedProps} block={block} />;
+      case 'annotated-code':
+        return <AnnotatedCodeBlock block={block as any} activeRefId={activeRefId} onRefHover={onRefHover} onRefClick={onRefClick} />;
+      case 'annotated-math':
+        return <AnnotatedMathBlock block={block as any} activeRefId={activeRefId} onRefHover={onRefHover} onRefClick={onRefClick} />;
       case 'image':
         return <ImageBlock {...sharedProps} block={block} />;
       case 'video':
         return <VideoBlock {...sharedProps} block={block} />;
       case 'quiz':
         if (!onQuizSubmit || !nodeId) return null;
-        return <QuizBlock block={block} onSubmit={(response) => onQuizSubmit(nodeId, block.id, response)} />;
+        return <QuizBlock block={block} onSubmit={(response) => onQuizSubmit(nodeId, block.id, response)} onSkip={onQuizSkip ? () => onQuizSkip(nodeId, block.id) : undefined} />;
       case 'callout':
         return <CalloutBlock {...sharedProps} block={block} />;
       case 'layer':
@@ -117,6 +126,10 @@ export const BlockRenderer = React.memo(function BlockRenderer({ block, onAsk, o
         return <WhiteboardBlock meta={(block as any).meta || {}} />;
       case 'illustration':
         return <IllustrationBlock meta={(block as any).meta || {}} nodeId={nodeId} onGenerated={(imagePath) => onIllustrationGenerated?.(block.id, imagePath)} />;
+      case 'animation':
+        return <AnimationBlock block={block as any} />;
+      case 'video_asset':
+        return <VideoAssetBlock block={block as any} nodeId={nodeId} />;
       default:
         return <UnsupportedBlock block={block} />;
     }

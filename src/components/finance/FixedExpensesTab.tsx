@@ -201,7 +201,7 @@ export function FixedExpensesTab({ expenses, summary, month, onMonthChange, wall
           {filtered.map(exp => {
             const status = exp.current_month_status || 'pending';
             const billingDay = exp.billing_day;
-            const daysUntilDue = billingDay - currentDay;
+            const daysUntilDue = (typeof billingDay === 'number' && !isNaN(billingDay)) ? billingDay - currentDay : NaN;
             const isOverdue = isCurrentMonth && status === 'pending' && daysUntilDue < 0;
             const isDueSoon = isCurrentMonth && status === 'pending' && daysUntilDue >= 0 && daysUntilDue <= 7;
 
@@ -255,7 +255,7 @@ export function FixedExpensesTab({ expenses, summary, month, onMonthChange, wall
                       {status === 'pending' && isDueSoon && (
                         <>
                           <Clock className="w-3.5 h-3.5 text-amber-500" />
-                          <span className="text-amber-400 text-[11px]">Due {daysUntilDue === 0 ? 'today' : `in ${daysUntilDue} days`}</span>
+                          <span className="text-amber-400 text-[11px]">Due {isNaN(daysUntilDue) ? 'date unset' : daysUntilDue === 0 ? 'today' : `in ${daysUntilDue} days`}</span>
                         </>
                       )}
                       {status === 'pending' && !isOverdue && !isDueSoon && (

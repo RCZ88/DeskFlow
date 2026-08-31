@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ClipboardList, RotateCcw } from 'lucide-react';
+import { ClipboardList, RotateCcw, SkipForward } from 'lucide-react';
 import type { QuizBlock } from '../../../shared/learn/types';
 
 interface Props {
   block: QuizBlock;
   onSubmit: (response: string) => void;
+  onSkip?: () => void;
 }
 
-export function QuizBlock({ block, onSubmit }: Props) {
+export function QuizBlock({ block, onSubmit, onSkip }: Props) {
   const [selected, setSelected] = useState<number | null>(null);
   const [textAnswer, setTextAnswer] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [result, setResult] = useState<{ correct: boolean; explanation: string } | null>(null);
+  const [error, setError] = useState('');
 
   const handleSubmit = async () => {
     const response = block.format === 'mcq'
@@ -21,48 +23,55 @@ export function QuizBlock({ block, onSubmit }: Props) {
 
     if (!response && response !== 0) return;
 
-    const res = await onSubmit(response);
-    // If onSubmit returns a result directly (sync), use it
-    // Otherwise the parent handles evidence recording
-    if (block.format === 'mcq') {
-      const correct = selected === (block.answer_key as number);
-      setResult({
-        correct,
-        explanation: correct
-          ? 'Correct! Well done.'
-          : `The correct answer is: ${block.options?.[block.answer_key as number]}`,
-      });
+    try {
+      setError('');
+      await onSubmit(response);
+      if (block.format === 'mcq') {
+        const correct = selected === (block.answer_key as number);
+        setResult({
+          correct,
+          explanation: correct
+            ? 'Correct! Well done.'
+            : `The correct answer is: ${block.options?.[block.answer_key as number]}`,
+        });
+      }
+      setSubmitted(true);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to submit answer');
     }
-    setSubmitted(true);
   };
 
   const handleReset = () => {
     setSelected(null);
     setTextAnswer('');
     setResult(null);
+    setError('');
     setSubmitted(false);
   };
 
   return (
-    <div className="my-6 p-5 rounded-xl border border-amber-500/20 bg-amber-500/5" data-block-id={block.id}>
+    <div className="my-6 p-5 rounded-xl border border-amber-500/20 bg-amber-500/5" data-block-id={block.id} role="article" aria-label={`Quiz: ${block.q || 'Untitled question'}`}>
       <div className="flex items-center gap-2 mb-3">
-        <ClipboardList className="w-4 h-4 text-amber-400" />
+        <ClipboardList className="w-4 h-4 text-amber-400" aria-hidden="true" />
         <span className="text-sm font-medium text-amber-300">
           Quiz · {block.format.toUpperCase()} · Target: {block.level}
         </span>
       </div>
 
-      <p className="text-zinc-200 mb-4 leading-relaxed">{block.q}</p>
+      <p className="text-zinc-200 mb-4 leading-relaxed">{block.q || 'No question provided.'}</p>
 
       {/* MCQ */}
       {block.format === 'mcq' && block.options && (
-        <div className="space-y-2 mb-4">
+        <fieldset className="space-y-2 mb-4" aria-label="Multiple choice options">
           {block.options.map((opt, i) => {
             const isCorrectAnswer = submitted && i === (block.answer_key as number);
             const isWrongAnswer = submitted && i === selected && i !== (block.answer_key as number);
             return (
               <motion.button
                 key={i}
+                role="radio"
+                aria-checked={selected === i}
+                aria-label={`Option ${String.fromCharCode(65 + i)}: ${opt}`}
                 onClick={() => !submitted && setSelected(i)}
                 animate={isCorrectAnswer ? { scale: [1, 1.03, 1], boxShadow: ['0 0 0px rgba(52,211,153,0)', '0 0 12px rgba(52,211,153,0.4)', '0 0 0px rgba(52,211,153,0)'] } : isWrongAnswer ? { x: [0, -2, 2, -2, 2, 0] } : {}}
                 transition={isCorrectAnswer ? { duration: 0.6 } : isWrongAnswer ? { duration: 0.3 } : {}}
@@ -79,21 +88,23 @@ export function QuizBlock({ block, onSubmit }: Props) {
                 }`}
                 disabled={submitted}
               >
-                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-zinc-600 text-xs mr-2 shrink-0">
+                <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-zinc-600 text-xs mr-2 shrink-0" aria-hidden="true">
                   {String.fromCharCode(65 + i)}
                 </span>
                 {opt}
-                {isCorrectAnswer && <span className="ml-2 text-emerald-400">✓</span>}
-                {isWrongAnswer && <span className="ml-2 text-red-400">✗</span>}
+                {isCorrectAnswer && <span className="ml-2 text-emerald-400" aria-label="Correct">✓</span>}
+                {isWrongAnswer && <span className="ml-2 text-red-400" aria-label="Incorrect">✗</span>}
               </motion.button>
             );})}
-        </div>
+        </fieldset>
       )}
 
       {/* Numeric */}
       {block.format === 'numeric' && (
         <div className="mb-4">
+          <label htmlFor={`quiz-numeric-${block.id}`} className="block text-xs text-zinc-500 mb-1">Enter your answer</label>
           <input
+            id={`quiz-numeric-${block.id}`}
             type="number"
             value={textAnswer}
             onChange={(e) => setTextAnswer(e.target.value)}
@@ -101,14 +112,27 @@ export function QuizBlock({ block, onSubmit }: Props) {
             className="w-full max-w-[200px] px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-amber-500/50 focus:outline-none"
             placeholder="Enter number... (Enter to submit)"
             disabled={submitted}
+            aria-describedby={block.rubric ? `quiz-rubric-${block.id}` : undefined}
           />
+          {submitted && block.rubric && (
+            <div id={`quiz-rubric-${block.id}`} className="mt-3 p-3 rounded-lg bg-zinc-800/40 border border-zinc-700/30">
+              <div className="text-xs text-zinc-400 mb-1">Rubric:</div>
+              {Object.entries(block.rubric).map(([level, desc]) => (
+                <div key={level} className="text-xs text-zinc-500">
+                  <span className="text-zinc-400 font-medium">{level}:</span> {desc}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* Open */}
       {block.format === 'open' && (
         <div className="mb-4">
+          <label htmlFor={`quiz-open-${block.id}`} className="block text-xs text-zinc-500 mb-1">Write your answer</label>
           <textarea
+            id={`quiz-open-${block.id}`}
             value={textAnswer}
             onChange={(e) => setTextAnswer(e.target.value)}
             className="w-full px-3 py-2 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-sm focus:border-amber-500/50 focus:outline-none resize-y min-h-[80px]"
@@ -128,18 +152,37 @@ export function QuizBlock({ block, onSubmit }: Props) {
         </div>
       )}
 
+      {/* Error */}
+      {error && (
+        <div className="mb-3 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-sm text-red-400" role="alert">
+          {error}
+        </div>
+      )}
+
       {!submitted && (
-        <button
-          onClick={handleSubmit}
-          disabled={block.format === 'mcq' ? selected === null : !textAnswer.trim()}
-          className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-sm font-medium transition border border-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Submit Answer
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSubmit}
+            disabled={block.format === 'mcq' ? selected === null : !textAnswer.trim()}
+            className="px-4 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-sm font-medium transition border border-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Submit quiz answer"
+          >
+            Submit Answer
+          </button>
+          {onSkip && (
+            <button
+              onClick={onSkip}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 text-xs transition"
+              aria-label="Skip this quiz"
+            >
+              <SkipForward className="w-3 h-3" aria-hidden="true" /> Skip Quiz
+            </button>
+          )}
+        </div>
       )}
 
       {result && (
-        <div className={`mt-3 p-3 rounded-lg ${result.correct ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`}>
+        <div className={`mt-3 p-3 rounded-lg ${result.correct ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-amber-500/10 border border-amber-500/20'}`} role="status">
           <div className={`text-sm font-medium ${result.correct ? 'text-emerald-400' : 'text-amber-400'}`}>
             {result.correct ? '✓ Correct!' : 'Not quite'}
           </div>
@@ -148,7 +191,7 @@ export function QuizBlock({ block, onSubmit }: Props) {
       )}
 
       {submitted && block.format !== 'mcq' && (
-        <div className="mt-3 p-3 rounded-lg bg-zinc-800/40 border border-zinc-700/30">
+        <div className="mt-3 p-3 rounded-lg bg-zinc-800/40 border border-zinc-700/30" role="status">
           <div className="text-sm font-medium text-zinc-300">✓ Answer recorded</div>
           <div className="text-xs text-zinc-500 mt-1">
             Your coach will review open answers and mark progress — check the tutor panel for feedback.
@@ -160,8 +203,9 @@ export function QuizBlock({ block, onSubmit }: Props) {
         <button
           onClick={handleReset}
           className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 transition"
+          aria-label="Try quiz again"
         >
-          <RotateCcw className="w-3 h-3" /> Try again
+          <RotateCcw className="w-3 h-3" aria-hidden="true" /> Try again
         </button>
       )}
     </div>

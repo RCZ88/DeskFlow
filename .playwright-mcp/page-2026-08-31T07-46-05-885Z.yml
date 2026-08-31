@@ -1,0 +1,929 @@
+- generic [ref=f7e2]:
+  - navigation "Site" [ref=f7e3]:
+    - link "Motion home" [ref=f7e4] [cursor=pointer]:
+      - /url: /
+      - generic [ref=f7e7]: Motion
+    - generic [ref=f7e8]:
+      - link "Docs" [ref=f7e9] [cursor=pointer]:
+        - /url: /docs
+        - generic [ref=f7e10]:
+          - generic [ref=f7e11]: Docs
+          - generic [ref=f7e12]: Docs
+      - link "Examples" [ref=f7e13] [cursor=pointer]:
+        - /url: /examples
+        - generic [ref=f7e14]:
+          - generic [ref=f7e15]: Examples
+          - generic [ref=f7e16]: Examples
+      - link "UI" [ref=f7e17] [cursor=pointer]:
+        - /url: /ui
+        - generic [ref=f7e18]:
+          - generic [ref=f7e19]: UI
+          - generic [ref=f7e20]: UI
+      - link "AI Kit" [ref=f7e21] [cursor=pointer]:
+        - /url: /ai-kit
+        - generic [ref=f7e22]:
+          - generic [ref=f7e23]: AI Kit
+          - generic [ref=f7e24]: AI Kit
+    - generic [ref=f7e25]:
+      - button "Search Motion" [ref=f7e26] [cursor=pointer]
+      - link "Motion+" [ref=f7e30] [cursor=pointer]:
+        - /url: /plus
+  - main [ref=f7e33]:
+    - generic [ref=f7e34]:
+      - generic [ref=f7e35]:
+        - generic [ref=f7e36]:
+          - generic [ref=f7e40]:
+            - generic [ref=f7e41]:
+              - generic [ref=f7e42]: Open source / MIT License
+              - generic [ref=f7e43]: v13.1.0
+            - heading [level=1] [ref=f7e44]:
+              - emphasis [ref=f7e45]: Motion.
+              - generic [ref=f7e46]: Production-gradeanimation libraryfor the web.
+            - generic [ref=f7e48]:
+              - generic [ref=f7e49]:
+                - link "Get started" [ref=f7e50] [cursor=pointer]:
+                  - /url: /docs
+                - link "Browse examples" [ref=f7e56] [cursor=pointer]:
+                  - /url: /examples
+              - navigation "Choose Motion documentation by runtime" [ref=f7e62]:
+                - generic [ref=f7e63]:
+                  - generic [ref=f7e64]: ">"
+                  - text: "Prev Framer Motion. Available for:"
+                - generic [ref=f7e65]:
+                  - link [ref=f7e66] [cursor=pointer]:
+                    - /url: /docs/react
+                    - img "React" [ref=f7e67]
+                    - text: React
+                  - link [ref=f7e73] [cursor=pointer]:
+                    - /url: /docs/quick-start
+                    - img "JavaScript" [ref=f7e74]
+                    - text: JavaScript
+                  - link [ref=f7e77] [cursor=pointer]:
+                    - /url: /docs/vue
+                    - img "Vue" [ref=f7e78]
+                    - text: Vue
+          - generic [ref=f7e83]:
+            - generic [ref=f7e84]: React
+            - generic [ref=f7e85]: Motion 13.1.0
+        - generic "Motion capabilities" [ref=f7e86]:
+          - generic [ref=f7e87]:
+            - term [ref=f7e88]: Free
+            - definition [ref=f7e89]: Completely free to use, MIT licensed and open source.
+          - generic [ref=f7e90]:
+            - term [ref=f7e91]: Production ready
+            - definition [ref=f7e92]: Trusted by Framer and Figma across hundreds of thousands of sites.
+          - generic [ref=f7e93]:
+            - term [ref=f7e94]: Hybrid engine
+            - definition [ref=f7e95]: JavaScript and hardware-accelerated browser APIs in one library.
+          - generic [ref=f7e96]:
+            - term [ref=f7e97]: Built for AI
+            - definition [ref=f7e98]: Agent-compatible documentation, skills and API.
+          - generic [ref=f7e99]:
+            - term [ref=f7e100]: Tiny footprint
+            - definition [ref=f7e101]: APIs up to 90% smaller than their GSAP alternative.
+      - region [ref=f7e102]:
+        - generic [ref=f7e103]:
+          - generic [ref=f7e104]:
+            - generic [ref=f7e105]: "01"
+            - generic [ref=f7e106]: Animation library
+          - generic [ref=f7e107]:
+            - heading "Animations that move." [level=2] [ref=f7e108]
+            - paragraph [ref=f7e109]: Create high-performance web animations with Motion's easy-to-use API, from simple transforms to advanced interactive gestures.
+        - generic "Motion capabilities" [ref=f7e110]:
+          - article [ref=f7e111]:
+            - generic [ref=f7e116]:
+              - generic [ref=f7e117]: "01"
+              - heading [level=3] [ref=f7e118]:
+                - link "Independent transforms" [ref=f7e119] [cursor=pointer]:
+                  - /url: /docs/react-animation
+              - paragraph [ref=f7e124]:
+                - text: Animate
+                - code [ref=f7e125]: x
+                - text: ","
+                - code [ref=f7e126]: "y"
+                - text: ","
+                - code [ref=f7e127]: rotate
+                - text: ","
+                - code [ref=f7e128]: scale
+                - text: on the same element, without wrappers.
+              - generic [ref=f7e130]:
+                - generic [ref=f7e131]: "{"
+                - generic [ref=f7e132]:
+                  - generic [ref=f7e133]: rotate
+                  - generic [ref=f7e134]: ":"
+                  - generic [ref=f7e135]: "15"
+                - generic [ref=f7e136]:
+                  - generic [ref=f7e137]: ","
+                  - generic [ref=f7e138]: x
+                  - generic [ref=f7e139]: ":"
+                  - generic [ref=f7e140]: "\"50%\""
+                - generic [ref=f7e141]: "}"
+          - article [ref=f7e142]:
+            - generic [ref=f7e146]:
+              - generic [ref=f7e147]: "02"
+              - heading [level=3] [ref=f7e148]:
+                - link "Scroll animation" [ref=f7e149] [cursor=pointer]:
+                  - /url: /docs/react-scroll-animations
+              - paragraph [ref=f7e154]:
+                - text: Hardware-accelerated scroll-linked motion via
+                - code [ref=f7e155]: ScrollTimeline
+                - text: .
+              - generic [ref=f7e156]: scroll()
+          - article [ref=f7e158]:
+            - list [ref=f7e163]:
+              - listitem [ref=f7e164]: hover
+              - listitem [ref=f7e166]: press
+              - listitem [ref=f7e168]: drag
+            - generic [ref=f7e170]:
+              - generic [ref=f7e171]: "03"
+              - heading [level=3] [ref=f7e172]:
+                - link "Native gestures" [ref=f7e173] [cursor=pointer]:
+                  - /url: /docs/react-gestures
+              - paragraph [ref=f7e178]:
+                - code [ref=f7e179]: hover
+                - text: ","
+                - code [ref=f7e180]: press
+                - text: ", and"
+                - code [ref=f7e181]: drag
+                - text: that feel native, not bolted on.
+              - generic [ref=f7e182]: drag=true
+          - article [ref=f7e184]:
+            - generic [ref=f7e191]:
+              - generic [ref=f7e192]: "04"
+              - heading [level=3] [ref=f7e193]:
+                - link "Layout animation" [ref=f7e194] [cursor=pointer]:
+                  - /url: /docs/react-layout-animations
+              - paragraph [ref=f7e199]:
+                - text: Animate between any two layouts with a single
+                - code [ref=f7e200]: layout
+                - text: prop.
+              - generic [ref=f7e201]: layout=true
+          - article [ref=f7e203]:
+            - generic [ref=f7e208]:
+              - generic [ref=f7e209]: "05"
+              - heading [level=3] [ref=f7e210]:
+                - link "Spring physics" [ref=f7e211] [cursor=pointer]:
+                  - /url: /docs/react-transitions
+              - paragraph [ref=f7e216]:
+                - text: Real
+                - code [ref=f7e217]: spring
+                - text: math for animations that naturally react to user input.
+              - generic [ref=f7e218]: type="spring"
+          - article [ref=f7e220]:
+            - generic [ref=f7e229]:
+              - generic [ref=f7e230]: "06"
+              - heading [level=3] [ref=f7e231]:
+                - link "Exit animation" [ref=f7e232] [cursor=pointer]:
+                  - /url: /docs/react-animate-presence
+              - paragraph [ref=f7e237]:
+                - code [ref=f7e238]: AnimatePresence
+                - text: keeps elements alive so they can animate as they leave the DOM.
+              - generic [ref=f7e239]: "exit={...}"
+          - article [ref=f7e241]:
+            - generic [ref=f7e248]:
+              - generic [ref=f7e249]: "07"
+              - heading [level=3] [ref=f7e250]:
+                - link "Timeline sequences" [ref=f7e251] [cursor=pointer]:
+                  - /url: /docs/react-animation
+              - paragraph [ref=f7e256]:
+                - code [ref=f7e257]: variants
+                - text: ","
+                - code [ref=f7e258]: stagger
+                - text: ", and timelines orchestrate complex motion."
+              - generic [ref=f7e259]: stagger(0.04)
+          - article [ref=f7e261]:
+            - generic [ref=f7e268]:
+              - generic [ref=f7e269]: "08"
+              - heading [level=3] [ref=f7e270]:
+                - link "Motion values" [ref=f7e271] [cursor=pointer]:
+                  - /url: /docs/react-motion-value
+              - paragraph [ref=f7e276]:
+                - code [ref=f7e277]: useMotionValue
+                - text: drives animations and derived state in real time.
+              - generic [ref=f7e278]: useTransform(() => x.get() * 10)
+          - generic [ref=f7e280]:
+            - generic [ref=f7e281]: Available for
+            - navigation "Motion documentation by platform" [ref=f7e282]:
+              - link "React React" [ref=f7e283] [cursor=pointer]:
+                - /url: /docs/react
+                - img "React" [ref=f7e284]
+                - generic [ref=f7e290]: React
+              - link "JavaScript JavaScript" [ref=f7e291] [cursor=pointer]:
+                - /url: /docs/quick-start
+                - img "JavaScript" [ref=f7e292]
+                - generic [ref=f7e295]: JavaScript
+              - link "Vue Vue" [ref=f7e296] [cursor=pointer]:
+                - /url: /docs/vue
+                - img "Vue" [ref=f7e297]
+                - generic [ref=f7e302]: Vue
+            - link "All documentation" [ref=f7e303] [cursor=pointer]:
+              - /url: /docs
+      - region [ref=f7e306]:
+        - generic [ref=f7e307]:
+          - generic [ref=f7e308]:
+            - generic [ref=f7e309]: "02"
+            - generic [ref=f7e310]: Examples
+          - generic [ref=f7e311]:
+            - heading "React & JavaScript animation examples." [level=2] [ref=f7e312]
+            - paragraph [ref=f7e313]: Start with 430+ copy and paste examples, from scroll effects and gestures to carousels and typewriter animations.
+          - link "Browse all examples" [ref=f7e315] [cursor=pointer]:
+            - /url: /examples
+        - list [ref=f7e318]:
+          - listitem [ref=f7e319]:
+            - article [ref=f7e320]:
+              - link "Typewriter, React" [ref=f7e321] [cursor=pointer]:
+                - /url: /examples/react-typewriter
+                - img "Typewriter animation example" [ref=f7e323]
+                - generic [ref=f7e331]: Typewriter
+              - button "Add to favourites" [ref=f7e334] [cursor=pointer]
+          - listitem [ref=f7e339]:
+            - article [ref=f7e340]:
+              - link "iOS App Folder, React" [ref=f7e341] [cursor=pointer]:
+                - /url: /examples/react-ios-app-folder
+                - img "iOS App Folder animation example" [ref=f7e343]
+                - generic [ref=f7e351]: iOS App Folder
+              - button "Add to favourites" [ref=f7e354] [cursor=pointer]
+          - listitem [ref=f7e359]:
+            - article [ref=f7e360]:
+              - link "iOS pointer animation, React" [ref=f7e361] [cursor=pointer]:
+                - /url: /examples/react-ios-pointer
+                - img "iOS pointer animation animation example" [ref=f7e363]
+                - generic [ref=f7e371]: iOS pointer animation
+              - button "Add to favourites" [ref=f7e374] [cursor=pointer]
+          - listitem [ref=f7e379]:
+            - article [ref=f7e380]:
+              - 'link "Pokopia: Modal, React" [ref=f7e381] [cursor=pointer]':
+                - /url: /examples/react-pokopia-modal
+                - 'img "Pokopia: Modal animation example" [ref=f7e383]'
+                - generic [ref=f7e391]: "Pokopia: Modal"
+              - button "Add to favourites" [ref=f7e394] [cursor=pointer]
+          - listitem [ref=f7e399]:
+            - article [ref=f7e400]:
+              - link "Floating Action Button, React" [ref=f7e401] [cursor=pointer]:
+                - /url: /examples/react-floating-action-button
+                - img "Floating Action Button animation example" [ref=f7e403]
+                - generic [ref=f7e411]: Floating Action Button
+              - button "Add to favourites" [ref=f7e414] [cursor=pointer]
+          - listitem [ref=f7e419]:
+            - article [ref=f7e420]:
+              - link "iOS App Store, React" [ref=f7e421] [cursor=pointer]:
+                - /url: /examples/react-app-store
+                - img "iOS App Store animation example" [ref=f7e423]
+                - generic [ref=f7e431]: iOS App Store
+              - button "Add to favourites" [ref=f7e434] [cursor=pointer]
+      - region [ref=f7e439]:
+        - generic [ref=f7e440]:
+          - generic [ref=f7e441]:
+            - generic [ref=f7e442]: "03"
+            - generic [ref=f7e443]: Documentation
+          - generic [ref=f7e444]:
+            - heading "Documentation for React, JavaScript and Vue." [level=2] [ref=f7e445]
+            - paragraph [ref=f7e446]: Choose your runtime and start with the API built for your project.
+          - link "Browse all docs" [ref=f7e448] [cursor=pointer]:
+            - /url: /docs
+        - list "Runtime documentation" [ref=f7e452]:
+          - listitem [ref=f7e453]:
+            - link [ref=f7e454] [cursor=pointer]:
+              - /url: /docs/react
+              - img "React" [ref=f7e456]
+              - strong [ref=f7e463]: React
+          - listitem [ref=f7e467]:
+            - link [ref=f7e468] [cursor=pointer]:
+              - /url: /docs/quick-start
+              - img "JavaScript" [ref=f7e470]
+              - strong [ref=f7e474]: JavaScript
+          - listitem [ref=f7e478]:
+            - link [ref=f7e479] [cursor=pointer]:
+              - /url: /docs/vue
+              - img "Vue" [ref=f7e481]
+              - strong [ref=f7e488]: Vue
+      - region [ref=f7e492]:
+        - generic [ref=f7e493]:
+          - generic [ref=f7e494]:
+            - generic [ref=f7e495]: "04"
+            - generic [ref=f7e496]: Workflow
+          - generic [ref=f7e497]:
+            - heading "Give every project a head start." [level=2] [ref=f7e498]
+            - paragraph [ref=f7e499]: Equip your agent with specialist Motion context, then build from production-ready animated sections that inherit your design system.
+        - generic [ref=f7e500]:
+          - generic [ref=f7e501]:
+            - article [ref=f7e502]:
+              - strong [ref=f7e504]: Help your AI agent understand Motion
+              - generic [ref=f7e505]:
+                - generic [ref=f7e506]: AI Kit
+                - heading "Give your agent specialist Motion judgement." [level=2] [ref=f7e507]
+                - paragraph [ref=f7e508]: Send the latest docs, 430+ example sources, performance audits and production-ready CSS springs directly to your agent.
+                - link "Explore AI Kit" [ref=f7e509] [cursor=pointer]:
+                  - /url: /ai-kit
+              - region [ref=f7e518]:
+                - generic [ref=f7e526]:
+                  - generic [ref=f7e527]: ›/motion create a photos carousel on homepage
+                  - generic [ref=f7e529]: "- Searching Motion documentation for carousel"
+                  - generic [ref=f7e530]: "- Searching Motion examples for “photo carousel”"
+                  - generic [ref=f7e532]: "- Found 1 doc and 3 examples."
+                  - generic [ref=f7e533]: Building new carousel using your
+                  - generic [ref=f7e534]: existing design system.
+            - article [ref=f7e535]:
+              - strong [ref=f7e537]: Use pre-built animated sections
+              - generic [ref=f7e538]:
+                - generic [ref=f7e539]: Motion UI
+                - heading "Begin with production-ready motion." [level=2] [ref=f7e540]
+                - paragraph [ref=f7e541]: Browse performance-rated animated sections, install the source and inherit the design tokens your project already uses.
+                - link "Browse Motion UI" [ref=f7e542] [cursor=pointer]:
+                  - /url: /ui
+              - link "Preview Motion UI editorial hero section" [ref=f7e549] [cursor=pointer]:
+                - /url: /ui/sections/react-hero-editorial-stagger
+                - img "Motion UI editorial hero section preview" [ref=f7e553]
+                - generic [ref=f7e554]: Live section preview
+          - complementary [ref=f7e555]:
+            - generic [ref=f7e556]: +
+            - generic [ref=f7e562]:
+              - generic [ref=f7e563]: Motion+
+              - heading "Bring both into one workflow." [level=3] [ref=f7e564]
+              - paragraph [ref=f7e565]: AI Kit and Motion UI are both included in Motion+, with premium APIs, examples and lifetime updates.
+            - link "Get Motion+" [ref=f7e566] [cursor=pointer]:
+              - /url: /plus
+      - region [ref=f7e572]:
+        - generic [ref=f7e573]:
+          - generic [ref=f7e574]:
+            - generic [ref=f7e575]: "05"
+            - generic [ref=f7e576]: Showcase
+          - generic [ref=f7e577]:
+            - heading "Made with Motion." [level=2] [ref=f7e578]
+            - paragraph [ref=f7e579]: Everything's possible with Motion. Here are some of the best creations from the Motion community.
+          - link "Submit your work" [ref=f7e581] [cursor=pointer]:
+            - /url: /dashboard/showcase/add
+        - list [ref=f7e586]:
+          - listitem [ref=f7e587]:
+            - link "3D Cylinder Gallery, open project" [ref=f7e588] [cursor=pointer]:
+              - /url: https://x.com/dimicx/status/2033915306456781065?s=20
+              - img "3D Cylinder Gallery Motion showcase preview" [ref=f7e590]
+              - generic [ref=f7e591]:
+                - generic [ref=f7e592]: 3D Cylinder Gallery
+                - generic [ref=f7e593]: "@dimi"
+          - listitem [ref=f7e594]:
+            - link "Dia Browser, open project" [ref=f7e595] [cursor=pointer]:
+              - /url: https://diabrowser.com
+              - img "Dia Browser Motion showcase preview" [ref=f7e597]
+              - generic [ref=f7e598]:
+                - generic [ref=f7e599]: Dia Browser
+                - generic [ref=f7e600]: "@buenasuerte"
+          - listitem [ref=f7e601]:
+            - link "Collins Carousel, open project" [ref=f7e602] [cursor=pointer]:
+              - /url: https://motion.dev/@dimi
+              - img "Collins Carousel Motion showcase preview" [ref=f7e604]
+              - generic [ref=f7e605]:
+                - generic [ref=f7e606]: Collins Carousel
+                - generic [ref=f7e607]: "@dimi"
+          - listitem [ref=f7e608]:
+            - link "Business Switcher, open project" [ref=f7e609] [cursor=pointer]:
+              - /url: https://motion.dev/@egdiala
+              - img "Business Switcher Motion showcase preview" [ref=f7e611]
+              - generic [ref=f7e612]:
+                - generic [ref=f7e613]: Business Switcher
+                - generic [ref=f7e614]: "@egdiala"
+          - listitem [ref=f7e615]:
+            - link "Scroll animation with Grid, open project" [ref=f7e616] [cursor=pointer]:
+              - /url: https://codepen.io/KevinGutowski/full/QwNZYzL
+              - img "Scroll animation with Grid Motion showcase preview" [ref=f7e618]
+              - generic [ref=f7e619]:
+                - generic [ref=f7e620]: Scroll animation with Grid
+                - generic [ref=f7e621]: "@kev"
+          - listitem [ref=f7e622]:
+            - link "Radial Slider, open project" [ref=f7e623] [cursor=pointer]:
+              - /url: https://www.uicapsule.com/ui/radial-slider
+              - img "Radial Slider Motion showcase preview" [ref=f7e625]
+              - generic [ref=f7e626]:
+                - generic [ref=f7e627]: Radial Slider
+                - generic [ref=f7e628]: "@kyh"
+          - listitem [ref=f7e629]:
+            - link "Heart Button, open project" [ref=f7e630] [cursor=pointer]:
+              - /url: https://www.uicapsule.com/ui/like-button
+              - img "Heart Button Motion showcase preview" [ref=f7e632]
+              - generic [ref=f7e633]:
+                - generic [ref=f7e634]: Heart Button
+                - generic [ref=f7e635]: "@kyh"
+          - listitem [ref=f7e636]:
+            - link "iPhone Air Accordion, open project" [ref=f7e637] [cursor=pointer]:
+              - /url: https://github.com/dimicx/iphone-air-accordion
+              - img "iPhone Air Accordion Motion showcase preview" [ref=f7e639]
+              - generic [ref=f7e640]:
+                - generic [ref=f7e641]: iPhone Air Accordion
+                - generic [ref=f7e642]: "@dimi"
+          - listitem [ref=f7e643]:
+            - link "Looping Images, open project" [ref=f7e644] [cursor=pointer]:
+              - /url: https://www.dimi.me/lab/looping-images
+              - img "Looping Images Motion showcase preview" [ref=f7e646]
+              - generic [ref=f7e647]:
+                - generic [ref=f7e648]: Looping Images
+                - generic [ref=f7e649]: "@dimi"
+          - listitem [ref=f7e650]:
+            - link "Password Input, open project" [ref=f7e651] [cursor=pointer]:
+              - /url: https://www.dimi.me/lab/password-input
+              - img "Password Input Motion showcase preview" [ref=f7e653]
+              - generic [ref=f7e654]:
+                - generic [ref=f7e655]: Password Input
+                - generic [ref=f7e656]: "@dimi"
+      - region [ref=f7e657]:
+        - generic [ref=f7e658]:
+          - generic [ref=f7e659]:
+            - generic [ref=f7e660]: "06"
+            - generic [ref=f7e661]: Updates
+          - generic [ref=f7e662]:
+            - heading "Latest from Motion." [level=2] [ref=f7e663]
+            - paragraph [ref=f7e664]: Release notes and magazine stories from the Motion team.
+        - generic [ref=f7e665]:
+          - generic [ref=f7e666]:
+            - generic [ref=f7e667]:
+              - generic [ref=f7e668]: Changelog
+              - link "RSS" [ref=f7e669] [cursor=pointer]:
+                - /url: /changelog/rss.xml
+            - generic [ref=f7e674]:
+              - list [ref=f7e676]:
+                - listitem [ref=f7e677]:
+                  - generic [ref=f7e678]:
+                    - generic [ref=f7e679]:
+                      - link "Motion" [ref=f7e680] [cursor=pointer]:
+                        - /url: /docs
+                      - generic [ref=f7e681]: patch
+                    - generic [ref=f7e682]: 13.1.1
+                  - generic [ref=f7e684]:
+                    - time [ref=f7e685]: 18 Aug 2026
+                    - generic [ref=f7e686]:
+                      - heading "Fixed" [level=3] [ref=f7e687]
+                      - list [ref=f7e688]:
+                        - listitem [ref=f7e689]:
+                          - text: Guard animation
+                          - code [ref=f7e690]: window
+                          - text: access in non-browser runtimes.
+                        - listitem [ref=f7e691]:
+                          - code [ref=f7e692]: AnimatePresence
+                          - text: ": Improved compat with React 19 strict mode."
+                - listitem [ref=f7e693]:
+                  - generic [ref=f7e694]:
+                    - generic [ref=f7e695]:
+                      - link "Motion UI" [ref=f7e696] [cursor=pointer]:
+                        - /url: /ui
+                      - generic [ref=f7e697]: patch
+                    - generic [ref=f7e698]: 0.0.2
+                  - generic [ref=f7e700]:
+                    - time [ref=f7e701]: 13 Aug 2026
+                    - generic [ref=f7e702]:
+                      - heading "Added" [level=3] [ref=f7e703]
+                      - list [ref=f7e704]:
+                        - listitem [ref=f7e705]: "Toast stack: overlay notifications that fan into a scaled pile on a shared spring."
+                - listitem [ref=f7e706]:
+                  - generic [ref=f7e707]:
+                    - generic [ref=f7e708]:
+                      - link "Motion" [ref=f7e709] [cursor=pointer]:
+                        - /url: /docs
+                      - generic [ref=f7e710]: minor
+                    - generic [ref=f7e711]: 13.1.0
+                  - generic [ref=f7e713]:
+                    - time [ref=f7e714]: 10 Aug 2026
+                    - generic [ref=f7e715]:
+                      - heading "Added" [level=3] [ref=f7e716]
+                      - list [ref=f7e717]:
+                        - listitem [ref=f7e718]:
+                          - code [ref=f7e719]: Reorder
+                          - text: ": Multidimensional reorder."
+                        - listitem [ref=f7e720]:
+                          - code [ref=f7e721]: Reorder
+                          - text: ": Automatic axis detection."
+                        - listitem [ref=f7e722]:
+                          - code [ref=f7e723]: Reorder
+                          - text: ": RTL support."
+                - listitem [ref=f7e724]:
+                  - generic [ref=f7e725]:
+                    - generic [ref=f7e726]:
+                      - link "Motion" [ref=f7e727] [cursor=pointer]:
+                        - /url: /docs
+                      - generic [ref=f7e728]: major
+                    - generic [ref=f7e729]: 13.0.0
+                  - generic [ref=f7e731]:
+                    - time [ref=f7e732]: 05 Aug 2026
+                    - generic [ref=f7e733]:
+                      - heading "Changed" [level=3] [ref=f7e734]
+                      - list [ref=f7e735]:
+                        - listitem [ref=f7e736]:
+                          - text: Removed optional
+                          - code [ref=f7e737]: "@emotion/is-prop-valid"
+                          - text: dependency in favour of explicit
+                          - code [ref=f7e738]: "<MotionConfig isValidProp={isPropValid}>"
+                          - text: .
+                      - heading "Fixed" [level=3] [ref=f7e739]
+                      - list [ref=f7e740]:
+                        - listitem [ref=f7e741]: Hardware-accelerated SVG elements correctly apply final style on animation complete.
+                        - listitem [ref=f7e742]:
+                          - code [ref=f7e743]: AnimatePresence
+                          - text: ": Ensure nodes are marked as safe to remove when rendering"
+                          - code [ref=f7e744]: propagate
+                          - text: with no
+                          - code [ref=f7e745]: motion
+                          - text: children.
+                - listitem [ref=f7e746]:
+                  - generic [ref=f7e747]:
+                    - generic [ref=f7e748]:
+                      - link "Motion" [ref=f7e749] [cursor=pointer]:
+                        - /url: /docs
+                      - generic [ref=f7e750]: minor
+                    - generic [ref=f7e751]: 12.43.0
+                  - generic [ref=f7e753]:
+                    - time [ref=f7e754]: 27 Jul 2026
+                    - generic [ref=f7e755]:
+                      - heading "Added" [level=3] [ref=f7e756]
+                      - list [ref=f7e757]:
+                        - listitem [ref=f7e758]:
+                          - text: Hardware acceleration for
+                          - code [ref=f7e759]: backgroundColor
+                          - text: in supported browsers.
+                        - listitem [ref=f7e760]: Hardware acceleration for SVG elements.
+                      - heading "Fixed" [level=3] [ref=f7e761]
+                      - list [ref=f7e762]:
+                        - listitem [ref=f7e763]:
+                          - code [ref=f7e764]: AnimatePresence
+                          - text: ": Exiting children no longer interleave with entering children, which could reorder and remount children present in both renders."
+                        - listitem [ref=f7e765]:
+                          - code [ref=f7e766]: motion
+                          - text: ": Throw error when passing a custom"
+                          - code [ref=f7e767]: motion
+                          - text: component an incorrect
+                          - code [ref=f7e768]: ref
+                          - text: type.
+              - link "Full changelog" [ref=f7e769] [cursor=pointer]:
+                - /url: /changelog
+          - generic [ref=f7e775]:
+            - generic [ref=f7e776]:
+              - generic [ref=f7e777]: Magazine
+              - link "RSS" [ref=f7e778] [cursor=pointer]:
+                - /url: /magazine/rss.xml
+            - generic [ref=f7e783]:
+              - list [ref=f7e785]:
+                - listitem [ref=f7e786]:
+                  - link "Introducing Motion UI article cover Announcement ·July 23, 2026 Introducing Motion UI Production-ready animated sections and components for React. Everything performance-graded with MotionScore, drop-in to your design system via shadcn tokens or AI. Matt Perry" [ref=f7e787] [cursor=pointer]:
+                    - /url: /magazine/introducing-motion-ui
+                    - img "Introducing Motion UI article cover" [ref=f7e789]
+                    - generic [ref=f7e790]:
+                      - generic [ref=f7e791]:
+                        - generic [ref=f7e792]: Announcement
+                        - generic [ref=f7e793]: ·July 23, 2026
+                      - heading "Introducing Motion UI" [level=2] [ref=f7e794]
+                      - paragraph [ref=f7e795]: Production-ready animated sections and components for React. Everything performance-graded with MotionScore, drop-in to your design system via shadcn tokens or AI.
+                      - generic [ref=f7e796]: Matt Perry
+                - listitem [ref=f7e797]:
+                  - link "A compact now playing bar morphing step by step into a full music player card Announcement ·June 30, 2026 A View Transition API for the rest of us The View Transition API can animate the impossible, but using it can be painful. Here's how Motion's animateView(), now free in the core library, fixes its rough edges. Matt Perry" [ref=f7e798] [cursor=pointer]:
+                    - /url: /magazine/a-view-transitions-api-for-the-rest-of-us
+                    - img "A compact now playing bar morphing step by step into a full music player card" [ref=f7e800]
+                    - generic [ref=f7e801]:
+                      - generic [ref=f7e802]:
+                        - generic [ref=f7e803]: Announcement
+                        - generic [ref=f7e804]: ·June 30, 2026
+                      - heading "A View Transition API for the rest of us" [level=2] [ref=f7e805]
+                      - paragraph [ref=f7e806]: The View Transition API can animate the impossible, but using it can be painful. Here's how Motion's animateView(), now free in the core library, fixes its rough edges.
+                      - generic [ref=f7e807]: Matt Perry
+              - link "All articles" [ref=f7e808] [cursor=pointer]:
+                - /url: /magazine
+      - region [ref=f7e814]:
+        - generic [ref=f7e815]:
+          - generic [ref=f7e816]:
+            - generic [ref=f7e817]: "07"
+            - generic [ref=f7e818]: Sponsors
+          - generic [ref=f7e819]:
+            - heading "Trusted by the world's leading teams." [level=2] [ref=f7e820]
+            - paragraph [ref=f7e821]: Motion is deployed and sponsored by the best teams in the industry, powering UI animations across millions of sites.
+          - link "Become a sponsor" [ref=f7e823] [cursor=pointer]:
+            - /url: /sponsor
+        - generic [ref=f7e826]:
+          - generic [ref=f7e827]:
+            - heading "Partners" [level=3] [ref=f7e828]
+            - generic [ref=f7e829]:
+              - link "Framer (opens in new window)" [ref=f7e830] [cursor=pointer]:
+                - /url: https://framer.link/6ogjBZd
+                - img "Framer" [ref=f7e832]
+                - paragraph [ref=f7e834]: Motion powers the animations across hundreds of thousands of Framer sites.
+                - generic [ref=f7e835]: Visit Framer
+              - link "Cursor (opens in new window)" [ref=f7e842] [cursor=pointer]:
+                - /url: https://cursor.com
+                - img "Cursor" [ref=f7e844]
+                - paragraph [ref=f7e846]: Motion is partnered with Cursor on one-click open-in-AI examples for every component.
+                - generic [ref=f7e847]: Visit Cursor
+          - generic [ref=f7e854]:
+            - heading "Platinum" [level=3] [ref=f7e855]
+            - generic [ref=f7e856]:
+              - link "Linear (opens in new window)" [ref=f7e857] [cursor=pointer]:
+                - /url: https://linear.app
+                - img "Linear" [ref=f7e858]
+              - link "Figma (opens in new window)" [ref=f7e865] [cursor=pointer]:
+                - /url: https://figma.com
+                - img "Figma" [ref=f7e866]
+              - link "Sanity (opens in new window)" [ref=f7e873] [cursor=pointer]:
+                - /url: https://www.sanity.io
+                - img "Sanity" [ref=f7e874]
+              - link "Clerk (opens in new window)" [ref=f7e881] [cursor=pointer]:
+                - /url: https://clerk.com?utm_campaign=motion
+                - img "Clerk" [ref=f7e882]
+      - region [ref=f7e892]:
+        - complementary [ref=f7e893]:
+          - generic [ref=f7e894]:
+            - generic [ref=f7e895]: 08 / MotionScore
+            - generic [ref=f7e898]: Free audit Results in 60 seconds
+          - generic [ref=f7e899]:
+            - generic [ref=f7e900]:
+              - generic [ref=f7e901]: Animation performance audit
+              - heading "Find & fix animation performance issues." [level=2] [ref=f7e902]
+              - paragraph [ref=f7e903]: Audit any live website in under a minute. Every report grades you S through F, breaks the score down finding by finding, and hands your AI agent copy-paste fixes.
+            - generic [ref=f7e904]:
+              - generic [ref=f7e905]:
+                - term [ref=f7e906]: Grades
+                - definition [ref=f7e907]: S–F
+              - generic [ref=f7e908]:
+                - term [ref=f7e909]: Viewports
+                - definition [ref=f7e910]: Desktop + mobile
+              - generic [ref=f7e911]:
+                - term [ref=f7e912]: Fixes
+                - definition [ref=f7e913]: Agent-ready
+              - generic [ref=f7e914]:
+                - term [ref=f7e915]: CI
+                - definition [ref=f7e916]: Guard-gated
+            - generic [ref=f7e918]:
+              - generic [ref=f7e919]: Audit your site
+              - form "Run a MotionScore audit" [ref=f7e920]:
+                - generic [ref=f7e921]:
+                  - text: ">"
+                  - textbox "Website URL" [ref=f7e922]:
+                    - /placeholder: example.com
+                - button "Run free audit" [ref=f7e923] [cursor=pointer]
+              - paragraph [ref=f7e929]:
+                - text: Powered by
+                - link "MotionScore" [ref=f7e930] [cursor=pointer]:
+                  - /url: https://score.motion.dev
+                - text: .
+      - region [ref=f7e931]:
+        - generic [ref=f7e932]:
+          - generic [ref=f7e933]:
+            - generic [ref=f7e934]: "09"
+            - generic [ref=f7e935]: Learn Motion
+          - generic [ref=f7e936]:
+            - heading "Animation guides and examples." [level=2] [ref=f7e937]
+            - paragraph [ref=f7e938]: Go straight to popular techniques, comparisons and production-ready starting points.
+        - generic [ref=f7e939]:
+          - navigation "Documentation" [ref=f7e940]:
+            - heading "Documentation" [level=3] [ref=f7e941]
+            - list [ref=f7e942]:
+              - listitem [ref=f7e943]:
+                - link "Scroll animations" [ref=f7e944] [cursor=pointer]:
+                  - /url: /docs/react-scroll-animations
+              - listitem [ref=f7e948]:
+                - link "Layout animations" [ref=f7e949] [cursor=pointer]:
+                  - /url: /docs/react-layout-animations
+              - listitem [ref=f7e953]:
+                - link "SVG animation" [ref=f7e954] [cursor=pointer]:
+                  - /url: /docs/svg-animation
+              - listitem [ref=f7e958]:
+                - link "Text animation" [ref=f7e959] [cursor=pointer]:
+                  - /url: /docs/text-animation
+              - listitem [ref=f7e963]:
+                - link "Tween animations" [ref=f7e964] [cursor=pointer]:
+                  - /url: /docs/tween
+              - listitem [ref=f7e968]:
+                - link "3D transforms" [ref=f7e969] [cursor=pointer]:
+                  - /url: /docs/3d-transforms
+              - listitem [ref=f7e973]:
+                - link "React animation" [ref=f7e974] [cursor=pointer]:
+                  - /url: /docs/react-animation
+              - listitem [ref=f7e978]:
+                - link "JavaScript animation" [ref=f7e979] [cursor=pointer]:
+                  - /url: /docs/quick-start
+              - listitem [ref=f7e983]:
+                - link "Vue animation" [ref=f7e984] [cursor=pointer]:
+                  - /url: /docs/vue
+              - listitem [ref=f7e988]:
+                - link "Animation performance" [ref=f7e989] [cursor=pointer]:
+                  - /url: /docs/performance
+              - listitem [ref=f7e993]:
+                - link "GSAP vs Motion" [ref=f7e994] [cursor=pointer]:
+                  - /url: /docs/gsap-vs-motion
+              - listitem [ref=f7e998]:
+                - link "Framer Motion upgrade guide" [ref=f7e999] [cursor=pointer]:
+                  - /url: /docs/react-upgrade-guide
+              - listitem [ref=f7e1003]:
+                - link "See all docs" [ref=f7e1004] [cursor=pointer]:
+                  - /url: /docs
+          - navigation "Examples" [ref=f7e1008]:
+            - heading "Examples" [level=3] [ref=f7e1009]
+            - list [ref=f7e1010]:
+              - listitem [ref=f7e1011]:
+                - link "Carousel" [ref=f7e1012] [cursor=pointer]:
+                  - /url: /examples/react-carousel
+              - listitem [ref=f7e1016]:
+                - link "Parallax" [ref=f7e1017] [cursor=pointer]:
+                  - /url: /examples/react-parallax
+              - listitem [ref=f7e1021]:
+                - link "Typewriter" [ref=f7e1022] [cursor=pointer]:
+                  - /url: /examples/react-typewriter
+              - listitem [ref=f7e1026]:
+                - link "Confetti" [ref=f7e1027] [cursor=pointer]:
+                  - /url: /examples/react-confetti
+              - listitem [ref=f7e1031]:
+                - link "Drag" [ref=f7e1032] [cursor=pointer]:
+                  - /url: /examples/react-drag
+              - listitem [ref=f7e1036]:
+                - link "Accordion" [ref=f7e1037] [cursor=pointer]:
+                  - /url: /examples/react-accordion
+              - listitem [ref=f7e1041]:
+                - link "Modal" [ref=f7e1042] [cursor=pointer]:
+                  - /url: /examples/react-modal
+              - listitem [ref=f7e1046]:
+                - link "Toast stack" [ref=f7e1047] [cursor=pointer]:
+                  - /url: /examples/react-toast-stack
+              - listitem [ref=f7e1051]:
+                - link "Scroll-linked effects" [ref=f7e1052] [cursor=pointer]:
+                  - /url: /examples/react-scroll-linked
+              - listitem [ref=f7e1056]:
+                - link "Browse all examples" [ref=f7e1057] [cursor=pointer]:
+                  - /url: /examples
+      - region [ref=f7e1061]:
+        - generic [ref=f7e1062]:
+          - generic [ref=f7e1063]:
+            - generic [ref=f7e1064]: "10"
+            - generic [ref=f7e1065]: Developer tools
+          - generic [ref=f7e1066]:
+            - heading "Tools for the full animation workflow." [level=2] [ref=f7e1067]
+            - paragraph [ref=f7e1068]: Build faster, check performance and move from an idea to production.
+        - list "Developer tools" [ref=f7e1069]:
+          - listitem [ref=f7e1070]:
+            - link "AI Kit Give your agent specialist Motion skills." [ref=f7e1071] [cursor=pointer]:
+              - /url: /ai-kit
+              - generic [ref=f7e1075]:
+                - strong [ref=f7e1076]: AI Kit
+                - generic [ref=f7e1077]: Give your agent specialist Motion skills.
+          - listitem [ref=f7e1081]:
+            - link "Motion UI Production-ready animated sections for your design system." [ref=f7e1082] [cursor=pointer]:
+              - /url: /ui
+              - generic [ref=f7e1086]:
+                - strong [ref=f7e1087]: Motion UI
+                - generic [ref=f7e1088]: Production-ready animated sections for your design system.
+          - listitem [ref=f7e1092]:
+            - link "CSS Studio Visually edit the CSS in your existing project." [ref=f7e1093] [cursor=pointer]:
+              - /url: https://cssstudio.ai/learn
+              - generic [ref=f7e1097]:
+                - strong [ref=f7e1098]: CSS Studio
+                - generic [ref=f7e1099]: Visually edit the CSS in your existing project.
+          - listitem [ref=f7e1106]:
+            - link "MotionScore Find and fix animation performance issues." [ref=f7e1107] [cursor=pointer]:
+              - /url: https://score.motion.dev/docs
+              - generic [ref=f7e1111]:
+                - strong [ref=f7e1112]: MotionScore
+                - generic [ref=f7e1113]: Find and fix animation performance issues.
+  - contentinfo [ref=f7e1120]:
+    - generic [ref=f7e1121]:
+      - region "Sponsors" [ref=f7e1122]:
+        - generic [ref=f7e1123]:
+          - heading "> Sponsors" [level=3] [ref=f7e1124]
+          - paragraph [ref=f7e1125]: Motion is supported by the best in the industry.
+          - link "Become a sponsor" [ref=f7e1127] [cursor=pointer]:
+            - /url: /sponsor
+        - generic [ref=f7e1131]:
+          - link "Framer (opens in new window)" [ref=f7e1132] [cursor=pointer]:
+            - /url: https://framer.link/6ogjBZd
+            - img "Framer" [ref=f7e1133]
+          - link "Cursor (opens in new window)" [ref=f7e1140] [cursor=pointer]:
+            - /url: https://cursor.com
+            - img "Cursor" [ref=f7e1141]
+          - link "Linear (opens in new window)" [ref=f7e1148] [cursor=pointer]:
+            - /url: https://linear.app/
+            - img "Linear" [ref=f7e1149]
+          - link "Clerk (opens in new window)" [ref=f7e1156] [cursor=pointer]:
+            - /url: https://clerk.com?utm_campaign=motion
+            - img "Clerk" [ref=f7e1157]
+          - link "Figma (opens in new window)" [ref=f7e1167] [cursor=pointer]:
+            - /url: https://figma.com/
+            - img "Figma" [ref=f7e1168]
+          - link "Sanity (opens in new window)" [ref=f7e1175] [cursor=pointer]:
+            - /url: https://www.sanity.io/
+            - img "Sanity" [ref=f7e1176]
+      - generic [ref=f7e1183]:
+        - generic [ref=f7e1184]:
+          - heading "> Newsletter" [level=3] [ref=f7e1185]
+          - paragraph [ref=f7e1186]: Updates on new features and releases.
+        - generic [ref=f7e1188]:
+          - generic [ref=f7e1189]:
+            - generic [ref=f7e1190]: ">"
+            - textbox "Email address" [ref=f7e1191]:
+              - /placeholder: you@example.com
+          - button "Subscribe" [ref=f7e1192] [cursor=pointer]
+          - paragraph
+      - navigation [ref=f7e1196]:
+        - generic [ref=f7e1197]:
+          - heading "Site" [level=6] [ref=f7e1198]
+          - list [ref=f7e1199]:
+            - listitem [ref=f7e1200]:
+              - link "About" [ref=f7e1201] [cursor=pointer]:
+                - /url: /about
+            - listitem [ref=f7e1202]:
+              - link "Advertise" [ref=f7e1203] [cursor=pointer]:
+                - /url: /advertise
+            - listitem [ref=f7e1204]:
+              - link "Changelog" [ref=f7e1205] [cursor=pointer]:
+                - /url: /changelog
+            - listitem [ref=f7e1206]:
+              - link "Docs" [ref=f7e1207] [cursor=pointer]:
+                - /url: /docs
+            - listitem [ref=f7e1208]:
+              - link "Examples" [ref=f7e1209] [cursor=pointer]:
+                - /url: /examples
+            - listitem [ref=f7e1210]:
+              - link "Magazine" [ref=f7e1211] [cursor=pointer]:
+                - /url: /magazine
+            - listitem [ref=f7e1212]:
+              - link "Sponsor" [ref=f7e1213] [cursor=pointer]:
+                - /url: /sponsor
+            - listitem [ref=f7e1214]:
+              - link "Troubleshooting" [ref=f7e1215] [cursor=pointer]:
+                - /url: /troubleshooting
+        - generic [ref=f7e1216]:
+          - heading "Products" [level=6] [ref=f7e1217]
+          - list [ref=f7e1218]:
+            - listitem [ref=f7e1219]:
+              - link "AI Kit" [ref=f7e1220] [cursor=pointer]:
+                - /url: /ai-kit
+            - listitem [ref=f7e1221]:
+              - link "CSS Studio" [ref=f7e1222] [cursor=pointer]:
+                - /url: https://cssstudio.ai
+            - listitem [ref=f7e1223]:
+              - link "Motion" [ref=f7e1224] [cursor=pointer]:
+                - /url: /
+            - listitem [ref=f7e1225]:
+              - link "Motion+" [ref=f7e1226] [cursor=pointer]:
+                - /url: /plus
+            - listitem [ref=f7e1227]:
+              - link "Motion UI" [ref=f7e1228] [cursor=pointer]:
+                - /url: /ui
+            - listitem [ref=f7e1229]:
+              - link "MotionScore" [ref=f7e1230] [cursor=pointer]:
+                - /url: https://score.motion.dev
+            - listitem [ref=f7e1231]:
+              - link "The Book of Motion" [ref=f7e1232] [cursor=pointer]:
+                - /url: https://book.motion.dev
+        - generic [ref=f7e1233]:
+          - heading "Most Popular" [level=6] [ref=f7e1234]
+          - list [ref=f7e1235]:
+            - listitem [ref=f7e1236]:
+              - link "React animation" [ref=f7e1237] [cursor=pointer]:
+                - /url: /docs/react-animation
+            - listitem [ref=f7e1238]:
+              - link "Layout animation" [ref=f7e1239] [cursor=pointer]:
+                - /url: /docs/react-layout-animations
+            - listitem [ref=f7e1240]:
+              - link "SVG animation" [ref=f7e1241] [cursor=pointer]:
+                - /url: /docs/react-svg-animation
+            - listitem [ref=f7e1242]:
+              - link "Motion component" [ref=f7e1243] [cursor=pointer]:
+                - /url: /docs/react-motion-component
+            - listitem [ref=f7e1244]:
+              - link "GSAP vs Motion" [ref=f7e1245] [cursor=pointer]:
+                - /url: /docs/gsap-vs-motion
+        - generic [ref=f7e1246]:
+          - heading "Docs" [level=6] [ref=f7e1247]
+          - list [ref=f7e1248]:
+            - listitem [ref=f7e1249]:
+              - link "JavaScript" [ref=f7e1250] [cursor=pointer]:
+                - /url: /docs/quick-start
+            - listitem [ref=f7e1251]:
+              - link "React" [ref=f7e1252] [cursor=pointer]:
+                - /url: /docs/react
+            - listitem [ref=f7e1253]:
+              - link "Vue" [ref=f7e1254] [cursor=pointer]:
+                - /url: /docs/vue
+            - listitem [ref=f7e1255]:
+              - link "AI Kit" [ref=f7e1256] [cursor=pointer]:
+                - /url: /docs/ai-kit
+        - generic [ref=f7e1257]:
+          - heading "Social" [level=6] [ref=f7e1258]
+          - list [ref=f7e1259]:
+            - listitem [ref=f7e1260]:
+              - link "GitHub" [ref=f7e1261] [cursor=pointer]:
+                - /url: https://github.com/motiondivision/motion
+            - listitem [ref=f7e1262]:
+              - 'link "RSS: Changelog" [ref=f7e1263] [cursor=pointer]':
+                - /url: /changelog/rss.xml
+            - listitem [ref=f7e1264]:
+              - 'link "RSS: Magazine" [ref=f7e1265] [cursor=pointer]':
+                - /url: /magazine/rss.xml
+            - listitem [ref=f7e1266]:
+              - link "X/Twitter" [ref=f7e1267] [cursor=pointer]:
+                - /url: https://x.com/motiondotdev
+            - listitem [ref=f7e1268]:
+              - link "YouTube" [ref=f7e1269] [cursor=pointer]:
+                - /url: https://www.youtube.com/@motiondotdev
+      - generic [ref=f7e1270]:
+        - paragraph [ref=f7e1271]: © 2026 Motion
+        - navigation "Account" [ref=f7e1276]:
+          - generic [ref=f7e1277]: +
+          - link "Login" [ref=f7e1278] [cursor=pointer]:
+            - /url: /login?redirect=%2F
+          - link "Purchase" [ref=f7e1279] [cursor=pointer]:
+            - /url: /plus
+        - link [ref=f7e1281] [cursor=pointer]:
+          - /url: https://score.motion.dev/site/motion.dev
+          - img "MotionScore" [ref=f7e1282]

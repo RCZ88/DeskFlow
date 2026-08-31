@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Brain, CheckCircle2, Lightbulb, MessageSquareQuote, Sparkles, X, Zap } from 'lucide-react'
 import type { VideoReflection, ReflectionAnalysis } from '@/types/deskflow-api'
-import { AmberButton, Card, Chip, EmptyState, GhostButton, LoadingBlock, SectionHeader, TextArea, toast } from './ui'
+import { AmberButton, Card, Chip, CopyPromptButton, EmptyState, GhostButton, LoadingBlock, SectionHeader, TextArea, toast } from './ui'
 import { cn } from '@/lib/utils'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
@@ -76,6 +76,10 @@ export function ReflectionPanel({ episodeId, onLessonSaved }: { episodeId: numbe
 
       {/* New reflection input */}
       <Card>
+        <div className="mb-2 flex items-center gap-2">
+          <span className="text-[10px] tracking-wider text-zinc-500 uppercase">Write your reflection</span>
+          <CopyPromptButton fieldKey="reflection" />
+        </div>
         <TextArea
           rows={3}
           value={text}

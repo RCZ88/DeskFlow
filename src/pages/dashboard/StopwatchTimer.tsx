@@ -1,4 +1,4 @@
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Pause, Ban, Target, Timer, RotateCcw } from 'lucide-react';
 import { AuroraText } from '../../components/ui/aurora-text';
 import { BorderBeam } from '../../components/ui/border-beam';

@@ -1,0 +1,21 @@
+- generic [active] [ref=f8e1]:
+  - region "Notifications alt+T"
+  - main [ref=f8e2]:
+    - generic [ref=f8e6]:
+      - generic [ref=f8e7]:
+        - heading "Endless designs for your ideas, just scroll." [level=1] [ref=f8e21]
+        - paragraph [ref=f8e22]: Most tools make you explain what you want. Variant just shows you.
+        - paragraph [ref=f8e23]: It’s like working with a creative director that never runs out of options.
+        - generic "Suggested prompts" [ref=f8e25]:
+          - button "Sign up / Sign in" [ref=f8e26] [cursor=pointer]
+          - button "Surprise me" [ref=f8e32] [cursor=pointer]
+      - generic [ref=f8e41]:
+        - generic [ref=f8e43]:
+          - textbox [ref=f8e44]:
+            - paragraph [ref=f8e45]
+          - generic: See endless designs for...
+        - generic [ref=f8e46]:
+          - button "Add image" [ref=f8e47] [cursor=pointer]
+          - button "Select style" [ref=f8e50] [cursor=pointer]
+          - button "Submit" [disabled] [ref=f8e54] [cursor=pointer]
+  - alert [ref=f8e57]

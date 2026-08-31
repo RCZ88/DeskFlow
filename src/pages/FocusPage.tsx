@@ -11,6 +11,7 @@ import { BorderBeam } from '../components/ui/border-beam';
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { Select, SelectItem } from '../components/ui/select';
+import { useLocation } from 'react-router-dom';
 import { FocusGroupSelect, useFocusGroups, describeMatchCategory } from '../components/goals/FocusGroupSelect';
 import { LTGPicker } from '../components/goals/CriteriaBuilder';
 import { confetti } from '../components/ui/confetti';
@@ -61,6 +62,11 @@ export default function FocusPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
   const [activeTab, setActiveTab] = useState<'goals' | 'stats' | 'history'>('goals');
+  const focusLocation = useLocation();
+  useEffect(() => {
+    const tab = (focusLocation.state as any)?.tab;
+    if (tab === 'goals' || tab === 'stats' || tab === 'history') setActiveTab(tab);
+  }, []);
 
   const [newGoal, setNewGoal] = useState({
     title: '',
@@ -360,7 +366,7 @@ export default function FocusPage() {
 
         {/* Goals Tab */}
         {activeTab === 'goals' && (
-          <div className="space-y-3">
+          <div className="space-y-3" data-section="focus.goals">
             {loading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map(i => (
@@ -542,7 +548,7 @@ export default function FocusPage() {
 
         {/* Stats Tab */}
         {activeTab === 'stats' && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-section="focus.stats">
             <div className="relative rounded-xl overflow-hidden bg-[rgba(24,24,27,0.60)] backdrop-blur-xl border border-zinc-800/50 p-5">
               <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-violet-500/30 to-transparent" />
               <div className="flex items-center gap-2 mb-3">
@@ -578,7 +584,7 @@ export default function FocusPage() {
 
         {/* History Tab */}
         {activeTab === 'history' && (
-          <div className="text-center py-16">
+          <div className="text-center py-16" data-section="focus.history">
             <Clock size={32} className="text-zinc-700 mx-auto mb-3" />
             <p className="text-[14px] text-zinc-500 font-sans">Goal history coming soon</p>
             <p className="text-[12px] text-zinc-600 mt-1 font-sans">Track your progress over weeks and months</p>

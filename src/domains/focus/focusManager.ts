@@ -3,6 +3,16 @@ import path from 'path';
 import type Database from 'better-sqlite3';
 import { ensureFocusSchema } from './focusSchema';
 
+type CompositionEmitter = (topic: string, payload?: any) => void;
+let compositionEmitter: CompositionEmitter | null = null;
+
+/** main.ts wires this to the Composition engine so focus events can fire rules. */
+export function setCompositionEmitter(fn: CompositionEmitter | null) { compositionEmitter = fn; }
+
+function emitCompositionEvent(topic: string, payload?: any) {
+  try { compositionEmitter?.(topic, payload); } catch {}
+}
+
 export type Tier = 'productive' | 'neutral' | 'distracting';
 export type Strictness = 'distracting' | 'non_allowed';
 
@@ -99,6 +109,7 @@ export class FocusManager {
       this.endTimer = setTimeout(() => this.complete(), cfg.durationSec * 1000);
     }
     console.log('[focus] start', { id: this.state.sessionId, durationSec: cfg.durationSec, strictness, isStopwatch });
+    emitCompositionEvent('focus.session.started', { id: this.state.sessionId, strictness, durationSec: cfg.durationSec });
     this.pushState();
     return this.getPublicState();
   }
@@ -106,7 +117,12 @@ export class FocusManager {
   private isAllowed(tier: Tier, name: string, kind: 'app' | 'website', category?: string) {
     const a = this.state.allowed;
     if (kind === 'app' && a.apps.includes(name)) return true;
-    if (kind === 'website' && a.domains.includes(name)) return true;
+    if (kind === 'website') {
+      // Normalize: strip www. prefix + lowercase so extension's "youtube.com"
+      // matches group's "www.youtube.com" (or vice versa). Case-insensitive.
+      const norm = name.toLowerCase().replace(/^www\./, '');
+      if (a.domains.some(d => d.toLowerCase().replace(/^www\./, '') === norm)) return true;
+    }
     const hasExplicit = a.apps.length > 0 || a.domains.length > 0;
     if (this.state.strictness === 'non_allowed') {
       // STRICT: exact whitelist only — the category buffer is BLOCKED here.
@@ -188,6 +204,7 @@ export class FocusManager {
     console.log('[focus] end', { outcome, actualSec, reason });
     this.hideOverlay();
     const id = this.state.sessionId;
+    emitCompositionEvent(outcome === 'failed' ? 'focus.session.broken' : 'focus.session.ended', { id, outcome, reason, actualSec });
     this.state = this.idle();
     this.pushState();
     this.getMainWindow()?.webContents.send('focus:ended', { outcome, reason, id });
@@ -219,6 +236,7 @@ export class FocusManager {
     this.overlay.show();
     this.overlay.setAlwaysOnTop(true, 'screen-saver');
     this.overlay.focus();
+    emitCompositionEvent('focus.overlay.shown', payload);
   }
 
   private hideOverlay() { if (this.overlay?.isVisible()) this.overlay.hide(); this.current = null; }

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Overlay Style Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Poppins:wght@400;500;600;700&family=Caveat:wght@400;600&family=Playfair+Display:wght@400;700;900&family=Lora:wght@400;500&family=DM+Sans:wght@400;500&family=Bangers&family=Baloo+2:wght@400;600;700&family=Fredoka:wght@400;500;600&family=Bebas+Neue&family=Space+Grotesk:wght@400;500;700&family=Archivo+Black&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Montserrat:wght@400;600;700&family=Titan+One&family=Chewy&family=Manrope:wght@400;600;800&family=IBM+Plex+Mono:wght@400;500&family=Permanent+Marker&family=Nunito+Sans:wght@400;600&family=Kalam:wght@400;700&family=Unbounded:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --chrome-bg: #121214;
+    --chrome-panel: #1a1a1d;
+    --chrome-panel-2: #202024;
+    --chrome-line: #2c2c30;
+    --chrome-text: #ededef;
+    --chrome-muted: #8f8f96;
+    --signal: #ff3e88;
+    --signal-dim: #ff3e8833;
+    --ui-font: 'JetBrains Mono', monospace;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; background: var(--chrome-bg); color: var(--chrome-text); font-family: var(--ui-font); }
+
+  .app{ max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  .top{ display:flex; flex-direction:column; gap:6px; margin-bottom: 28px; }
+  .eyebrow{ font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--signal); }
+  .title{ font-family: 'Space Grotesk', sans-serif; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
+  .sub{ font-size: 12.5px; color: var(--chrome-muted); line-height: 1.6; max-width: 640px; }
+
+  /* ---- Preview ---- */
+  .preview-row{ display:flex; gap: 22px; align-items:flex-start; margin-bottom: 34px; flex-wrap: wrap; }
+
+  .phone-shell{ width: 234px; flex: 0 0 auto; }
+  .phone{
+    width: 234px; height: 416px; border-radius: 22px; overflow:hidden; position: relative;
+    border: 1px solid var(--chrome-line);
+    box-shadow: 0 20px 50px -20px rgba(0,0,0,0.6);
+    display:flex; flex-direction:column; justify-content:space-between;
+    background: var(--pv-bg, #111);
+    transition: background 0.25s ease;
+  }
+  .phone::before{ /* footage vignette so it always reads as "video", regardless of palette */
+    content:""; position:absolute; inset:0;
+    background: radial-gradient(120% 90% at 50% 0%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.16) 100%),
+                radial-gradient(120% 90% at 50% 100%, rgba(0,0,0,0) 0%, rgba(0,0,0,0.28) 100%);
+    pointer-events:none;
+  }
+  .pv-tag{
+    position: relative; margin: 16px 16px 0; align-self:flex-start;
+    font-family: var(--pv-accent-font, 'Space Mono'), monospace;
+    font-size: 10px; letter-spacing: 0.08em; text-transform:uppercase;
+    color: var(--pv-bg, #111); background: var(--pv-accent, #fff);
+    padding: 4px 8px; border-radius: 3px; font-weight: 600;
+  }
+  .pv-body-wrap{ position:relative; padding: 0 16px 18px; }
+  .pv-headline{
+    font-family: var(--pv-display-font, 'Anton'), sans-serif;
+    color: var(--pv-text, #fff);
+    font-size: var(--pv-headline-size, 27px);
+    line-height: 1.02; letter-spacing: -0.01em;
+    margin: 0 0 8px; text-transform: var(--pv-headline-case, none);
+  }
+  .pv-caption{
+    font-family: var(--pv-body-font, 'Inter'), sans-serif;
+    color: var(--pv-text, #fff); opacity: 0.85;
+    font-size: 13px; line-height: 1.4; margin: 0 0 10px; max-width: 92%;
+  }
+  .pv-footer{ display:flex; align-items:center; gap:8px; }
+  .pv-dot{ width:6px; height:6px; border-radius:50%; background: var(--pv-accent2, #999); }
+  .pv-foot-text{
+    font-family: var(--pv-accent-font, 'Space Mono'), monospace;
+    font-size: 10px; letter-spacing: 0.05em; color: var(--pv-accent2, #999);
+  }
+
+  .preview-meta{ flex: 1 1 260px; min-width: 240px; padding-top: 4px; }
+  .meta-row{ display:flex; gap:8px; align-items:center; margin-bottom: 10px; flex-wrap:wrap; }
+  .badge{ font-size: 10px; letter-spacing:0.08em; text-transform:uppercase; padding: 4px 9px; border-radius: 20px; border: 1px solid var(--chrome-line); color: var(--chrome-muted); }
+  .badge.catchy{ color: #ffb86b; border-color: #ffb86b55; }
+  .badge.general{ color: #7fd7c4; border-color: #7fd7c455; }
+  .meta-name{ font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; margin: 2px 0 10px; }
+  .meta-desc{ font-size: 12px; color: var(--chrome-muted); line-height: 1.6; margin-bottom: 14px; }
+  .meta-block{ margin-bottom: 12px; }
+  .meta-label{ font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--chrome-muted); margin-bottom: 6px; }
+  .meta-fonts{ font-size: 12px; display:flex; flex-direction:column; gap:3px; }
+  .meta-swatches{ display:flex; gap:6px; }
+  .sw{ width: 22px; height: 22px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.08); }
+
+  /* ---- Sections ---- */
+  section.group{ margin-bottom: 30px; }
+  .group-head{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom: 12px; }
+  .group-title{ font-family:'Space Grotesk', sans-serif; font-size: 14px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; }
+  .group-count{ font-size: 11px; color: var(--chrome-muted); }
+  .hint{ font-size:11px; color: var(--chrome-muted); margin: -6px 0 12px; }
+
+  .scroll-row{
+    display:flex; gap: 10px; overflow-x:auto; padding-bottom: 8px; scroll-snap-type: x proximity;
+  }
+  .scroll-row::-webkit-scrollbar{ height:6px; }
+  .scroll-row::-webkit-scrollbar-thumb{ background: var(--chrome-line); border-radius: 3px; }
+
+  .card{
+    flex: 0 0 auto; scroll-snap-align: start; cursor: pointer;
+    background: var(--chrome-panel); border: 1px solid var(--chrome-line); border-radius: 12px;
+    padding: 12px; transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+  .card:hover{ border-color: #444; transform: translateY(-1px); }
+  .card.active{ border-color: var(--signal); box-shadow: 0 0 0 1px var(--signal); }
+
+  .font-card{ width: 178px; }
+  .font-card .fc-badge{ margin-bottom: 8px; }
+  .fc-name{ font-family:'Space Grotesk', sans-serif; font-size: 12.5px; font-weight:600; margin-bottom: 8px; }
+  .fc-sample{ font-size: 20px; line-height: 1.1; margin-bottom: 4px; color: var(--chrome-text); }
+  .fc-role{ font-size: 9px; color: var(--chrome-muted); text-transform:uppercase; letter-spacing:0.06em; }
+
+  .pal-card{ width: 168px; }
+  .pal-name{ font-family:'Space Grotesk', sans-serif; font-size: 12.5px; font-weight:600; margin: 8px 0 2px; }
+  .pal-swrow{ display:flex; height: 34px; border-radius: 7px; overflow:hidden; }
+  .pal-sw{ flex:1; }
+  .pal-hex{ font-size: 9px; color: var(--chrome-muted); margin-top: 6px; }
+
+  .pkg-card{ width: 208px; }
+  .pkg-name{ font-family:'Space Grotesk', sans-serif; font-size: 14px; font-weight:700; margin: 8px 0 4px; }
+  .pkg-use{ font-size: 11px; color: var(--chrome-muted); line-height:1.45; margin-bottom: 8px; }
+  .pkg-preview{ display:flex; height: 28px; border-radius: 6px; overflow:hidden; margin-bottom: 6px; }
+  .pkg-fontline{ font-size: 11px; color: var(--chrome-text); opacity: 0.8; }
+
+  @media (max-width: 560px){
+    .preview-row{ justify-content:center; }
+    .preview-meta{ min-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="top">
+    <div class="eyebrow">Overlay Style Lab · 9:16 caption &amp; text-overlay kit</div>
+    <div class="title">Font &amp; Color Palette Browser</div>
+    <div class="sub">Scroll the strips to browse 10 font combos and 10 color palettes independently, or tap a packaged kit to apply both at once. The phone preview always shows the live combination so you can screenshot the one you want before you build the overlay in your editor.</div>
+  </div>
+
+  <div class="preview-row">
+    <div class="phone-shell">
+      <div class="phone" id="phone">
+        <div class="pv-tag" id="pvTag">BUILD LOG #12</div>
+        <div class="pv-body-wrap">
+          <div class="pv-headline" id="pvHeadline">I BROKE MY OWN APP FOR THIS</div>
+          <div class="pv-caption" id="pvCaption">3-tier memory system, explained in 40 seconds</div>
+          <div class="pv-footer">
+            <div class="pv-dot"></div>
+            <div class="pv-foot-text" id="pvFoot">deskflow.app</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="preview-meta">
+      <div class="meta-row" id="metaBadges"></div>
+      <div class="meta-name" id="metaName">—</div>
+      <div class="meta-desc" id="metaDesc"></div>
+      <div class="meta-block">
+        <div class="meta-label">Fonts in use</div>
+        <div class="meta-fonts" id="metaFonts"></div>
+      </div>
+      <div class="meta-block">
+        <div class="meta-label">Palette</div>
+        <div class="meta-swatches" id="metaSwatches"></div>
+      </div>
+    </div>
+  </div>
+
+  <section class="group">
+    <div class="group-head">
+      <div class="group-title">Packaged kits</div>
+      <div class="group-count" id="pkgCount"></div>
+    </div>
+    <div class="hint">Font combo + color palette, pre-paired for a specific use case.</div>
+    <div class="scroll-row" id="pkgRow"></div>
+  </section>
+
+  <section class="group">
+    <div class="group-head">
+      <div class="group-title">Font combos</div>
+      <div class="group-count" id="fontCount"></div>
+    </div>
+    <div class="hint">Display / body / accent, three per combo, chosen to pair.</div>
+    <div class="scroll-row" id="fontRow"></div>
+  </section>
+
+  <section class="group">
+    <div class="group-head">
+      <div class="group-title">Color palettes</div>
+      <div class="group-count" id="palCount"></div>
+    </div>
+    <div class="hint">bg · text · accent · accent 2 · accent 3</div>
+    <div class="scroll-row" id="palRow"></div>
+  </section>
+
+</div>
+
+<script>
+const FONT_COMBOS = [
+  { id:'iron-headline', name:'Iron Headline', cat:'catchy', display:"'Anton'", body:"'Inter'", accent:"'Space Mono'",
+    desc:'Maximum-impact hook text. Built for the 0.5–2s window before someone scrolls past.', headlineCase:'uppercase', headlineSize:'27px' },
+  { id:'soft-standard', name:'Soft Standard', cat:'general', display:"'Poppins'", body:"'Poppins'", accent:"'Caveat'",
+    desc:'Clean, legible, does not fight the footage. Default choice for straight captioning.', headlineCase:'none', headlineSize:'23px' },
+  { id:'editorial-calm', name:'Editorial Calm', cat:'general', display:"'Playfair Display'", body:"'Lora'", accent:"'DM Sans'",
+    desc:'Serif elegance for slower, reflective voiceover — walkthroughs, lessons learned.', headlineCase:'none', headlineSize:'25px' },
+  { id:'cartoon-pop', name:'Cartoon Pop', cat:'catchy', display:"'Bangers'", body:"'Baloo 2'", accent:"'Fredoka'",
+    desc:'Loud and bouncy. Comedic beats, reactions, big reveals.', headlineCase:'uppercase', headlineSize:'26px' },
+  { id:'street-grit', name:'Street Grit', cat:'catchy', display:"'Bebas Neue'", body:"'Space Grotesk'", accent:"'Archivo Black'",
+    desc:'Condensed and punchy. Streetwear / hype-cut energy for openers.', headlineCase:'uppercase', headlineSize:'30px' },
+  { id:'minimal-luxe', name:'Minimal Luxe', cat:'general', display:"'Cormorant Garamond'", body:"'Montserrat'", accent:"'Cormorant Garamond'",
+    desc:'Quiet and expensive-looking. Slow-paced, aesthetic-forward content.', headlineCase:'none', headlineSize:'26px' },
+  { id:'bubble-y2k', name:'Bubble Y2K', cat:'catchy', display:"'Titan One'", body:"'Baloo 2'", accent:"'Chewy'",
+    desc:'Rounded, nostalgic, high-energy. Good for playful hook lines.', headlineCase:'none', headlineSize:'24px' },
+  { id:'build-in-public', name:'Build in Public', cat:'general', display:"'Manrope'", body:"'Inter'", accent:"'IBM Plex Mono'",
+    desc:'Dev-log captions, data call-outs, code-demo UI text. Fits DeskFlow build content directly.', headlineCase:'none', headlineSize:'23px' },
+  { id:'handwritten-note', name:'Handwritten Note', cat:'general', display:"'Permanent Marker'", body:"'Nunito Sans'", accent:"'Kalam'",
+    desc:'Personal, diary-style, warm. Behind-the-scenes or story segments.', headlineCase:'none', headlineSize:'23px' },
+  { id:'techno-future', name:'Techno Future', cat:'catchy', display:"'Unbounded'", body:"'Space Grotesk'", accent:"'JetBrains Mono'",
+    desc:'Sharp, futuristic. Tech-forward hooks, AI/product-reveal moments.', headlineCase:'none', headlineSize:'22px' },
+];
+
+const PALETTES = [
+  { id:'terracotta-study', name:'Terracotta Study', cat:'general', bg:'#F5E9DA', text:'#3B2A1E', accent:'#C97C5D', accent2:'#8A9A5B', accent3:'#6B4226',
+    desc:'Warm clay and sage. Calm, aesthetic, lifestyle / dev-life.' },
+  { id:'neon-nightlife', name:'Neon Nightlife', cat:'catchy', bg:'#0D0221', text:'#FFFFFF', accent:'#FF00E4', accent2:'#00F0FF', accent3:'#FFF200',
+    desc:'Club-lit and maximal. Hard to scroll past, use for openers only.' },
+  { id:'clean-mono', name:'Clean Mono', cat:'general', bg:'#FFFFFF', text:'#111111', accent:'#2D5BFF', accent2:'#6E6E6E', accent3:'#E5E5E5',
+    desc:'Neutral captioning. Never competes with the footage underneath.' },
+  { id:'sunset-pop', name:'Sunset Pop', cat:'catchy', bg:'#011627', text:'#FDFFFC', accent:'#FF6B35', accent2:'#F7C548', accent3:'#2EC4B6',
+    desc:'Warm/cool clash, high contrast. Thumb-stopping without going full neon.' },
+  { id:'pastel-dream', name:'Pastel Dream', cat:'catchy', bg:'#FFF7FA', text:'#3A3A3A', accent:'#FF7FB0', accent2:'#5AA9D9', accent3:'#54B892',
+    desc:'Soft cartoon energy — catchy through color count, not contrast.' },
+  { id:'editorial-ivory', name:'Editorial Ivory', cat:'general', bg:'#FAF7F2', text:'#1C1C1C', accent:'#A88B5B', accent2:'#B0342D', accent3:'#7A7A7A',
+    desc:'Serif-paired, gallery feel. Pairs naturally with Editorial Calm.' },
+  { id:'cyberpunk-extreme', name:'Cyberpunk Extreme', cat:'catchy', bg:'#1A1A2E', text:'#FFFFFF', accent:'#FF003C', accent2:'#00FFA3', accent3:'#FFEA00',
+    desc:'The loudest palette in the set. Reach for it when everything else has been tried and skipped.' },
+  { id:'earth-beige', name:'Earth Beige', cat:'general', bg:'#EFE3D0', text:'#3F3F3F', accent:'#5C4033', accent2:'#A47551', accent3:'#D9A566',
+    desc:'Second brown/orange/beige variant — deeper and more matte than Terracotta Study.' },
+  { id:'bubblegum-cartoon', name:'Bubblegum Cartoon', cat:'catchy', bg:'#FFFFFF', text:'#2B2B2B', accent:'#FF6FB5', accent2:'#4ADEDE', accent3:'#FFD23F',
+    desc:'Kids-show brightness. Built to pair with Cartoon Pop / Bubble Y2K.' },
+  { id:'slate-minimal', name:'Slate Minimal', cat:'general', bg:'#F4F4F5', text:'#18181B', accent:'#3B82F6', accent2:'#71717A', accent3:'#DC2626',
+    desc:'Dashboard-clean. Good for data overlays, timestamps, code call-outs.' },
+];
+
+const PACKAGES = [
+  { id:'cartoon-sunshine', name:'Cartoon Sunshine', font:'cartoon-pop', pal:'bubblegum-cartoon', cat:'catchy', use:'Comedic hooks, reaction cuts, big reveals.' },
+  { id:'terracotta-editorial', name:'Terracotta Editorial', font:'editorial-calm', pal:'terracotta-study', cat:'general', use:'Reflective voiceover, aesthetic lifestyle/dev-life content.' },
+  { id:'neon-streetwear', name:'Neon Streetwear', font:'street-grit', pal:'cyberpunk-extreme', cat:'catchy', use:'Hook-window openers, hype cuts, tech/gaming edits.' },
+  { id:'build-clean', name:'Build in Public Clean', font:'build-in-public', pal:'slate-minimal', cat:'general', use:'DeskFlow dev-log captions, code-demo call-outs, UI walkthroughs.' },
+  { id:'warm-journal', name:'Warm Handwritten Journal', font:'handwritten-note', pal:'earth-beige', cat:'general', use:'Personal story segments, behind-the-scenes, diary-style beats.' },
+];
+
+let state = { fontId: 'build-in-public', palId: 'slate-minimal' };
+
+function byId(arr, id){ return arr.find(x => x.id === id); }
+
+function applyPreview(){
+  const f = byId(FONT_COMBOS, state.fontId);
+  const p = byId(PALETTES, state.palId);
+  const phone = document.getElementById('phone');
+  phone.style.setProperty('--pv-bg', p.bg);
+  phone.style.setProperty('--pv-text', p.text);
+  phone.style.setProperty('--pv-accent', p.accent);
+  phone.style.setProperty('--pv-accent2', p.accent2);
+  phone.style.setProperty('--pv-display-font', f.display);
+  phone.style.setProperty('--pv-body-font', f.body);
+  phone.style.setProperty('--pv-accent-font', f.accent);
+  phone.style.setProperty('--pv-headline-case', f.headlineCase);
+  phone.style.setProperty('--pv-headline-size', f.headlineSize);
+
+  document.getElementById('metaName').textContent = f.name + ' × ' + p.name;
+  document.getElementById('metaDesc').textContent = f.desc;
+  document.getElementById('metaFonts').innerHTML =
+    '<div>Display — ' + f.display.replace(/'/g,'') + '</div>' +
+    '<div>Body — ' + f.body.replace(/'/g,'') + '</div>' +
+    '<div>Accent — ' + f.accent.replace(/'/g,'') + '</div>';
+  document.getElementById('metaSwatches').innerHTML =
+    [p.bg, p.text, p.accent, p.accent2, p.accent3].map(c =>
+      '<div class="sw" style="background:' + c + '" title="' + c + '"></div>').join('');
+
+  const badgeCat = (f.cat === 'catchy' || p.cat === 'catchy') ? 'catchy' : 'general';
+  document.getElementById('metaBadges').innerHTML =
+    '<span class="badge ' + f.cat + '">Font: ' + f.cat + '</span>' +
+    '<span class="badge ' + p.cat + '">Palette: ' + p.cat + '</span>';
+
+  // highlight active cards
+  document.querySelectorAll('.font-card').forEach(el => el.classList.toggle('active', el.dataset.id === state.fontId));
+  document.querySelectorAll('.pal-card').forEach(el => el.classList.toggle('active', el.dataset.id === state.palId));
+  document.querySelectorAll('.pkg-card').forEach(el => {
+    const pk = byId(PACKAGES, el.dataset.id);
+    el.classList.toggle('active', pk.font === state.fontId && pk.pal === state.palId);
+  });
+}
+
+function setFont(id){ state.fontId = id; applyPreview(); }
+function setPal(id){ state.palId = id; applyPreview(); }
+function setPackage(id){ const pk = byId(PACKAGES, id); state.fontId = pk.font; state.palId = pk.pal; applyPreview(); }
+
+function renderFonts(){
+  const row = document.getElementById('fontRow');
+  row.innerHTML = FONT_COMBOS.map(f => `
+    <div class="card font-card" data-id="${f.id}" onclick="setFont('${f.id}')">
+      <span class="badge fc-badge ${f.cat}">${f.cat}</span>
+      <div class="fc-name">${f.name}</div>
+      <div class="fc-sample" style="font-family:${f.display}">Aa</div>
+      <div class="fc-role">${f.display.replace(/'/g,'')}</div>
+    </div>
+  `).join('');
+  document.getElementById('fontCount').textContent = FONT_COMBOS.length + ' combos';
+}
+
+function renderPalettes(){
+  const row = document.getElementById('palRow');
+  row.innerHTML = PALETTES.map(p => `
+    <div class="card pal-card" data-id="${p.id}" onclick="setPal('${p.id}')">
+      <span class="badge ${p.cat}">${p.cat}</span>
+      <div class="pal-name">${p.name}</div>
+      <div class="pal-swrow">
+        <div class="pal-sw" style="background:${p.bg}"></div>
+        <div class="pal-sw" style="background:${p.text}"></div>
+        <div class="pal-sw" style="background:${p.accent}"></div>
+        <div class="pal-sw" style="background:${p.accent2}"></div>
+        <div class="pal-sw" style="background:${p.accent3}"></div>
+      </div>
+      <div class="pal-hex">${p.bg} · ${p.accent}</div>
+    </div>
+  `).join('');
+  document.getElementById('palCount').textContent = PALETTES.length + ' palettes';
+}
+
+function renderPackages(){
+  const row = document.getElementById('pkgRow');
+  row.innerHTML = PACKAGES.map(pk => {
+    const f = byId(FONT_COMBOS, pk.font);
+    const p = byId(PALETTES, pk.pal);
+    return `
+    <div class="card pkg-card" data-id="${pk.id}" onclick="setPackage('${pk.id}')">
+      <span class="badge ${pk.cat}">${pk.cat}</span>
+      <div class="pkg-name" style="font-family:${f.display}">${pk.name}</div>
+      <div class="pkg-preview">
+        <div class="pal-sw" style="background:${p.bg}"></div>
+        <div class="pal-sw" style="background:${p.accent}"></div>
+        <div class="pal-sw" style="background:${p.accent2}"></div>
+        <div class="pal-sw" style="background:${p.accent3}"></div>
+      </div>
+      <div class="pkg-fontline">${f.name}</div>
+      <div class="pkg-use">${pk.use}</div>
+    </div>
+  `; }).join('');
+  document.getElementById('pkgCount').textContent = PACKAGES.length + ' kits';
+}
+
+renderFonts();
+renderPalettes();
+renderPackages();
+applyPreview();
+</script>
+</body>
+</html>

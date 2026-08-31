@@ -105,8 +105,22 @@ export function useDashboardData() {
 
     try {
       const date = todayStr();
+      // Routines are recurring (daily/weekly) — load the whole current week, not just
+      // today, so they're always visible. De-dupe by id.
+      const monday = new Date(date);
+      monday.setDate(monday.getDate() - monday.getDay());
+      const sunday = new Date(monday);
+      sunday.setDate(sunday.getDate() + 6);
+      const weekStart = monday.toISOString().slice(0, 10);
+      const weekEnd = sunday.toISOString().slice(0, 10);
       const [goalsRes, deadlinesRes, remindersRes, scheduleRes, ltgRes, momentumRes] = await Promise.all([
-        api?.getGoals?.(date).catch(() => ({ goals: [] })),
+        api?.getGoalsBatch?.(weekStart, weekEnd)
+          .then((r: any) => {
+            const map = new Map<string, any>();
+            for (const d of (r?.days || []) as any[]) for (const g of (d.goals || []) as any[]) if (g.id) map.set(g.id, g);
+            return { goals: [...map.values()] };
+          })
+          .catch(() => ({ goals: [] })),
         api?.getDeadlines?.({ days: 30 }).catch(() => ({ deadlines: [] })),
         api?.getReminders?.().catch(() => ({ reminders: [] })),
         api?.getSchedule?.().catch(() => ({ entries: [] })),

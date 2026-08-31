@@ -81,6 +81,19 @@ Respond in JSON only. No markdown, no code fences, no explanation.`;
   }));
 }
 
+/**
+ * Public entry used by the takes-transcribe handler.
+ * Bridges the AI-provider chain (`aiCall`) to the file-based transcription path.
+ * (A local Whisper binary, if present, is preferred upstream in the handler.)
+ */
+export async function transcribeWithWhisper(
+  filePath: string,
+  aiCall: (prompt: string, systemPrompt: string, maxTokens?: number) => Promise<string>,
+  durationSeconds?: number,
+): Promise<TranscriptSegment[]> {
+  return transcribeAudio(filePath, aiCall, durationSeconds);
+}
+
 function generateFallbackSegments(duration: number): TranscriptSegment[] {
   const count = Math.max(1, Math.ceil(duration / 5));
   const segs: TranscriptSegment[] = [];

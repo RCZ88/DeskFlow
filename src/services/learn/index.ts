@@ -377,6 +377,13 @@ export function registerLearnHandlers(
     chapter?: string;
     branchId?: string;
     subtopic?: string;
+    selectedKBIndices?: number[];
+    knowledgeMode?: 'auto' | 'select' | 'intake';
+    lessonSize?: 'compact' | 'standard' | 'comprehensive' | 'dynamic';
+    focusArea?: string;
+    depthLevel?: string;
+    lessonStyle?: string;
+    learnerContext?: string;
   }) => {
     // Use composed prompt library when available
     const readResource = (rel: string) => {
@@ -397,7 +404,16 @@ export function registerLearnHandlers(
     const profile = loadLearnerProfile(db);
 
     // Relevance-filtered knowledge: ONLY entries related to this topic are injected
-    const knowledge = selectKnowledgeForTopic(profile, { part: part?.part, topic: params.topic });
+    // When knowledgeMode is 'select', use the user's explicit selection instead
+    let knowledge;
+    if (params.knowledgeMode === 'select' && params.selectedKBIndices && profile?.knowledgeBase) {
+      const selected = params.selectedKBIndices
+        .filter(i => i >= 0 && i < profile.knowledgeBase.length)
+        .map(i => profile.knowledgeBase[i]);
+      knowledge = { entries: selected, relatedParts: [] };
+    } else {
+      knowledge = selectKnowledgeForTopic(profile, { part: part?.part, topic: params.topic });
+    }
 
     let systemPrompt = composeAuthorSystemPrompt(lib, { part: part?.part, profile: profile ?? undefined });
     if (knowledge.entries.length || knowledge.relatedParts.length) {
@@ -406,8 +422,14 @@ export function registerLearnHandlers(
 
     let userPrompt: string;
 
+    // Learner context block — always first so the AI knows who it's teaching
+    let learnerBlock = '';
+    if (params.learnerContext) {
+      learnerBlock = `\n--- LEARNER PROFILE (auto-retrieved) ---\n${params.learnerContext}\n---\n`;
+    }
+
     if (params.userInput !== undefined) {
-      userPrompt = `The learner has described what they want to learn below. Infer the appropriate number of concepts (3-6), mastery targets, lesson structure, and depth from their description. Create a comprehensive lesson that covers exactly what they've asked for.\n\n--- LEARNER'S REQUEST ---\n${params.userInput.trim()}\n`;
+      userPrompt = `${learnerBlock}The learner has described what they want to learn below. Based on their profile above, tailor the lesson to their current level and knowledge. Infer the appropriate number of concepts (3-6), mastery targets, lesson structure, and depth. Create a comprehensive lesson that covers exactly what they've asked for.\n\n--- LEARNER'S REQUEST ---\n${params.userInput.trim()}\n`;
       if (params.contextDoc && params.contextDoc.trim()) {
         userPrompt += `\n--- REFERENCE MATERIAL (use these facts and cite sources where relevant) ---\n"""\n${params.contextDoc.trim()}\n"""\n`;
       }
@@ -417,9 +439,9 @@ export function registerLearnHandlers(
         if (topicPrompt) userPrompt = `${topicPrompt}\n\n---\n\n${userPrompt}`;
       }
     } else {
-      userPrompt = part
+      userPrompt = `${learnerBlock}${part
         ? composeTopicUserPrompt(part.part, profile ?? undefined)
-        : `Author a lesson on: ${params.topic}\n`;
+        : `Author a lesson on: ${params.topic}\n`}`;
 
       if (params.description && params.description.trim()) {
         userPrompt += `\nAdditional context from the learner:\n${params.description.trim()}\n`;
@@ -429,6 +451,40 @@ export function registerLearnHandlers(
       }
       if (params.numNodes && params.numNodes > 0) {
         userPrompt += `\nStructure: create exactly ${params.numNodes} concepts/nodes.`;
+      }
+      // Lesson size instructions
+      if (params.lessonSize && params.lessonSize !== 'dynamic') {
+        const sizeInstructions: Record<string, string> = {
+          compact: 'Lesson density: COMPACT. Keep explanations brief and focused. Use 1-2 sentences per concept. Minimal examples. Focus on essentials only — no tangential details.',
+          standard: 'Lesson density: STANDARD. Balanced explanations with clear examples. Each concept gets a paragraph of explanation plus one worked example.',
+          comprehensive: 'Lesson density: COMPREHENSIVE. Maximum depth and detail. Each concept gets thorough explanation, multiple examples, edge cases, common pitfalls, and connections to related topics. Include nuance and subtlety.',
+        };
+        userPrompt += `\n${sizeInstructions[params.lessonSize]}`;
+      }
+      // Tunability instructions
+      if (params.focusArea && params.focusArea !== 'balanced') {
+        const focusMap: Record<string, string> = {
+          theory: 'Focus heavily on theoretical foundations, proofs, and conceptual depth. Minimize practical exercises.',
+          practice: 'Focus on hands-on exercises, code examples, and real-world applications. Minimize theory.',
+          visual: 'Prioritize diagrams, visual explanations, animations, and interactive widgets over text.',
+        };
+        userPrompt += `\nFocus: ${focusMap[params.focusArea]}`;
+      }
+      if (params.depthLevel && params.depthLevel !== 'adaptive') {
+        const depthMap: Record<string, string> = {
+          introductory: 'Target absolute beginners. Use simple language, no jargon, build from first principles.',
+          intermediate: 'Target learners with some background. Can use domain terminology, assume basic familiarity.',
+          advanced: 'Target advanced learners. Go deep into edge cases, internals, performance considerations, and advanced patterns.',
+        };
+        userPrompt += `\nDepth: ${depthMap[params.depthLevel]}`;
+      }
+      if (params.lessonStyle && params.lessonStyle !== 'standard') {
+        const styleMap: Record<string, string> = {
+          socratic: 'Use Socratic method: pose questions before revealing answers. Guide the learner through discovery.',
+          narrative: 'Use storytelling and narrative structure. Present concepts as a journey with characters and plot.',
+          reference: 'Write as a reference manual: concise, scannable, with clear headings and bullet points. No narrative fluff.',
+        };
+        userPrompt += `\nStyle: ${styleMap[params.lessonStyle]}`;
       }
       if (params.masteryTargets && params.masteryTargets.length > 0) {
         userPrompt += `\nMastery targets: use these levels for your nodes — ${params.masteryTargets.join(', ')}.`;
@@ -609,10 +665,160 @@ export function registerLearnHandlers(
   });
 
   // ── Copy Lesson Prompt (standalone system prompt for external AI chats) ──
-  ipcMain.handle('learn:getLessonSystemPrompt', () => {
-    const { composeAuthorSystemPrompt } = require('./promptLibrary');
-    const prompt = composeAuthorSystemPrompt(lib);
-    return { ok: true, data: prompt };
+  // Now includes learner knowledge context so the external AI knows what the user already knows
+  ipcMain.handle('learn:getLessonSystemPrompt', (_event, params?: { topic?: string }) => {
+    const { composeAuthorSystemPrompt, selectKnowledgeForTopic, composeKnowledgeContextBlock } = require('./promptLibrary');
+    const profile = loadLearnerProfile(db);
+
+    // Build system prompt with profile directives (same as buildPrompt)
+    let prompt = composeAuthorSystemPrompt(lib, { profile: profile ?? undefined });
+
+    // Inject KB entries (same as buildPrompt)
+    const knowledge = selectKnowledgeForTopic(profile, { topic: params?.topic });
+    if (knowledge.entries.length || knowledge.relatedParts.length) {
+      prompt += '\n\n---\n\n' + composeKnowledgeContextBlock(knowledge);
+    }
+
+    // Build learner knowledge context
+    const contextParts: string[] = [];
+
+    if (profile) {
+      // Knowledge base entries
+      const kb = profile.knowledgeBase ?? [];
+      if (kb.length > 0) {
+        contextParts.push(`KNOWLEDGE BASE (${kb.length} entries):`);
+        kb.slice(0, 20).forEach((e: any) => {
+          contextParts.push(`  - ${e.statement}${e.level ? ` [${e.level}]` : ''}${e.topic ? ` (${e.topic})` : ''}`);
+        });
+        if (kb.length > 20) contextParts.push(`  ... and ${kb.length - 20} more`);
+      }
+
+      // Topic-specific filtering if topic provided
+      if (params?.topic) {
+        const tokens = params.topic.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+        const related = kb.filter((e: any) => {
+          const text = `${e.statement} ${e.topic || ''} ${(e.keywords || []).join(' ')}`.toLowerCase();
+          return tokens.some((t: string) => text.includes(t));
+        });
+        if (related.length > 0) {
+          contextParts.push(`\nKNOWLEDGE SPECIFICALLY ABOUT "${params.topic}":`);
+          related.forEach((e: any) => contextParts.push(`  - ${e.statement}${e.level ? ` [${e.level}]` : ''}`));
+        } else {
+          contextParts.push(`\nKNOWLEDGE ABOUT "${params.topic}": None — this is a new topic for the learner.`);
+        }
+      }
+
+      // Interests and level
+      if (profile.interests?.length) contextParts.push(`\nINTERESTS: ${profile.interests.join(', ')}`);
+      if (profile.currentLevel) contextParts.push(`OVERALL LEVEL: ${profile.currentLevel}`);
+    }
+
+    // Progress / mastery
+    try {
+      const progress = db.prepare("SELECT node_id, level FROM learn_progress WHERE level IS NOT NULL AND level != 'L0'").all() as any[];
+      if (progress.length > 0) {
+        contextParts.push(`\nCOMPLETED ${progress.length} nodes. MASTERY: ${progress.map((p: any) => `${p.node_id}=${p.level}`).join(', ')}`);
+      } else {
+        contextParts.push(`\nCOMPLETED: No nodes yet — this is the learner's first lesson.`);
+      }
+    } catch { /* ignore */ }
+
+    const learnerBlock = contextParts.length > 0
+      ? `\n\n---\n\n## LEARNER PROFILE (auto-retrieved — tailor your response to this person's knowledge level)\n${contextParts.join('\n')}`
+      : '';
+
+    return { ok: true, data: prompt + learnerBlock };
+  });
+
+  // ── Knowledge Assessment Prompt (quiz the user on a topic to find knowledge gaps) ──
+  ipcMain.handle('learn:getKnowledgeAssessmentPrompt', (_event, params: { topic: string }) => {
+    const { composeAuthorSystemPrompt, selectKnowledgeForTopic, composeKnowledgeContextBlock } = require('./promptLibrary');
+    const profile = loadLearnerProfile(db);
+    const kb = profile?.knowledgeBase ?? [];
+    const topic = params.topic || 'this topic';
+
+    // Use the SAME system prompt as lesson generation
+    let basePrompt = composeAuthorSystemPrompt(lib, { profile: profile ?? undefined });
+
+    // Inject KB entries (same as buildPrompt)
+    const knowledge = selectKnowledgeForTopic(profile, { topic: params.topic });
+    if (knowledge.entries.length || knowledge.relatedParts.length) {
+      basePrompt += '\n\n---\n\n' + composeKnowledgeContextBlock(knowledge);
+    }
+
+    // Find related KB entries
+    const tokens = topic.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+    const relatedKB = kb.filter((e: any) => {
+      const text = `${e.statement} ${e.topic || ''} ${(e.keywords || []).join(' ')}`.toLowerCase();
+      return tokens.some((t: string) => text.includes(t));
+    });
+
+    // Progress
+    let completedNodes = 0;
+    let masteryLines = '';
+    try {
+      const progress = db.prepare("SELECT node_id, level FROM learn_progress WHERE level IS NOT NULL AND level != 'L0'").all() as any[];
+      completedNodes = progress.length;
+      if (progress.length > 0) {
+        masteryLines = progress.map((p: any) => `  - ${p.node_id}: ${p.level}`).join('\n');
+      }
+    } catch { /* ignore */ }
+
+    const parts: string[] = [];
+    parts.push(basePrompt);
+    parts.push('');
+    parts.push('---');
+    parts.push('');
+    parts.push(`You are assessing the learner's knowledge of "${topic}". Do NOT generate a lesson. Instead:`);
+    parts.push('');
+    parts.push('RULES (follow the Pedagogical Method above):');
+    parts.push('- Use the "Known vs. Unknown" tactic: bridge from their background language/framework');
+    parts.push('- Use "Crash First": ask what they think would happen, then reveal the actual behavior');
+    parts.push('- Ask 5-8 targeted questions, starting easy and getting harder');
+    parts.push('- For each question, wait for the learner\'s answer before asking the next');
+    parts.push('- After all questions, give a Context Handoff summary: what they know, what\'s missing, next 3 targets');
+    parts.push('- Be encouraging but honest about gaps');
+    parts.push('- If they know something well, skip deeper questions on that subtopic');
+    parts.push('');
+
+    if (relatedKB.length > 0) {
+      parts.push(`WHAT THE LEARNER ALREADY KNOWS ABOUT "${topic}" (from their knowledge base):`);
+      relatedKB.forEach((e: any) => parts.push(`  - ${e.statement}${e.level ? ` [${e.level}]` : ''}`));
+      parts.push('');
+      parts.push('Use this to SKIP questions on things they already know. Focus on gaps.');
+      parts.push('');
+    } else {
+      parts.push(`THE LEARNER HAS NO KNOWN ENTRIES ABOUT "${topic}" — start from basics.`);
+      parts.push('');
+    }
+
+    if (completedNodes > 0) {
+      parts.push(`LEARNER PROGRESS: ${completedNodes} nodes completed.`);
+      if (masteryLines) {
+        parts.push('Mastery levels:');
+        parts.push(masteryLines);
+      }
+      parts.push('');
+    } else {
+      parts.push('LEARNER PROGRESS: No nodes completed yet — this is a beginner.');
+      parts.push('');
+    }
+
+    parts.push('OUTPUT FORMAT:');
+    parts.push('Start with: "Let me assess your knowledge of [topic]."');
+    parts.push('Then ask questions one at a time, using the Crash First tactic where applicable.');
+    parts.push('End with a Context Handoff block:');
+    parts.push('');
+    parts.push('## Context Handoff');
+    parts.push('**What you know well:** [list]');
+    parts.push('**What\'s fuzzy:** [list]');
+    parts.push('**What\'s missing:** [list]');
+    parts.push('**Next 3 learning targets:** [list]');
+    parts.push('**Recommended starting lesson:** [X]');
+    parts.push('');
+    parts.push('Format the handoff as a copy-pasteable summary the learner can use in their next session.');
+
+    return { ok: true, data: parts.join('\n') };
   });
 
   // ── Image Generation Settings ──
@@ -645,12 +851,15 @@ export function registerLearnHandlers(
   });
 
   // ── Learning Intents (saved ideas for future lessons) ──
-  ipcMain.handle('learn:saveIntent', async (_event, args: { title: string; description?: string; context?: string; category?: string }) => {
+  ipcMain.handle('learn:saveIntent', async (_event, args: { title: string; description?: string; context?: string; category?: string; knowledgeContext?: string; config?: Record<string, any> }) => {
     try {
+      // Ensure columns exist (migration)
+      try { db.prepare('ALTER TABLE learn_intents ADD COLUMN knowledge_context TEXT NOT NULL DEFAULT ""').run(); } catch { /* already exists */ }
+      try { db.prepare('ALTER TABLE learn_intents ADD COLUMN config TEXT NOT NULL DEFAULT "{}"').run(); } catch { /* already exists */ }
       const id = `intent_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
       const now = new Date().toISOString();
-      db.prepare('INSERT INTO learn_intents (id, title, description, context, category, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, args.title, args.description || '', args.context || '', args.category || 'idea', 'saved', now, now);
+      db.prepare('INSERT INTO learn_intents (id, title, description, context, category, status, knowledge_context, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, args.title, args.description || '', args.context || '', args.category || 'idea', 'saved', args.knowledgeContext || '', JSON.stringify(args.config || {}), now, now);
       return { ok: true, data: { id, created_at: now } };
     } catch (e: any) {
       return { ok: false, error: e.message };
@@ -899,6 +1108,85 @@ export function registerLearnHandlers(
       return { ok: true, data: { imagePath: destPath } };
     } catch (e: any) {
       return { ok: false, error: e.message };
+    }
+  });
+
+  // ── Animation Engine ──
+  ipcMain.handle('learn:renderAnimation', async (_event, args: { dsl: Record<string, unknown> }) => {
+    try {
+      // Validate Elucim DSL (ESM-only, use dynamic import)
+      let issues: string[] = [];
+      try {
+        const elucimDsl = await import('@elucim/dsl');
+        if (typeof elucimDsl.lintMotion === 'function') {
+          const lintResult = elucimDsl.lintMotion(args.dsl);
+          // lintMotion returns { valid, score, issues: string[] }
+          if (lintResult && Array.isArray(lintResult.issues)) {
+            issues = lintResult.issues.map((i: any) => typeof i === 'string' ? i : JSON.stringify(i));
+          }
+        }
+      } catch { /* elucim/dsl not available or lintMotion missing */ }
+      return { ok: issues.length === 0, issues };
+    } catch (e: any) {
+      return { ok: false, issues: [e.message] };
+    }
+  });
+
+  ipcMain.handle('learn:renderVideoAsset', async (_event, args: { lessonId: string; nodeId: string; blockId: string }) => {
+    try {
+      // Load lesson doc_json to find the block
+      const lessonRow = db.prepare('SELECT doc_json FROM learn_lessons WHERE id = ?').get(args.lessonId) as any;
+      if (!lessonRow) return { ok: false, error: 'Lesson not found' };
+
+      const doc = JSON.parse(lessonRow.doc_json);
+      let targetBlock: any = null;
+      for (const node of (doc.nodes || [])) {
+        for (const block of (node.blocks || [])) {
+          if (block.id === args.blockId) {
+            targetBlock = block;
+            break;
+          }
+        }
+        if (targetBlock) break;
+      }
+      if (!targetBlock) return { ok: false, error: 'Block not found' };
+
+      const { renderVideoAsset } = require('./services/animation.service');
+      const result = await renderVideoAsset({
+        lessonId: args.lessonId,
+        blockId: args.blockId,
+        python_source: targetBlock.meta?.python_source || '',
+        scene_name: targetBlock.meta?.scene_name,
+        quality: targetBlock.meta?.quality || 'medium',
+      });
+
+      // Update block meta in doc_json
+      if (result.ok) {
+        targetBlock.meta.video_path = result.video_path;
+        targetBlock.meta.poster_path = result.poster_path;
+        targetBlock.meta.generated = true;
+        targetBlock.meta.render_status = 'done';
+        db.prepare('UPDATE learn_lessons SET doc_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(doc), new Date().toISOString(), args.lessonId);
+      } else {
+        targetBlock.meta.render_status = result.status === 'unavailable' ? 'unavailable' : 'error';
+        targetBlock.meta.error = result.error;
+        db.prepare('UPDATE learn_lessons SET doc_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(doc), new Date().toISOString(), args.lessonId);
+      }
+
+      return result;
+    } catch (e: any) {
+      return { ok: false, status: 'error', error: e.message };
+    }
+  });
+
+  ipcMain.handle('learn:getAnimationPreview', async (_event, args: { lessonId: string; blockId: string }) => {
+    try {
+      const { getAnimationPreview } = require('./services/animation.service');
+      return getAnimationPreview(args);
+    } catch (e: any) {
+      return { ok: false, poster_path: null };
     }
   });
 

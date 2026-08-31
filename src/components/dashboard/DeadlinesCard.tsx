@@ -48,15 +48,18 @@ const formVariants = {
   exit: { height: 0, opacity: 0, transition: { duration: 0.25 } },
 };
 
-function getDaysUntil(dateStr: string): number {
+function getDaysUntil(dateStr: string | undefined): number | null {
+  if (!dateStr) return null;
   const now = new Date();
   now.setHours(0, 0, 0, 0);
-  const due = new Date(dateStr);
+  const due = new Date(dateStr.length > 10 ? dateStr.slice(0, 10) + 'T00:00:00' : dateStr + 'T00:00:00');
+  if (isNaN(due.getTime())) return null;
   due.setHours(0, 0, 0, 0);
   return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function getUrgency(daysLeft: number): 'overdue' | 'urgent' | 'critical' | 'soon' | 'normal' {
+function getUrgency(daysLeft: number | null): 'overdue' | 'urgent' | 'critical' | 'soon' | 'normal' {
+  if (daysLeft === null) return 'normal';
   if (daysLeft < 0) return 'overdue';
   if (daysLeft === 0) return 'urgent';
   if (daysLeft <= 2) return 'critical';

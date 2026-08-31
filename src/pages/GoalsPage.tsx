@@ -3,12 +3,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   Target, Plus, Flame, Sparkles, ArrowLeft, ChevronDown, ChevronUp,
-  HeartHandshake, BookOpen, CheckCircle2, RefreshCw, TrendingUp
+  HeartHandshake, BookOpen, CheckCircle2, RefreshCw, TrendingUp, Zap
 } from 'lucide-react';
 import { PageShell } from '../components/PageShell';
 import { CalendarStrip } from '../components/goals/CalendarStrip';
 import { GoalCard, GoalCardSkeleton, GoalEmptyState, GoalErrorState } from '../components/goals/GoalCard';
 import { CriteriaBuilder, type CriteriaForm } from '../components/goals/CriteriaBuilder';
+import { MissedGoalRecoveryBanner } from '../components/goals/MissedGoalRecoveryBanner';
+import { getMissedGoals } from '../components/goals/GoalCompletionEngine';
+import { HabitTracker } from '../components/goals/HabitTracker';
+import { GoalAICoach } from '../components/goals/GoalAICoach';
 import type { Goal, LongTermGoal, GoalCategory, GoalPeriod, GoalTarget } from '../components/dashboard/types';
 import { confetti } from '../components/ui/confetti';
 
@@ -28,6 +32,11 @@ const defaultCriteria: CriteriaForm = {
   matchCategory: '', detectionEnabled: false, detectionMode: 'positive',
   detectionKeywords: '', detectionMinMinutes: 10,
   parentIds: [], links: [],
+  externalActivityId: null,
+  trackingMode: 'manual',
+  completionLogic: { lateAllowed: false, gracePeriodMinutes: 0, partialCredit: false, streakOnMiss: 'reset' },
+  cadenceConfig: { type: 'fixed', fixedDays: [], rollingTarget: 1, flexibleWindowDays: 7 },
+  crossFeatureLink: null,
 };
 
 export default function GoalsPage() {
@@ -72,13 +81,16 @@ export default function GoalsPage() {
 
   const activeGoals = useMemo(() => goals.filter(g => g.status !== 'done'), [goals]);
   const completedGoals = useMemo(() => goals.filter(g => g.status === 'done'), [goals]);
+  const missedGoals = useMemo(() => getMissedGoals(goals, todayStr()), [goals]);
   const goalDateSet = useMemo(() => new Set(goals.map(g => g.date)), [goals]);
 
   const handleAdd = async () => {
     if (!newCriteria.title.trim() || !api) return;
     const targetSeconds = newCriteria.targetType === 'time'
       ? (newCriteria.targetHours * 3600) + (newCriteria.targetMinutes * 60)
-      : undefined;
+      : newCriteria.targetType === 'external'
+        ? (newCriteria.externalHours * 3600) + (newCriteria.externalMinutes * 60)
+        : undefined;
     const goal: Goal = {
       id: uid(), title: newCriteria.title.trim(),
       description: newCriteria.description.trim() || undefined,
@@ -86,12 +98,18 @@ export default function GoalsPage() {
       target: {
         type: newCriteria.targetType,
         targetSeconds,
+        maxExternalSeconds: newCriteria.targetType === 'external' ? targetSeconds : undefined,
         matchCategory: newCriteria.matchCategory || undefined,
       },
       status: 'active', date: selectedDate, source: 'manual',
       links: [], createdAt: new Date().toISOString(),
       parentId: newCriteria.parentIds[0] || undefined,
       parentIds: newCriteria.parentIds.length ? newCriteria.parentIds : undefined,
+      externalActivityId: newCriteria.externalActivityId ?? null,
+      trackingMode: newCriteria.trackingMode,
+      completionLogic: newCriteria.completionLogic,
+      cadenceConfig: newCriteria.cadenceConfig,
+      crossFeatureLink: newCriteria.crossFeatureLink ?? null,
       detection: newCriteria.detectionEnabled ? {
         enabled: true, mode: newCriteria.detectionMode,
         keywords: newCriteria.detectionKeywords.split(',').map(k => k.trim()).filter(Boolean),
@@ -272,6 +290,26 @@ export default function GoalsPage() {
               )}
             </div>
 
+            {/* Habit Tracker */}
+            <div className="p-4 rounded-xl bg-[rgba(24,24,27,0.55)] backdrop-blur-xl border border-[rgba(63,63,70,0.40)]">
+              <HabitTracker currentDate={selectedDate} />
+            </div>
+
+            {/* AI Goal Coach */}
+            <div className="p-4 rounded-xl bg-[rgba(24,24,27,0.55)] backdrop-blur-xl border border-[rgba(63,63,70,0.40)]">
+              <h3 className="text-[12px] font-medium text-zinc-400 mb-3 flex items-center gap-1.5">
+                <Sparkles size={13} className="text-violet-400" /> AI Goal Coach
+              </h3>
+              <GoalAICoach
+                onApply={async (proposal) => {
+                  if (!api) return;
+                  await api.goalAiApplyProposal(proposal.goalId, proposal.newConfig || {});
+                  loadGoals(selectedDate);
+                }}
+                onDismiss={() => {}}
+              />
+            </div>
+
             {/* Covenant Quick Link */}
             <button
               onClick={() => setShowCovenant(!showCovenant)}
@@ -320,6 +358,27 @@ export default function GoalsPage() {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Missed Goals Recovery */}
+            <MissedGoalRecoveryBanner
+              missedGoals={missedGoals}
+              onRecover={async (goalId, action) => {
+                const goal = goals.find(g => g.id === goalId);
+                if (!goal || !api) return;
+                if (action === 'mark_late') {
+                  await api.saveGoal(selectedDate, { ...goal, status: 'done', completedAt: new Date().toISOString() });
+                  setGoals(prev => prev.map(g => g.id === goalId ? { ...g, status: 'done', completedAt: new Date().toISOString() } : g));
+                } else if (action === 'reschedule') {
+                  const today = todayStr();
+                  await api.saveGoal(today, { ...goal, date: today });
+                  setGoals(prev => prev.map(g => g.id === goalId ? { ...g, date: today } : g));
+                } else {
+                  await api.deleteGoal(goalId);
+                  setGoals(prev => prev.filter(g => g.id !== goalId));
+                }
+              }}
+              onDismiss={() => {}}
+            />
 
             {/* Goal List */}
             {loading ? (

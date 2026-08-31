@@ -31,7 +31,7 @@ export const PROVIDER_TEMPLATES: Record<string, ProviderTemplate> = {
     label: 'Ollama',
     defaultBaseUrl: 'http://localhost:11434/v1/chat/completions',
     auth: { type: 'bearer' },
-    suggestedModels: ['llama3.1', 'qwen2.5'],
+    suggestedModels: ['llama3.1', 'qwen2.5', 'qwen2.5-vl:3b'],
     supportsStream: true,
   },
   github: {

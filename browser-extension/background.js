@@ -730,6 +730,36 @@ setInterval(async () => {
             chrome.tabs.sendMessage(tab.id, { type: 'DESKFLOW_INSERT_CONTEXT', text: cmd.text });
           }
         }
+        // Helper: preserve the correlation fields (correlationId + expectedKeys)
+        // so the response detector (ai-context-content.js) can echo them back and
+        // the app can auto-fill the exact field/form that sent the request.
+        const toInjectMessage = (cmd) => ({
+          type: 'INJECT_PROMPT',
+          promptType: cmd.promptType || (cmd.type ? cmd.type.replace('_INJECT', '').toLowerCase() : 'unknown'),
+          text: cmd.text,
+          episodeId: cmd.episodeId,
+          correlationId: cmd.correlationId ?? null,
+          expectedKeys: cmd.expectedKeys ?? [],
+        });
+
+        if (cmd.type === 'CONTENT_ENGINE_INJECT') {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab) chrome.tabs.sendMessage(tab.id, toInjectMessage(cmd));
+        }
+        // All other category injections (learn / goals / finance / resume / general)
+        // reuse the same INJECT_PROMPT path — focusOverlay.js injects into the active
+        // chat input on any supported provider. promptType carries the category so the
+        // response detector can tag the capture correctly.
+        else if (
+          cmd.type === 'LEARN_INJECT' ||
+          cmd.type === 'GOALS_INJECT' ||
+          cmd.type === 'FINANCE_INJECT' ||
+          cmd.type === 'RESUME_INJECT' ||
+          cmd.type === 'GENERAL_INJECT'
+        ) {
+          const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+          if (tab) chrome.tabs.sendMessage(tab.id, toInjectMessage(cmd));
+        }
       }
     }
   } catch (e) { /* Ignore polling errors if server is offline */ }

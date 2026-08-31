@@ -1,0 +1,17 @@
+(node:40924) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+INIT: {"name":"Magic UI MCP","version":"1.0.4"}
+TOOLS(3): [
+  {
+    "name": "listRegistryItems",
+    "desc": "Lists Magic UI registry items with optional filtering by kind, query, and limit."
+  },
+  {
+    "name": "getRegistryItem",
+    "desc": "Gets detailed information for a single Magic UI registry item."
+  },
+  {
+    "name": "searchRegistryItems",
+    "desc": "Searches Magic UI registry items by keyword or use case."
+  }
+]

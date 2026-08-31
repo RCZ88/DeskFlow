@@ -36,7 +36,7 @@ export class LessonMarkdownError extends Error {
 
 const MASTERY: ReadonlySet<string> = new Set(['L0', 'L1', 'L2', 'L3', 'L4', 'L5']);
 // Must match validateFull()'s visual rule exactly: mermaid/image/widget/math.
-const VISUAL_TYPES: ReadonlySet<string> = new Set(['mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'layer', 'svg', 'code', 'table', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'flashcard', 'layer_reveal', 'whiteboard', 'illustration']);
+const VISUAL_TYPES: ReadonlySet<string> = new Set(['mermaid', 'image', 'html', 'figure', 'math', 'annotated-math', 'code', 'annotated-code', 'chart', 'finchart', 'flow', 'layer', 'table', 'illustration', 'viz_heatmap', 'viz_graph', 'viz_timeline', 'viz_concept_map', 'flashcard', 'layer_reveal', 'whiteboard']);
 
 function slug(s: string): string {
   return s
@@ -249,6 +249,30 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
       continue;
     }
 
+    // GitHub-style Markdown table: | h | h | / | --- | --- | / rows
+    const isTableRow = (s: string) => /^\s*\|(.+)\|\s*$/.test(s);
+    const isDivider = (s: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
+    if (isTableRow(ln.text) && i + 1 < body.length && isDivider(body[i + 1].text)) {
+      flushProse();
+      const splitCells = (s: string) => s.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const headers = splitCells(ln.text);
+      i += 2;
+      const bodyRows: string[][] = [];
+      while (i < body.length && isTableRow(body[i].text)) {
+        bodyRows.push(splitCells(body[i].text));
+        i++;
+      }
+      i--;
+      const columns = headers.map((title, idx) => ({ title, field: `c${idx}` }));
+      const rows = bodyRows.map((cells) => {
+        const row: Record<string, unknown> = {};
+        headers.forEach((_, idx) => { row[`c${idx}`] = cells[idx] ?? ''; });
+        return row;
+      });
+      blocks.push({ id: id(), type: 'table', columns, rows });
+      continue;
+    }
+
     // math $$ ... $$
     if (ln.text === '$$') {
       flushProse();
@@ -264,31 +288,6 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
     if (img) {
       flushProse();
       blocks.push({ id: id(), type: 'image', url: img[2], alt: img[1], source: '', license: '' });
-      continue;
-    }
-
-    // GitHub-style Markdown table:  | h | h |  /  | --- | --- |  /  rows
-    const isTableRow = (s: string) => /^\s*\|(.+)\|\s*$/.test(s);
-    const isDivider = (s: string) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s);
-    if (isTableRow(ln.text) && i + 1 < body.length && isDivider(body[i + 1].text)) {
-      const splitCells = (s: string) =>
-        s.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
-      const headers = splitCells(ln.text);
-      i += 2; // consume header + divider
-      const bodyRows: string[][] = [];
-      while (i < body.length && isTableRow(body[i].text)) {
-        bodyRows.push(splitCells(body[i].text));
-        i++;
-      }
-      i--; // loop will ++ again
-      flushProse();
-      const columns = headers.map((title, idx) => ({ title, field: `c${idx}` }));
-      const rows = bodyRows.map((cells) => {
-        const row: Record<string, unknown> = {};
-        headers.forEach((_, idx) => { row[`c${idx}`] = cells[idx] ?? ''; });
-        return row;
-      });
-      blocks.push({ id: id(), type: 'table', columns, rows });
       continue;
     }
 
@@ -329,7 +328,77 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
       if (kind === 'grounding') grounding = parseGrounding(inner);
       else if (kind === 'callout') blocks.push({ id: id(), type: 'callout', tone: args || 'info', md: inner.map((l) => l.raw).join('\n').trim() });
       else if (kind === 'quiz') blocks.push(parseQuiz(inner, args, id(), ln.no));
-      else if (kind === 'layer') {
+      else if (kind === 'annotated-code') {
+        // ::: annotated-code <lang>
+        // Lines with // @id <target> become annotation targets
+        // Lines after the code block with "- @id: explanation" become entries
+        const lang = args?.trim() || 'text';
+        const codeLines: string[] = [];
+        const targets: Array<{ id: string; line: number; label: string; entries: string[] }> = [];
+        let inEntries = false;
+        let currentTarget: { id: string; line: number; label: string; entries: string[] } | null = null;
+        for (const line of inner) {
+          const raw = line.raw;
+          const idMatch = raw.match(/\/\/\s*@id\s+(\S+)/);
+          if (idMatch) {
+            if (currentTarget) targets.push(currentTarget);
+            currentTarget = { id: idMatch[1], line: codeLines.length + 1, label: '', entries: [] };
+            inEntries = false;
+          } else if (currentTarget && raw.match(/^-\s+@\w+:?\s*/)) {
+            inEntries = true;
+            const entryText = raw.replace(/^-\s+@\w+:?\s*/, '').trim();
+            if (entryText) currentTarget.entries.push(entryText);
+          } else if (currentTarget && inEntries && raw.trim().startsWith('-')) {
+            currentTarget.entries.push(raw.trim().replace(/^-\s*/, ''));
+          } else if (!inEntries) {
+            codeLines.push(raw);
+          }
+        }
+        if (currentTarget) targets.push(currentTarget);
+        blocks.push({
+          id: id(),
+          type: 'annotated-code',
+          lang,
+          code: codeLines.join('\n'),
+          targets,
+        } as any);
+      } else if (kind === 'annotated-math') {
+        // ::: annotated-math
+        // LaTeX with \htmlId{m-x}{symbol} targets
+        // Lines after the math block with "- @m-x: explanation" become entries
+        const mathLines: string[] = [];
+        const targets: Array<{ id: string; symbol: string; entries: string[] }> = [];
+        let inEntries = false;
+        let currentTarget: { id: string; symbol: string; entries: string[] } | null = null;
+        for (const line of inner) {
+          const raw = line.raw;
+          const htmlIdMatch = raw.match(/\\htmlId\{(\w+)\}\{([^}]+)\}/);
+          const entryMatch = raw.match(/^-\s+@(\w+):\s*(.+)/);
+          if (entryMatch) {
+            inEntries = true;
+            const targetId = entryMatch[1];
+            const entryText = entryMatch[2].trim();
+            if (!currentTarget || currentTarget.id !== targetId) {
+              if (currentTarget) targets.push(currentTarget);
+              currentTarget = { id: targetId, symbol: '', entries: entryText ? [entryText] : [] };
+            } else {
+              currentTarget.entries.push(entryText);
+            }
+          } else if (!inEntries) {
+            mathLines.push(raw);
+            if (htmlIdMatch && currentTarget && currentTarget.id === htmlIdMatch[1]) {
+              currentTarget.symbol = htmlIdMatch[2];
+            }
+          }
+        }
+        if (currentTarget) targets.push(currentTarget);
+        blocks.push({
+          id: id(),
+          type: 'annotated-math',
+          latex: mathLines.join('\n').trim(),
+          targets,
+        } as any);
+      } else if (kind === 'layer') {
         const [revealRaw, modeRaw] = args.split(/\s+/);
         const sub = parseBlocks(inner, `${nodeId}-l${bn}`);
         blocks.push({
@@ -375,16 +444,19 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
         try { parsed = JSON.parse(spec); } catch { /* keep raw */ }
         blocks.push({ id: id(), type: 'finchart', spec, parsed, caption: args || undefined });
       } else if (kind === 'figure') {
+        // ::: figure — strictly for static SVG diagrams
         const svgContent = inner.map((l) => l.raw).join('\n').trim();
-        if (svgContent.includes('<svg')) {
-          blocks.push({ id: id(), type: 'svg', svg: svgContent, caption: args || undefined });
-        } else {
-          // Not SVG — route to widget as HTML fallback
-          blocks.push({ id: id(), type: 'widget', kind: 'html', html: svgContent, caption: args || undefined });
+        if (!svgContent.includes('<svg')) {
+          throw new LessonMarkdownError(
+            `::: figure block must contain SVG content (found no <svg> tag). Use ::: html for non-SVG interactive content.`,
+            ln.no,
+          );
         }
+        blocks.push({ id: id(), type: 'figure', svg: svgContent, caption: args || undefined });
       } else if (kind === 'html') {
+        // ::: html — strictly for HTML/CSS/JS sandboxed content
         const htmlContent = inner.map((l) => l.raw).join('\n').trim();
-        blocks.push({ id: id(), type: 'widget', kind: 'html', html: htmlContent, caption: args || undefined });
+        blocks.push({ id: id(), type: 'html', html: htmlContent, caption: args || undefined });
       } else if (kind === 'layer_reveal') {
         // :::layer_reveal {"title": "..."} or :::layer_reveal Title here
         let title = args;
@@ -570,6 +642,98 @@ function parseBlocks(body: Line[], nodeId: string): { blocks: LdocBlock[]; groun
             height: (meta.height as string) || '400px',
           },
         });
+      } else if (kind === 'animation') {
+        // :::animation {"dsl": {...}, "title": "...", "concept": "...", "preset": "..."}
+        let meta: Record<string, unknown> = {};
+        try { meta = JSON.parse(args); } catch { /* empty */ }
+        let dsl: Record<string, unknown> | null = null;
+        let title = '';
+        let concept = '';
+        let preset = '';
+        if (meta.dsl && typeof meta.dsl === 'object') {
+          dsl = meta.dsl as Record<string, unknown>;
+        } else if (Object.keys(meta).length > 0) {
+          dsl = meta;
+        }
+        // Also check inner content for fields not in args
+        for (const line of inner) {
+          const titleMatch = line.text.match(/^title:\s*(.+)/i);
+          const conceptMatch = line.text.match(/^concept:\s*(.+)/i);
+          const presetMatch = line.text.match(/^preset:\s*(.+)/i);
+          if (titleMatch) title = titleMatch[1].trim();
+          else if (conceptMatch) concept = conceptMatch[1].trim();
+          else if (presetMatch) preset = presetMatch[1].trim();
+        }
+        if (!title && meta.title) title = String(meta.title);
+        if (!concept && meta.concept) concept = String(meta.concept);
+        if (!preset && meta.preset) preset = String(meta.preset);
+        blocks.push({
+          id: id(),
+          type: 'animation',
+          meta: {
+            engine: 'elucim',
+            dsl,
+            title: title || undefined,
+            concept: concept || undefined,
+            preset: preset || undefined,
+            generated: dsl !== null,
+          },
+        });
+      } else if (kind === 'video_asset') {
+        // :::video_asset
+        // ```python
+        // <manim source>
+        // ```
+        // scene: SlopeScene
+        // quality: low
+        // caption: The secant line approaches the tangent
+        let pythonSource = '';
+        let sceneName = '';
+        let quality: 'low' | 'medium' | 'high' = 'medium';
+        let caption = '';
+        // Extract fenced python code from inner content
+        let inFence = false;
+        let fenceLang = '';
+        for (const line of inner) {
+          const fenceMatch = line.text.match(/^```(\w*)/);
+          if (fenceMatch && !inFence) {
+            inFence = true;
+            fenceLang = fenceMatch[1];
+            continue;
+          }
+          if (line.text.trim() === '```' && inFence) {
+            inFence = false;
+            continue;
+          }
+          if (inFence && (fenceLang === 'python' || fenceLang === 'py' || !fenceLang)) {
+            pythonSource += (pythonSource ? '\n' : '') + line.text;
+          } else if (!inFence) {
+            const sceneMatch = line.text.match(/^scene:\s*(.+)/i);
+            const qualityMatch = line.text.match(/^quality:\s*(low|medium|high)/i);
+            const captionMatch = line.text.match(/^caption:\s*(.+)/i);
+            if (sceneMatch) sceneName = sceneMatch[1].trim();
+            else if (qualityMatch) quality = qualityMatch[1].toLowerCase() as 'low' | 'medium' | 'high';
+            else if (captionMatch) caption = captionMatch[1].trim();
+          }
+        }
+        // Fallback: detect scene name from class declaration
+        if (!sceneName && pythonSource) {
+          const classMatch = pythonSource.match(/class\s+(\w+)\s*\(\s*Scene\s*\)/);
+          if (classMatch) sceneName = classMatch[1];
+        }
+        blocks.push({
+          id: id(),
+          type: 'video_asset',
+          meta: {
+            engine: 'manim',
+            python_source: pythonSource,
+            scene_name: sceneName || undefined,
+            quality,
+            generated: false,
+            render_status: 'pending' as const,
+            caption: caption || undefined,
+          },
+        });
       } else {
         // unknown directive -> keep as prose so nothing is silently lost
         prose.push(inner.map((l) => l.raw).join('\n'));
@@ -712,8 +876,16 @@ function parseGrounding(inner: Line[]): LdocGrounding {
     if (inc) { includes = inc[1].trim(); continue; }
     const exc = ln.text.match(/^excludes?\s*:\s*(.+)$/i);
     if (exc) { excludes = exc[1].split(';').map((s) => s.trim()).filter(Boolean); continue; }
-    const know = ln.text.match(/^know\s*:\s*(.+?)\s*\[([^\]]+)\]\s*[.!?,;:]*\s*$/i);
+    const know = ln.text.match(/^know\s*:\s*(.+?)\s*\[([^\]]+)\]\s*$/i);
     if (know) { must_know.push({ claim: know[1].trim(), source_id: know[2].trim() }); continue; }
+    // Strict check: know: with trailing punctuation after bracket
+    const knowBad = ln.text.match(/^know\s*:\s*(.+?)\s*\[([^\]]+)\]\s*[.!?,;:]+/i);
+    if (knowBad) {
+      throw new LessonMarkdownError(
+        `know: line must end exactly with the closing bracket [${knowBad[2]}]. No trailing punctuation (.!?,;:) allowed.`,
+        ln.no,
+      );
+    }
     const src = ln.text.match(/^source\s*:\s*([^|]+)\|([^|]+)\|(.+)$/i);
     if (src) { sources.push({ id: src[1].trim(), title: src[2].trim(), url: src[3].trim() }); continue; }
     const mis = ln.text.match(/^misconception\s*:\s*([^|]+)\|(.+)$/i);

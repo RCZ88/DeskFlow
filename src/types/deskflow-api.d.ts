@@ -58,6 +58,41 @@ interface DeskflowAPI {
   getLogsByPeriod: (params: { period: 'today' | 'week' | 'month' | 'all'; dateOffset?: number }) => Promise<any[]>;
   getDashboardData: (params: { period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
   getPageStats: (params: { page: string; period: string; dateOffset?: number }) => Promise<{ success: boolean; data?: any; error?: string }>;
+  getRankings: (params: { period: string; dateOffset?: number }) => Promise<{
+    success: boolean;
+    data?: {
+      apps: { name: string; category: string; totalSeconds: number; sessions: number; tier: string; percentage: number }[];
+      websites: { name: string; category: string; totalSeconds: number; sessions: number; tier: string; percentage: number }[];
+      aiTools: { name: string; totalTokens: number; totalCost: number; sessions: number; messages: number; lastUsed: string; costPer1kTokens: number }[];
+      totals: { appSeconds: number; websiteSeconds: number };
+      period: string;
+      dateRange: { start: string; end: string };
+    };
+    error?: string;
+  }>;
+  getPeriodRankings: (params: { period: string; dateOffset?: number; granularity: string; metric: string }) => Promise<{
+    success: boolean;
+    data?: {
+      periods: {
+        key: string; label: string; start: string; end: string; days: number; rank: number;
+        productivityScore: number; prodPct: number; distPct: number;
+        prodSec: number; neutSec: number; distSec: number; totalSec: number; sessions: number;
+        focusCount: number; focusCompleted: number; focusFailed: number; focusSec: number; focusRate: number;
+        goalsDone: number; goalsAll: number; goalRate: number;
+        extTotal: number; extActivities: Record<string, number>; extTypes: Record<string, number>;
+        sleepSec: number; sleepSessions: number; sleepAvgMin: number; sleepDeficitMin: number;
+        groupUsage: Record<string, { sessions: number; sec: number }>;
+      }[];
+      summary: {
+        avgScore: number; bestPeriod: any; worstPeriod: any;
+        totalProductiveSec: number; totalSec: number; totalFocusSec: number;
+        totalGoalsDone: number; totalSleepMin: number;
+        periodCount: number; granularity: string; metric: string;
+        currentStreak: number; longestStreak: number;
+      };
+    };
+    error?: string;
+  }>;
   backfillAggregations: () => Promise<{ success: boolean; message?: string }>;
   getStats: () => Promise<any[]>;
   getAppStats: (period?: 'today' | 'week' | 'month' | 'all') => Promise<any[]>;
@@ -164,6 +199,21 @@ interface DeskflowAPI {
   syncAIUsage: () => Promise<{ success: boolean; [key: string]: number | boolean | string }>;
   onAISyncProgress: (callback: (data: any) => void) => () => void;
   debugAIAgents: () => Promise<Record<string, { detected: boolean; paths: string[] }>>;
+  // Word Tracker
+  wordTrackerGetWords: () => Promise<Array<{ id: number; word: string; label: string; color: string; enabled: number; tolerance: string; created_at: string }>>;
+  wordTrackerAddWord: (word: string, label?: string, color?: string, tolerance?: string) => Promise<{ success: boolean; id?: number; message?: string }>;
+  wordTrackerRemoveWord: (wordId: number) => Promise<{ success: boolean; message?: string }>;
+  wordTrackerToggleWord: (wordId: number, enabled: boolean) => Promise<{ success: boolean }>;
+  wordTrackerSetTolerance: (wordId: number, tolerance: string) => Promise<{ success: boolean }>;
+  wordTrackerEditWord: (wordId: number, updates: { word?: string; label?: string; color?: string; tolerance?: string }) => Promise<{ success: boolean; message?: string }>;
+  wordTrackerCounts: (projectId?: string) => Promise<Array<{ id: number; word_id: number; project_id: string | null; count: number; last_scanned_at: string | null; word: string; label: string; color: string }>>;
+  wordTrackerCountsByProject: (wordId: number) => Promise<Array<{ id: number; word_id: number; project_id: string | null; count: number; last_scanned_at: string | null; project_name: string | null }>>;
+  wordTrackerGetConfig: (key: string) => Promise<string | null>;
+  wordTrackerSetConfig: (key: string, value: string) => Promise<{ success: boolean; message?: string }>;
+  wordTrackerResetCounts: () => Promise<{ success: boolean; message?: string }>;
+  wordTrackerScanJsonl: (projectId?: string) => Promise<{ success: boolean; scanned: number; counts: Record<string, number>; message?: string }>;
+  wordTrackerCountText: (text: string, projectId?: string) => Promise<{ success: boolean; counts: Record<string, number>; message?: string }>;
+  getUserTimezone: () => Promise<string>;
   syncCommits: (projectId: string, repoPath?: string) => Promise<{ success: boolean; count: number }>;
   syncGitHubCommits: (projectId: string, owner: string, repo: string, token?: string) => Promise<{ success: boolean; count: number }>;
   getDORAMetrics: (projectId: string, period?: 'week' | 'month') => Promise<any>;
@@ -241,6 +291,10 @@ interface DeskflowAPI {
   saveAutoAssignConfig: (config: any) => Promise<{ success: boolean }>;
   lockFile: (filePath: string, terminalId: string, sessionId?: string | null, action?: string) => Promise<{ acquired: boolean; heldBy?: string }>;
   releaseFileLock: (filePath: string, terminalId: string) => Promise<{ success: boolean }>;
+  preAcquireFileLock: (data: { filePath: string; terminalId: string; sessionId?: string; timeoutMs?: number }) => Promise<{ acquired: boolean; heldBy?: string; heldSince?: number; ttlMs?: number; message?: string; stashRef?: string | null }>;
+  releasePreLock: (data: { filePath: string; terminalId: string }) => Promise<{ success: boolean }>;
+  gitSnapshotBeforeEdit: (filePath: string, terminalId: string) => Promise<string | null>;
+  gitRestoreOnCorrupt: (filePath: string, stashRef: string) => Promise<boolean>;
   getFileLocks: () => Promise<Array<{ filePath: string; terminalId: string; sessionId: string | null; timestamp: number; action: string }>>;
   getLocksForTerminal: (terminalId: string) => Promise<Array<{ filePath: string; terminalId: string; sessionId: string | null; timestamp: number; action: string }>>;
   getTouchedFiles: (opts?: { terminalId?: string; filePath?: string; limit?: number }) => Promise<{ success: boolean; data: any[]; error?: string }>;
@@ -382,6 +436,11 @@ financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | n
   learnDeleteProfile: (key: string) => Promise<{ ok: boolean; error?: string }>;
   learnGetAllProfile: () => Promise<Record<string, string>>;
 
+  // Animation Engine
+  learnRenderAnimation: (args: { dsl: Record<string, unknown> }) => Promise<{ ok: boolean; issues: string[] }>;
+  learnRenderVideoAsset: (args: { lessonId: string; nodeId: string; blockId: string }) => Promise<{ ok: boolean; video_path?: string; poster_path?: string; status?: string; error?: string }>;
+  learnGetAnimationPreview: (args: { lessonId: string; blockId: string }) => Promise<{ ok: boolean; poster_path?: string | null }>;
+
   // Insight Engine
   getDailyFunFact: () => Promise<any | null>;
   buildInsightRollup: (date: string) => Promise<{ ok: boolean; error?: string }>;
@@ -441,6 +500,11 @@ financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | n
   learnDeleteProfile: ({ key }: { key: string }) => Promise<any>;
   learnGetAllProfile: () => Promise<Record<string, string>>;
 
+  // Animation Engine
+  learnRenderAnimation: (args: { dsl: Record<string, unknown> }) => Promise<any>;
+  learnRenderVideoAsset: (args: { lessonId: string; nodeId: string; blockId: string }) => Promise<any>;
+  learnGetAnimationPreview: (args: { lessonId: string; blockId: string }) => Promise<any>;
+
   // Deep Focus Sessions
   focus: {
     start: (cfg: { durationSec: number; strictness?: 'distracting' | 'non_allowed'; allowed?: { apps?: string[]; domains?: string[]; tiers?: string[] } }) => Promise<any>;
@@ -457,6 +521,61 @@ financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | n
     save: (cfg: { lenient_goal_sec?: number; strict_goal_sec?: number }) => Promise<{ lenient_goal_sec: number; strict_goal_sec: number; updated_at: string | null }>;
   };
 
+  // Activity Goals (per-external-activity targets)
+  activityGoalSave: (activityId: number, config: {
+    goal_enabled?: boolean;
+    daily_target_minutes?: number;
+    weekly_target_days?: number;
+    reminder_enabled?: boolean;
+    reminder_time?: string;
+  }) => Promise<{ success: boolean; error?: string }>;
+  activityGoalGetAll: () => Promise<Array<{
+    id: number; name: string; type: string; color: string; icon: string;
+    goal_enabled: number; daily_target_minutes: number | null;
+    weekly_target_days: number | null; reminder_enabled: number;
+    reminder_time: string | null; today_seconds: number;
+  }>>;
+  activityGoalGetProgress: (activityId: number, date: string) => Promise<{
+    activity_id: number; date: string; achieved_seconds: number;
+    target_seconds: number; percent_complete: number; completed: boolean;
+  } | null>;
+  activityGoalGetProgressBatch: (date: string) => Promise<Array<{
+    activity_id: number; name: string; color: string;
+    daily_target_minutes: number; achieved_seconds: number;
+  }>>;
+
+  // Finance Goals (spending targets)
+  financeGoalSave: (goal: {
+    id?: string; title: string; description?: string; target_amount: number;
+    currency?: string; category?: string; period?: string;
+    start_date: string; end_date?: string;
+  }) => Promise<{ success: boolean; id?: string; error?: string }>;
+  financeGoalGetAll: () => Promise<Array<{
+    id: string; title: string; description: string | null;
+    target_amount: number; current_amount: number; currency: string;
+    category: string | null; period: string; start_date: string;
+    end_date: string | null; status: string; created_at: string;
+    completed_at: string | null;
+  }>>;
+  financeGoalUpdateProgress: (goalId: string, amount: number) => Promise<{ success: boolean; completed?: boolean; error?: string }>;
+  financeGoalDelete: (goalId: string) => Promise<{ success: boolean; error?: string }>;
+
+  // Reflection Goals (journal text on goals)
+  reflectionGoalSave: (goalId: string, date: string, text: string) => Promise<{ success: boolean; error?: string }>;
+  reflectionGoalGet: (goalId: string) => Promise<{ journal_text: string | null } | null>;
+
+  // Cross-Feature Goal Progress
+  getCrossFeatureProgress: (goalId: string) => Promise<{ success: boolean; progress: number; target: number; percentComplete: number; details: string }>;
+
+  // AI Goal Monitor
+  goalAiMonitor: () => Promise<{ success: boolean; proposals: Array<{ goalId: string; action: 'reschedule' | 'adjust_target' | 'split' | 'retire' | 'celebrate'; reason: string; newConfig?: any }> }>;
+  goalAiApplyProposal: (goalId: string, newConfig: any) => Promise<{ success: boolean; error?: string }>;
+  goalAiParseLanguage: (text: string) => Promise<{ success: boolean; parsedGoal: any; error?: string }>;
+
+  // Habit Tracker
+  getHabits: (startDate: string, endDate: string) => Promise<{ success: boolean; habits: any[] }>;
+  toggleHabitDay: (goalId: string, date: string, completed: boolean) => Promise<{ success: boolean; newStreak: number }>;
+
   // Focus Groups (named allowed-app sets for Deep Focus sessions)
   focusGroup: {
     list: () => Promise<any[]>;
@@ -464,6 +583,7 @@ financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | n
     save: (g: any) => Promise<{ success: boolean; id?: number; error?: string }>;
     remove: (id: number) => Promise<{ success: boolean; error?: string }>;
     startWith: (id: number, durationSec?: number, strictness?: string) => Promise<any>;
+    startWithMany: (ids: number[], durationSec?: number, strictness?: string) => Promise<any>;
     linkUsage: (args: { sessionId: number; groupId: number; goalIds: string[] }) => Promise<{ success: boolean; error?: string }>;
     getUsage: () => Promise<Array<{ group_id: number; session_id: number }>>;
   };
@@ -537,6 +657,22 @@ financeGetFtPersons: () => Promise<{ id: number; name: string; email: string | n
   brainCreateEpisode: (data: { source: string; content: string; sourceRef?: string; metadata?: any }) => Promise<{ ok: boolean; episodeId?: string }>;
   brainMcpStatus: () => Promise<{ running: boolean; port: number }>;
   brainReindexEmbeddings: () => Promise<{ ok: boolean; processed: number; skipped: number }>;
+
+  // ========== Life Graph — Unified Orchestration ==========
+  getUnifiedGraph: () => Promise<{
+    nodes: Array<{ id: string; type: string; title: string; metadata: any }>;
+    edges: Array<{ source: string; target: string; type: string; weight: number }>;
+    profileSignals: Array<{ trait: string; value: number; evidence: string[] }>;
+    error?: string;
+  }>;
+  getTodayContext: () => Promise<{
+    activeScheduleId: string | null;
+    todaysGoalIds: string[];
+    approachingDeadlineIds: string[];
+    relevantNoteIds: string[];
+    activeEntityIds: string[];
+    error?: string;
+  }>;
 }
 
 export interface ManualAssignment {
@@ -622,6 +758,22 @@ export interface ContentIdea {
   frames?: string[];
   synthesized_from?: number[];
   gates?: GatesResult | null;
+  brainstorm_id?: number | null;
+}
+
+export interface ContentBrainstorm {
+  id?: number;
+  thought: string;
+  category?: string;
+  format_type?: string | null;
+  niche_hint?: string | null;
+  suggested_title?: string | null;
+  reason?: string | null;
+  summary?: any;
+  idea_id?: number | null;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ContentEpisode {
@@ -629,6 +781,8 @@ export interface ContentEpisode {
   title: string;
   idea_id?: number | null;
   theme_id?: number | null;
+  series_id?: number | null;
+  episode_number?: number | null;
   status?: 'draft' | 'scripted' | 'gated' | 'filming' | 'published';
   niche?: string | null;
   script?: ScriptFrame[];
@@ -638,6 +792,23 @@ export interface ContentEpisode {
   scheme_id?: string;
   published_at?: string | null;
   process?: Record<string, any>;
+}
+
+export interface ContentSeries {
+  id?: number;
+  name: string;
+  description?: string | null;
+  niche?: string | null;
+  tone?: string | null;
+  visual_style?: string | null;
+  pacing?: string | null;
+  target_duration?: string | null;
+  brand_colors?: Record<string, string>;
+  episode_format?: 'standard' | 'short' | 'long' | 'variable';
+  frame_mode?: 'strict' | 'flexible';
+  arc_outline?: Array<{ episode: number; title: string; summary: string }>;
+  status?: 'active' | 'paused' | 'completed' | 'archived';
+  episodes?: Array<{ id: number; title: string; status: string; episode_number: number }>;
 }
 
 export interface ContentVideo {
@@ -775,6 +946,7 @@ export interface ContentEngineApi {
   episodeGet: (id: number) => Promise<ContentEpisode | null>;
   episodeSave: (ep: ContentEpisode) => Promise<{ ok: boolean; id?: number; error?: string }>;
   episodeDelete: (id: number) => Promise<{ ok: boolean }>;
+  episodePlanFull: (payload: { episodeId: number; elements?: string[] }) => Promise<{ ok: boolean; plan?: { script_frames: ScriptFrame[]; hook_stack: any; curiosity_gaps: any[]; keywords_seo: any[]; algorithm_poison: string[]; caption: string; pinned_comment: string; timeline: any[]; gates: any }; error?: string }>;
   scriptGenerate: (payload: { episodeId?: number; ideaId?: number }) => Promise<{ ok: boolean; frames?: ScriptFrame[]; gates?: GatesResult; error?: string }>;
   scriptRegenerateLine: (payload: { episodeId: number; frameIndex: number; instruction?: string }) => Promise<{ ok: boolean; frame?: ScriptFrame; error?: string }>;
   validateScriptEvidence: (payload: { episodeId: number }) => Promise<{ ok: boolean; results?: any[]; script?: ScriptFrame[]; error?: string }>;
@@ -784,6 +956,22 @@ export interface ContentEngineApi {
   synthesizeIdeas: (payload?: { note?: string; count?: number }) => Promise<{ ok: boolean; ideas?: ContentIdea[]; error?: string }>;
   brainstormClassify: (payload: { thought: string }) => Promise<{ ok: boolean; category?: 'content_idea' | 'framework_update' | 'system_improvement' | 'analytics' | 'general_thought'; reason?: string; suggested_title?: string; format_type?: string; niche_hint?: string; error?: string }>;
   brainstormSummary: (payload?: { note?: string }) => Promise<{ ok: boolean; summary?: any[]; error?: string }>;
+  brainstormList: () => Promise<ContentBrainstorm[]>;
+  brainstormSave: (b: ContentBrainstorm) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  brainstormDelete: (id: number) => Promise<{ ok: boolean }>;
+  externalBuildClassifyPrompt: (payload: { thought: string; templateIds?: string[] }) => Promise<{ ok: boolean; prompt?: string; system?: string; error?: string }>;
+  externalBuildSynthesizePrompt: (payload: { note?: string; count?: number; templateIds?: string[] }) => Promise<{ ok: boolean; prompt?: string; system?: string; error?: string }>;
+  externalBuildScriptPrompt: (payload: { episodeId: number; templateIds?: string[]; frameMode?: string; sections?: string[] }) => Promise<{ ok: boolean; prompt?: string; system?: string; scheme?: { id: string; name: string }; error?: string }>;
+  externalImportClassify: (payload: { thought: string; rawJson: string }) => Promise<{ ok: boolean; id?: number; category?: string; reason?: string; suggested_title?: string; format_type?: string; niche_hint?: string; error?: string }>;
+  externalImportSynthesize: (payload: { rawJson: string }) => Promise<{ ok: boolean; count?: number; error?: string }>;
+  externalImportScript: (payload: { episodeId: number; rawJson: string }) => Promise<{ ok: boolean; frames?: ScriptFrame[]; gates?: any; error?: string }>;
+  seriesList: () => Promise<ContentSeries[]>;
+  seriesGet: (id: number) => Promise<(ContentSeries & { episodes: any[] }) | null>;
+  seriesSave: (s: ContentSeries) => Promise<{ ok: boolean; id?: number; error?: string }>;
+  seriesDelete: (id: number) => Promise<{ ok: boolean }>;
+  seriesAddEpisode: (payload: { seriesId: number; episodeId: number }) => Promise<{ ok: boolean; episode_number?: number; error?: string }>;
+  seriesRemoveEpisode: (payload: { episodeId: number }) => Promise<{ ok: boolean; error?: string }>;
+  seriesReorder: (payload: { seriesId: number; episodeIds: number[] }) => Promise<{ ok: boolean; error?: string }>;
   themesCreate: (theme: any) => Promise<{ ok: boolean; id?: number; error?: string }>;
   themesGenerate: (payload?: { note?: string }) => Promise<{ ok: boolean; id?: number; theme?: any; error?: string }>;
   themesGetAll: () => Promise<any[]>;
@@ -826,6 +1014,43 @@ export interface ContentEngineApi {
   editCutlist: (payload: { episodeId: number; takeId: number }) => Promise<{ ok: boolean; cutlist?: any[]; total_duration?: number; error?: string }>;
   editOverlayPlan: (payload: { episodeId: number }) => Promise<{ ok: boolean; plan?: any; error?: string }>;
   analyticsCorrelate: () => Promise<{ ok: boolean; correlations?: any[]; best_performer?: any; worst_performer?: any; recommendations?: string[]; message?: string; error?: string }>;
+
+  // Notes
+  notesList: (params?: { search?: string; tag?: string; group?: string; includeDrafts?: boolean; upcomingDeadlines?: boolean }) => Promise<{ success: boolean; notes?: any[]; error?: string }>;
+  notesCreate: (data: { title?: string; content: string; tags?: string[]; group_name?: string; deadline?: string; deadline_time?: string; reminder?: string; is_draft?: number; links?: any[]; files?: string[] }) => Promise<{ success: boolean; id?: string; error?: string }>;
+  notesUpdate: (data: { id: string; title?: string; content?: string; tags?: string[]; group_name?: string; deadline?: string | null; deadline_time?: string | null; reminder?: string; is_draft?: number; status?: string; links?: any[]; files?: string[] }) => Promise<{ success: boolean; error?: string }>;
+  notesDelete: (id: string) => Promise<{ success: boolean; error?: string }>;
+  notesGroups: () => Promise<{ success: boolean; groups?: string[]; error?: string }>;
+
+  // Links & Files
+  dialogOpenFile: () => Promise<{ canceled: boolean; filePath?: string | null; error?: string }>;
+  openUrlInBrowser: (url: string, browserId?: string) => Promise<{ success: boolean; openedWith?: string; error?: string }>;
+  openPath: (filePath: string, appId?: string) => Promise<{ success: boolean; openedWith?: string; error?: string }>;
+  openInAppWindow: (url: string) => Promise<{ success: boolean; error?: string }>;
+  getApps: () => Promise<{ success: boolean; apps?: { id: string; name: string; path: string; kind: string }[] }>;
+
+  // ========== Agent Messaging (Task A) ==========
+  agent: {
+    sendMessage: (data: { from_agent: string; to_agent: string; message_type: string; content: string; mission_id?: string; summary?: string; payload?: any }) => Promise<{ ok: boolean; id?: string; message?: any; error?: string }>;
+    getMessages: (data?: { mission_id?: string; agent_filter?: string }) => Promise<{ ok: boolean; messages?: any[]; error?: string }>;
+    updateMessageStatus: (data: { id: string; status: 'pending' | 'delivered' | 'completed' | 'failed' }) => Promise<{ ok: boolean; error?: string }>;
+    onMessageUpdated: (callback: (msg: any) => void) => () => void;
+  };
+
+  // ========== Context Brain Memories (Task D) ==========
+  brain: {
+    addMemory: (data: { category: string; content: string; source?: string; importance?: number; session_id?: string }) => Promise<{ ok: boolean; id?: string; memory?: any; error?: string }>;
+    listMemories: (data?: { category?: string; limit?: number }) => Promise<{ ok: boolean; memories?: any[]; error?: string }>;
+    searchMemories: (data: { query: string; category?: string }) => Promise<{ ok: boolean; memories?: any[]; error?: string }>;
+  };
+
+  // ========== Missions Persistence (Task E) ==========
+  mission: {
+    create: (data: { objective: string; agent_config?: any; id?: string }) => Promise<{ ok: boolean; id?: string; mission?: any; error?: string }>;
+    list: () => Promise<{ ok: boolean; missions?: any[]; error?: string }>;
+    update: (data: { id: string; status?: string; agent_config?: any }) => Promise<{ ok: boolean; error?: string }>;
+    get: (id: string) => Promise<{ ok: boolean; mission?: any; error?: string }>;
+  };
 }
 
 declare global {

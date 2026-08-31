@@ -316,6 +316,17 @@ function renderAnswerHtml(md: string): string {
 - **Prescribed component structure:** Let the AI decide the architecture of the code.
 - **Your own interpretation or framing:** Do NOT use your (AI's) perspective, tone, or phrasing. Copy the user's exact words. Do not rephrase, summarize, or add your own framing to what the user said. The raw request goes in verbatim — you are the transcriptionist, not the author.
 
+## MANDATORY: Show File Paths After Every Write
+
+**After EVERY file write (Write tool, Edit tool, or any file creation), you MUST immediately output the full absolute path on its own line:**
+
+```
+File written to:
+C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker\<full\path\to\file.ext>
+```
+
+This is NON-NEGOTIABLE. The user cannot see what you wrote unless you show the path. Every. Single. Time. No exceptions. No "I'll show it at the end." Show it IMMEDIATELY after the write completes.
+
 ## Output Format
 
 Prompt should feel like a high-level technical brief:

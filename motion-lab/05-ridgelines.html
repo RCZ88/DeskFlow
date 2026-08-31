@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>05 — Ridgelines</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{height:250vh;background:#050506}
+  body{position:fixed;top:0;left:0;width:100%;height:100vh;overflow:hidden;font-family:'Space Grotesk',sans-serif}
+  .pin{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0}
+  svg{width:min(95vw,900px);height:min(80vh,560px)}
+  svg path{fill:none;stroke-width:1.2;stroke-linecap:round}
+  .label{position:fixed;bottom:16px;left:16px;font-size:11px;color:rgba(255,255,255,.25);letter-spacing:1px}
+  .progress{position:fixed;bottom:16px;right:16px;font-size:11px;color:rgba(255,255,255,.25)}
+  @media(prefers-reduced-motion:reduce){svg path{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="pin">
+  <svg viewBox="0 0 900 560" preserveAspectRatio="none" id="ridges"></svg>
+</div>
+<div class="label">ridgelines</div>
+<div class="progress" id="prog">0%</div>
+<script type="module">
+import {scroll} from 'https://cdn.jsdelivr.net/npm/motion@11.18.2/+esm';
+
+// ── Tunables ──
+const NUM_LINES = 5;
+const POINTS = 120;
+const AMPLITUDE_CHAOTIC = 40;
+const AMPLITUDE_CALM = 8;
+const CALM_BREATHE_AMP = 3;
+const CALM_BREATHE_SPEED = 0.0008;
+const Y_SPREAD = 420;
+const Y_OFFSET = 70;
+
+const svg = document.getElementById('ridges');
+const progEl = document.getElementById('prog');
+let scrollP = 0;
+scroll(p => { scrollP = Math.max(0, Math.min(1, p)); }, { target: document.documentElement });
+
+function genPath(idx, chaotic, phase) {
+  const pts = [];
+  const cy = Y_OFFSET + (idx / (NUM_LINES - 1)) * Y_SPREAD;
+  for (let i = 0; i <= POINTS; i++) {
+    const x = (i / POINTS) * 900;
+    const nx = i / POINTS;
+    let amp = chaotic ? AMPLITUDE_CHAOTIC : AMPLITUDE_CALM;
+    let y = cy;
+    y += Math.sin(nx * 6 + idx * 1.7 + phase) * amp * 0.5;
+    y += Math.sin(nx * 13 + idx * 2.3 + phase * 0.7) * amp * 0.3;
+    if (!chaotic) y += Math.sin(phase * CALM_BREATHE_SPEED * 1000 + idx) * CALM_BREATHE_AMP;
+    y += Math.sin(nx * 2.1 + idx * 0.8) * amp * 0.2;
+    pts.push(`${x},${y}`);
+  }
+  return 'M' + pts.join(' L');
+}
+
+// Create path pairs
+const paths = [];
+for (let i = 0; i < NUM_LINES; i++) {
+  const cPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  cPath.setAttribute('stroke', `rgba(255,255,255,${0.12 + i * 0.06})`);
+  svg.appendChild(cPath);
+  const aPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  aPath.setAttribute('stroke', `rgba(255,255,255,${0.12 + i * 0.06})`);
+  svg.appendChild(aPath);
+  paths.push({chaotic: cPath, calm: aPath, idx: i});
+}
+
+let lastT = 0;
+function frame(now) {
+  const dt = now - lastT;
+  lastT = now;
+
+  for (const {chaotic, calm, idx} of paths) {
+    const p = scrollP;
+    chaotic.setAttribute('d', genPath(idx, true, now * 0.001));
+    calm.setAttribute('d', genPath(idx, false, now * 0.001));
+    chaotic.style.opacity = 1 - p;
+    calm.style.opacity = p;
+  }
+
+  progEl.textContent = Math.round(scrollP * 100) + '%';
+  requestAnimationFrame(frame);
+}
+
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  for (const {chaotic, calm, idx} of paths) {
+    chaotic.setAttribute('d', genPath(idx, true, 1000));
+    calm.setAttribute('d', genPath(idx, false, 1000));
+    chaotic.style.opacity = 0.5;
+    calm.style.opacity = 0.5;
+  }
+} else {
+  requestAnimationFrame(frame);
+}
+</script>
+</body>
+</html>

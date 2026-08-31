@@ -49,7 +49,11 @@ import BackupCenterPage from '../pages/BackupCenterPage';
 import { usePersistentSubTab } from '../hooks/usePersistentSubTab';
 import PageContextPanel from '../components/PageContextPanel';
 import FeatureLogicPanel from '../components/workspace/FeatureLogicPanel';
+import ArchMapPage from '../features/arch-map/ArchMapPage';
+import { UserDictionaryPanel } from '../components/UserDictionaryPanel';
 import '@xterm/xterm/css/xterm.css';
+import { SelectionProvider, SelectionOverlay, SelectionToolbar, SelectionResultPanel, SelectionEngineActivator } from '../features/selection-engine';
+import { MousePointer2 } from 'lucide-react';
 
 function generateTerminalId(): string {
   return `term-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -152,6 +156,7 @@ const SUBPAGE_LABELS: Record<string, string> = {
   'insights/issues': 'Insights / Issues',
   'insights/performance': 'Insights / Performance',
   'insights/bugs': 'Insights / Bugs',
+  'insights/architecture': 'Insights / Architecture',
   'studio/skills': 'Studio / Skills',
   'studio/styles': 'Studio / Styles',
   'studio/design': 'Studio / Design',
@@ -159,6 +164,7 @@ const SUBPAGE_LABELS: Record<string, string> = {
   'context/context-maintenance': 'Context / Maintenance',
   'context/page-context': 'Context / Page Context',
   'context/feature-logic': 'Context / Feature Logic',
+  'context/dictionary': 'Context / Dictionary',
 };
 
 function CategoryBadge({ category }: { category?: string }) {
@@ -812,6 +818,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
   // Session categorization state
   const [sessionCategoryFilter, setSessionCategoryFilter] = useState<string>('all');
   const [sessionSubpageFilter, setSessionSubpageFilter] = useState<string>('all');
+  const [sessionAgentFilter, setSessionAgentFilter] = useState<string>('all');
   const [mentionDropdown, setMentionDropdown] = useState<{
     visible: boolean; query: string; results: Array<{ id: string; name: string; agent: string; sessionTopic: string }>; cursor: number;
   }>({ visible: false, query: '', results: [], cursor: 0 });
@@ -1131,13 +1138,29 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       }
 
       // ═══ SETTLE ═══
-      // The backend now handles TUI settle detection via the 500ms idle heuristic.
-      // We just wait a brief moment to ensure the PTY spawn command has fully registered.
-      await new Promise(r => setTimeout(r, 300));
+      // opencode has no ready signal (never prints a session id, emits no
+      // onAgentReady), so the generic 300ms wait is too short — the context/prompt
+      // can land while opencode is still booting. For opencode we use a longer fixed
+      // settle so the injected context lands after its TUI has initialized.
+      // (A PTY "output idle" event would be ideal but requires main-process support
+      // not currently wired; the longer delay is the robust, self-contained fix.)
+      const settleMs = agent === 'opencode' ? 1800 : 300;
+      await new Promise(r => setTimeout(r, settleMs));
 
       // ═══ HANDSHAKE REMOVED ═══
       // The bracketed-paste handshake was non-functional and added up to 10s of
       // blocking latency on every launch. Removed to keep startup responsive.
+
+      // ═══ INITIAL CONTEXT (assembled brain / reflections) — inject if provided ═══
+      // initContent is an assembled-context block (problems, brain memories, past
+      // mistakes, selection captures). It is written into the agent's shell after
+      // launch so the agent starts WITH prior-session context instead of "clean".
+      if (initContent && initContent.trim() && window.deskflowAPI?.agentSend) {
+        const sendResult = await window.deskflowAPI.agentSend(terminalId, initContent, agent);
+        if (!sendResult?.success) {
+          console.warn('[TerminalPage] Failed to send initial context block:', sendResult?.error);
+        }
+      }
 
       // ═══ SYSTEM PROMPT — Only send if explicitly provided (resume session) ═══
       // For fresh terminals, the agent starts clean. System prompt is sent
@@ -1614,7 +1637,29 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
       
       // ═══ INITIALIZE AGENT ═══
       await registerTerminal(newTerminalId, newSessionAgent);
-      await initializeTerminal(newTerminalId, newSessionAgent, undefined, undefined, undefined, cwd);
+
+      // Assemble prior-session context (brain memories, reflections, problems) so a
+      // fresh session is NOT "clean". Derived topic = session name (best available
+      // signal at spawn time); assemble-context injects brain/reflection blocks when
+      // a topic is present. Falls back silently if assembly fails.
+      let initialContext = '';
+      try {
+        const topic = (name || 'New Session').trim();
+        const assembled = await (window.deskflowAPI as any).assembleContext?.({
+          projectId: selectedProject,
+          topic,
+          tokenBudget: 2500,
+        });
+        if (assembled && typeof assembled === 'string' && assembled.trim()) {
+          initialContext = assembled;
+        } else if (assembled && assembled.context && typeof assembled.context === 'string') {
+          initialContext = assembled.context;
+        }
+      } catch (e) {
+        console.warn('[handleCreateNewSession] context assembly failed (non-fatal):', e);
+      }
+
+      await initializeTerminal(newTerminalId, newSessionAgent, undefined, initialContext || undefined, undefined, cwd);
 
       // ═══ WRITE USER PROMPT ═══
       if (prompt && prompt.trim()) {
@@ -2024,6 +2069,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         if (result.data.activeTab) setActiveGroup(result.data.activeTab);
         if (result.data.analyticsPeriod) setAnalyticsPeriod(result.data.analyticsPeriod);
         if (result.data.sessionCategoryFilter) setSessionCategoryFilter(result.data.sessionCategoryFilter);
+        if (result.data.sessionAgentFilter) setSessionAgentFilter(result.data.sessionAgentFilter);
       }
     }).catch(() => {});
   }, [propProjectId, selectedProject]);
@@ -2106,6 +2152,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         presets,
         analyticsPeriod,
         sessionCategoryFilter,
+        sessionAgentFilter,
         activeSubtabs,
         configs: {
           modelReinjectThreshold,
@@ -2181,6 +2228,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
         // Restore analytics period
         if (result.data.analyticsPeriod) setAnalyticsPeriod(result.data.analyticsPeriod as any);
         if (result.data.sessionCategoryFilter) setSessionCategoryFilter(result.data.sessionCategoryFilter);
+        if (result.data.sessionAgentFilter) setSessionAgentFilter(result.data.sessionAgentFilter);
         if (result.data.mapListRatio !== undefined && result.data.mapListRatio !== null) {
           localStorage.setItem(`mapListRatio:${wsProjectId}`, String(result.data.mapListRatio));
         }
@@ -2857,6 +2905,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
 
   return (
     <PageShell page="terminal" className="flex-1 flex bg-black text-white !p-0 !space-y-0 relative overflow-hidden" data-workspace-root>
+      <SelectionProvider>
       {/* Main Terminal Area */}
       <div style={accentStyle('cyan')} className="flex-1 flex flex-col bg-zinc-950 relative">
         
@@ -2990,6 +3039,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
             )}
           </button>
           <div className="flex-1" />
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('selection-engine:toggle'))}
+            title="Select screen element for AI context (Ctrl+Shift+S)"
+            className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-amber-300 transition"
+          >
+            <MousePointer2 className="w-4 h-4" />
+          </button>
           <span className="text-[10px] text-zinc-600">
             {Object.keys(terminalTabs).length} terminal{Object.keys(terminalTabs).length !== 1 ? 's' : ''}
           </span>
@@ -3634,12 +3690,24 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                   </div>
                                   <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                                     <Pill key="all-sub" active={sessionSubpageFilter === 'all'} onClick={() => setSessionSubpageFilter('all')}>All Pages</Pill>
-                                    {['setup/presets', 'setup/configs', 'work/sessions', 'work/map', 'work/files', 'insights/analytics', 'insights/code-stats', 'insights/issues', 'insights/bugs', 'studio/skills', 'studio/design', 'context/context', 'context/context-maintenance', 'context/page-context'].map(sp => {
+                                    {['setup/presets', 'setup/configs', 'work/sessions', 'work/map', 'work/files', 'insights/analytics', 'insights/code-stats', 'insights/issues', 'insights/bugs', 'insights/architecture', 'studio/skills', 'studio/design', 'context/context', 'context/context-maintenance', 'context/page-context'].map(sp => {
                                       const count = sessions.filter(s => (s.subpage || 'work/sessions') === sp).length;
                                       if (count === 0) return null;
                                       return (
                                         <Pill key={sp} active={sessionSubpageFilter === sp} onClick={() => setSessionSubpageFilter(sp)}>
                                           {SUBPAGE_LABELS[sp] || sp} ({count})
+                                        </Pill>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                                    <Pill key="all-agent" active={sessionAgentFilter === 'all'} onClick={() => setSessionAgentFilter('all')}>All Tools</Pill>
+                                    {['opencode', 'claude', 'gemini', 'codex', 'aider'].map(ag => {
+                                      const count = sessions.filter(s => s.agent === ag).length;
+                                      if (count === 0) return null;
+                                      return (
+                                        <Pill key={ag} active={sessionAgentFilter === ag} onClick={() => setSessionAgentFilter(ag)}>
+                                          {ag} ({count})
                                         </Pill>
                                       );
                                     })}
@@ -3650,7 +3718,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                                 <EmptyState iconComponent={Clock} title="No sessions yet" hint="Create one using the button above." />
                              ) : (
                               (() => {
-                                const filtered = sessions.filter(s => sessionCategoryFilter === 'all' || s.category === sessionCategoryFilter);
+                                const filtered = sessions.filter(s => {
+                                  if (sessionCategoryFilter !== 'all' && s.category !== sessionCategoryFilter) return false;
+                                  if (sessionAgentFilter !== 'all' && s.agent !== sessionAgentFilter) return false;
+                                  return true;
+                                });
                                 const groups: Record<string, Session[]> = {};
                                 for (const s of filtered) {
                                   const sp = s.subpage || 'work/sessions';
@@ -3959,6 +4031,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'issues', icon: ListChecks, label: 'Issues' },
                 { key: 'performance', icon: Activity, label: 'Performance' },
                 { key: 'bugs', icon: Bug, label: 'Bugs' },
+                { key: 'architecture', icon: Network, label: 'Architecture' },
               ]} storageKey="insights" render={(sub) => {
                 switch (sub) {
                   case 'analytics': return (
@@ -4015,6 +4088,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   case 'bugs': return (
                     <GroupPanel accent="purple">
                       <BugReportPanel projectId={selectedProject} />
+                    </GroupPanel>
+                  );
+                  case 'architecture': return (
+                    <GroupPanel accent="purple">
+                      <ArchMapPage />
                     </GroupPanel>
                   );
                   default: return null;
@@ -4084,6 +4162,7 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                 { key: 'context-brain', icon: Brain, label: 'Brain' },
                 { key: 'context-maintenance', icon: Database, label: 'Maintenance' },
                 { key: 'context-map', icon: Network, label: 'Architecture Map' },
+                { key: 'dictionary', icon: BookOpen, label: 'Dictionary' },
               ]} storageKey="context" render={(sub) => {
                 switch (sub) {
                   case 'context': return (
@@ -4111,6 +4190,11 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
                   case 'context-map': return (
                     <GroupPanel accent="cyan">
                        <CodeArchitectureMap projectPath={propProjectPath || ''} />
+                    </GroupPanel>
+                  );
+                  case 'dictionary': return (
+                    <GroupPanel accent="amber">
+                      <UserDictionaryPanel />
                     </GroupPanel>
                   );
                   default: return null;
@@ -4682,6 +4766,13 @@ export default function TerminalPage({ projectId: propProjectId, projectPath: pr
           </button>
         </div>
       )}
+
+      {/* Selection Engine — scoped to the workspace */}
+      <SelectionEngineActivator />
+      <SelectionOverlay />
+      <SelectionToolbar />
+      <SelectionResultPanel />
+      </SelectionProvider>
     </PageShell>
   );
 }

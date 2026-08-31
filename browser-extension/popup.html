@@ -3,77 +3,191 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DeskFlow Tracker</title>
+  <title>DeskFlow Bridge</title>
+  <link rel="icon" href="icons/icon-48.png" type="image/png" />
   <style>
     :root {
-      --bg: #141416; --card: rgba(24, 24, 27, 0.85); --border: rgba(255, 255, 255, 0.08);
-      --text: #e4e4e7; --muted: #71717a; --emerald: #10b981; --amber: #f59e0b; --rose: #f43f5e;
-      --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+      --bg: #0e0e10; --surface: rgba(24,24,27,0.85); --border: rgba(255,255,255,0.06);
+      --text: #e4e4e7; --muted: #71717a; --dim: #3f3f46;
+      --emerald: #10b981; --amber: #f59e0b; --rose: #f43f5e; --provider: #10b981;
+      --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+      --sans: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { width: 300px; background: var(--bg); color: var(--text); font-family: -apple-system, "Segoe UI", Inter, sans-serif; font-size: 13px; }
-    .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(24,24,27,0.9), rgba(24,24,27,0.4)); }
-    .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
-    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 8px currentColor; }
-    .dot.ok { background: var(--emerald); color: var(--emerald); }
-    .dot.warn { background: var(--amber); color: var(--amber); }
-    .dot.off { background: var(--rose); color: var(--rose); }
-    .status-label { font-size: 11px; color: var(--muted); }
-    .body { padding: 10px 14px 12px; }
-    .row { display: flex; align-items: center; justify-content: space-between; padding: 7px 0; gap: 10px; }
-    .row + .row { border-top: 1px solid rgba(255,255,255,0.05); }
-    .label { color: var(--muted); font-size: 12px; white-space: nowrap; }
-    .value { font-family: var(--mono); font-size: 12px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 190px; color: var(--text); }
-    .domain { color: var(--emerald); }
-    .switch { position: relative; width: 38px; height: 20px; border-radius: 999px; background: rgba(255,255,255,0.12); cursor: pointer; transition: background 0.15s ease; flex: none; }
-    .switch.tracking { background: var(--emerald); }
-    .switch .knob { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s ease; }
-    .switch.tracking .knob { transform: translateX(18px); }
-    .footer { padding: 10px 14px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
-    .err { color: var(--rose); font-size: 11px; padding: 8px 14px; display: none; }
-    .pill { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--muted); }
-    
-    /* AI Context Section Styles */
-    .ai-section { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 10px; }
-    .ai-title { font-weight: 600; color: var(--text); font-size: 12px; margin-bottom: 4px; }
-    .ai-input { flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--text); font-size: 11px; outline: none; }
+    body {
+      width: 360px; min-height: 480px; background: var(--bg); color: var(--text);
+      font-family: var(--sans); font-size: 13px; overflow-x: hidden;
+    }
+
+    /* Header */
+    .hdr {
+      padding: 16px 18px; border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(24,24,27,0.95) 0%, rgba(14,14,16,0.8) 100%);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .hdr-logo {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--emerald), #059669);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px; font-weight: 800; color: #fff; flex-shrink: 0;
+    }
+    .hdr-text { flex: 1; }
+    .hdr-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+    .hdr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+    .hdr-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dim); }
+    .hdr-dot.ok { background: var(--emerald); box-shadow: 0 0 8px var(--emerald); }
+    .hdr-dot.warn { background: var(--amber); }
+    .hdr-dot.off { background: var(--rose); }
+
+    /* Toggle */
+    .toggle-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; border-bottom: 1px solid var(--border);
+    }
+    .toggle-label { font-size: 13px; font-weight: 500; }
+    .toggle {
+      position: relative; width: 40px; height: 22px; border-radius: 999px;
+      background: rgba(255,255,255,0.1); cursor: pointer; transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .toggle.on { background: var(--emerald); }
+    .toggle .knob {
+      position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+      border-radius: 50%; background: #fff; transition: transform 0.2s;
+    }
+    .toggle.on .knob { transform: translateX(18px); }
+
+    /* Stats */
+    .stats { display: flex; gap: 8px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+    .stat {
+      flex: 1; padding: 12px; border-radius: 10px;
+      background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+      text-align: center;
+    }
+    .stat-val { font-size: 22px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+    .stat-val.emerald { color: var(--emerald); }
+    .stat-val.amber { color: var(--amber); }
+    .stat-lbl { font-size: 10px; color: var(--muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* Info rows */
+    .info { padding: 4px 18px; }
+    .row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 0; gap: 12px;
+    }
+    .row + .row { border-top: 1px solid rgba(255,255,255,0.03); }
+    .row-lbl { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .row-val {
+      font-family: var(--mono); font-size: 12px; text-align: right;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 200px; color: var(--text);
+    }
+    .row-val.emerald { color: var(--emerald); }
+
+    /* AI Context */
+    .ai-sec {
+      margin: 8px 18px; padding: 14px; border-radius: 10px;
+      background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+    }
+    .ai-hdr { font-size: 12px; font-weight: 600; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .ai-hdr-icon { font-size: 14px; }
+    .ai-btn {
+      width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--emerald)30;
+      background: var(--emerald)12; color: var(--emerald); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s; font-family: var(--sans);
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .ai-btn:hover { background: var(--emerald)20; border-color: var(--emerald)50; }
+    .ai-btn:active { transform: scale(0.98); }
+    .ai-btn.secondary {
+      background: rgba(255,255,255,0.04); border-color: var(--border); color: var(--muted);
+    }
+    .ai-btn.secondary:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+    .ai-row { display: flex; gap: 6px; margin-top: 8px; }
+    .ai-input {
+      flex: 1; background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px; color: var(--text); font-size: 12px;
+      outline: none; font-family: var(--sans);
+    }
     .ai-input:focus { border-color: var(--emerald); }
-    .btn-primary { background: var(--emerald); color: #000; border-color: var(--emerald); cursor: pointer; font-weight: 600; }
-    .btn-secondary { cursor: pointer; }
-    .status-msg { font-size: 10px; text-align: center; padding: 4px 0; display: none; }
+    .ai-input::placeholder { color: var(--dim); }
+
+    /* Status message */
+    .status-msg {
+      font-size: 11px; text-align: center; padding: 6px 0; display: none;
+      border-radius: 6px; margin-top: 8px;
+    }
+    .status-msg.show { display: block; }
+    .status-msg.ok { color: var(--emerald); background: var(--emerald)08; }
+    .status-msg.err { color: var(--rose); background: var(--rose)08; }
+
+    /* Footer */
+    .ftr {
+      padding: 12px 18px; border-top: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .ftr-text { font-size: 10px; color: var(--dim); }
+    .ftr-pill {
+      font-size: 10px; padding: 3px 8px; border-radius: 999px;
+      border: 1px solid var(--border); background: rgba(255,255,255,0.04);
+      color: var(--muted);
+    }
+
+    /* Open Panel button */
+    .open-panel {
+      margin: 12px 18px; padding: 10px; border-radius: 10px;
+      border: 1px solid var(--emerald)30; background: var(--emerald)08;
+      color: var(--emerald); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s; font-family: var(--sans);
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .open-panel:hover { background: var(--emerald)15; border-color: var(--emerald)50; }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="brand"><span class="dot" id="statusDot"></span>DeskFlow Tracker</div>
-    <span class="status-label" id="statusLabel">checking…</span>
-  </div>
-  <div class="body">
-    <div class="row"><span class="label">Tracking</span><div class="switch" id="trackToggle" role="switch" aria-checked="true" tabindex="0"><span class="knob"></span></div></div>
-    <div class="row"><span class="label">Server</span><span class="value" id="serverVal">…</span></div>
-    <div class="row"><span class="label">Active domain</span><span class="value domain" id="domainVal">—</span></div>
-    <div class="row"><span class="label">Page</span><span class="value" id="titleVal">—</span></div>
-    <div class="row"><span class="label">Session</span><span class="value" id="sessionVal">0:00</span></div>
-    <div class="row"><span class="label">Last sync</span><span class="value" id="syncVal">—</span></div>
-    
-    <!-- AI Context Manual Capture -->
-    <div class="ai-section">
-      <div class="row" style="border-top: none; padding-top: 0;">
-        <span class="ai-title">AI Context</span>
-      </div>
-      <div class="row">
-        <span class="label">Current Chat</span>
-        <button id="saveChatBtn" class="pill btn-primary">Save this chat</button>
-      </div>
-      <div class="row">
-        <input type="text" id="addLinkInput" class="ai-input" placeholder="Paste chat URL...">
-        <button id="addLinkBtn" class="pill btn-secondary">Add</button>
-      </div>
-      <div id="manualStatus" class="status-msg"></div>
+  <div class="hdr">
+    <div class="hdr-logo">D</div>
+    <div class="hdr-text">
+      <div class="hdr-title">DeskFlow Bridge</div>
+      <div class="hdr-sub"><span class="hdr-dot" id="statusDot"></span><span id="statusLabel">checking…</span></div>
     </div>
   </div>
-  <div class="err" id="errorBox"></div>
-  <div class="footer"><span>DeskFlow Browser Tracker v1.2.0</span><span class="pill" id="browserPill">chrome</span></div>
+
+  <div class="toggle-row">
+    <span class="toggle-label">Website Tracking</span>
+    <div class="toggle on" id="trackToggle" role="switch" aria-checked="true" tabindex="0"><span class="knob"></span></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-val emerald" id="captureCount">0</div>
+      <div class="stat-lbl">Captures</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val amber" id="sessionTime">0:00</div>
+      <div class="stat-lbl">Session</div>
+    </div>
+  </div>
+
+  <div class="info">
+    <div class="row"><span class="row-lbl">Server</span><span class="row-val" id="serverVal">…</span></div>
+    <div class="row"><span class="row-lbl">Domain</span><span class="row-val emerald" id="domainVal">—</span></div>
+    <div class="row"><span class="row-lbl">Page</span><span class="row-val" id="titleVal">—</span></div>
+    <div class="row"><span class="row-lbl">Last sync</span><span class="row-val" id="syncVal">—</span></div>
+  </div>
+
+  <div class="ai-sec">
+    <div class="ai-hdr"><span class="ai-hdr-icon">+</span> AI Context</div>
+    <div style="font-size:12px;color:#71717a;margin-bottom:10px;">Open the DeskFlow panel on any AI chat to capture, manage, and create.</div>
+    <button class="open-panel" id="openPanelBtn">Open DeskFlow Panel</button>
+    <div id="manualStatus" class="status-msg"></div>
+  </div>
+
+  <div class="ftr">
+    <span class="ftr-text">DeskFlow Browser Bridge v1.3.0</span>
+    <span class="ftr-pill" id="browserPill">chrome</span>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

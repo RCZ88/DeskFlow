@@ -1,0 +1,137 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic:
+      - generic [ref=e3] [cursor=pointer]
+      - generic [ref=e5]:
+        - button "spiral spiral" [ref=e7] [cursor=pointer]:
+          - generic [ref=e8]: spiral
+          - generic [ref=e9]: spiral
+        - button "list list" [ref=e12] [cursor=pointer]:
+          - generic [ref=e13]: list
+          - generic [ref=e14]: list
+      - navigation:
+        - generic [ref=e15]:
+          - button "m e n u" [ref=e16] [cursor=pointer]:
+            - generic [ref=e17]:
+              - generic [ref=e18]: m
+              - generic [ref=e19]: e
+              - generic [ref=e20]: "n"
+              - generic [ref=e21]: u
+          - button "close"
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - link "works":
+                  - /url: /
+              - generic:
+                - link "about":
+                  - /url: /about
+              - generic:
+                - link "contact":
+                  - /url: mailto:pertantpacome@gmail.com
+            - generic [ref=e23]:
+              - link "pertantpacome@gmail.com" [ref=e24] [cursor=pointer]:
+                - /url: mailto:pertantpacome@gmail.com
+              - generic [ref=e25]:
+                - link "Instagram" [ref=e26] [cursor=pointer]:
+                  - /url: https://www.instagram.com
+                - link "X / Twitter" [ref=e33] [cursor=pointer]:
+                  - /url: https://www.x.com/pacomepertant
+                - link "Behance" [ref=e38] [cursor=pointer]:
+                  - /url: https://www.behance.net/pacomepertant
+                - link "LinkedIn" [ref=e42] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/in/pac%C3%B4me-pertant-b4437126b/
+      - generic [ref=e47]:
+        - img "Showreel Thumbnail" [ref=e48] [cursor=pointer]
+        - generic:
+          - generic: s
+          - generic: h
+          - generic: o
+          - generic: w
+          - generic: r
+          - generic: e
+          - generic: e
+          - generic: l
+          - generic: •
+          - generic: "2"
+          - generic: "0"
+          - generic: "2"
+          - generic: "5"
+          - generic: •
+          - generic: s
+          - generic: h
+          - generic: o
+          - generic: w
+          - generic: r
+          - generic: e
+          - generic: e
+          - generic: l
+          - generic: •
+          - generic: "2"
+          - generic: "0"
+          - generic: "2"
+          - generic: "5"
+          - generic: •
+          - generic: s
+          - generic: h
+          - generic: o
+          - generic: w
+          - generic: r
+          - generic: e
+          - generic: e
+          - generic: l
+          - generic: •
+          - generic: "2"
+          - generic: "0"
+          - generic: "2"
+          - generic: "5"
+          - generic: •
+          - generic: s
+          - generic: h
+          - generic: o
+          - generic: w
+          - generic: r
+          - generic: e
+          - generic: e
+          - generic: l
+          - generic: •
+          - generic: "2"
+          - generic: "0"
+          - generic: "2"
+          - generic: "5"
+          - generic: •
+          - generic: s
+          - generic: h
+          - generic: o
+          - generic: w
+          - generic: r
+          - generic: e
+          - generic: e
+          - generic: l
+          - generic: •
+          - generic: "2"
+          - generic: "0"
+          - generic: "2"
+          - generic: "5"
+      - button [ref=e49] [cursor=pointer]
+    - main:
+      - generic [ref=e56]:
+        - paragraph [ref=e57]: motion & sound designer based in paris
+        - button "e n t e r w i t h s o u n d":
+          - generic:
+            - generic: e
+            - generic: "n"
+            - generic: t
+            - generic: e
+            - generic: r
+            - generic: w
+            - generic: i
+            - generic: t
+            - generic: h
+            - generic: s
+            - generic: o
+            - generic: u
+            - generic: "n"
+            - generic: d
+        - button "enter without sound"

@@ -15,8 +15,10 @@ import { SubscriptionModal } from '../components/finance/SubscriptionModal';
 import type { FinanceSubscription, FinanceWallet, FinanceTransaction, FinanceCategory } from '../components/finance/finance-types';
 
 function daysUntil(dateStr: string): number {
+  if (!dateStr) return NaN;
   const now = new Date();
-  const target = new Date(dateStr);
+  const target = new Date(dateStr.length > 10 ? dateStr.slice(0, 10) + 'T00:00:00' : dateStr + 'T00:00:00');
+  if (isNaN(target.getTime())) return NaN;
   return Math.round((target.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 

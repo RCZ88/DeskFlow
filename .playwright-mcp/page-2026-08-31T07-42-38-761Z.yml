@@ -1,0 +1,245 @@
+- generic [ref=f4e2]:
+  - main [ref=f4e3]:
+    - generic [ref=f4e4]:
+      - banner [ref=f4e5]:
+        - generic [ref=f4e6]:
+          - generic:
+            - link "home":
+              - /url: /
+              - img "Podium Studios"
+          - generic [ref=f4e11]:
+            - paragraph [ref=f4e13]: MENU
+            - paragraph [ref=f4e15]: CLOSE
+      - generic [ref=f4e17]:
+        - link "PORTFOLIO" [ref=f4e18] [cursor=pointer]:
+          - /url: /portfolio
+        - link "SERVICES" [ref=f4e19] [cursor=pointer]:
+          - /url: /services
+        - link "BLOG" [ref=f4e20] [cursor=pointer]:
+          - /url: /blog
+        - generic [ref=f4e21]:
+          - generic [ref=f4e22]:
+            - paragraph [ref=f4e24]: LOS ANGELES
+            - paragraph [ref=f4e26]: SYDNEY
+          - generic [ref=f4e27]:
+            - link "LET'S TALK" [ref=f4e29] [cursor=pointer]:
+              - /url: /contact
+            - generic [ref=f4e31]: LET'S TALK
+    - generic [ref=f4e42]:
+      - heading "Bringing stories to life with cinematic precision." [level=1] [ref=f4e44]
+      - paragraph [ref=f4e46]: From concept to final cut, we offer a full range of video production services designed to bring your ideas to life.
+  - list [ref=f4e59]:
+    - listitem [ref=f4e60]:
+      - generic [ref=f4e61]:
+        - link [ref=f4e62] [cursor=pointer]:
+          - /url: /services/creative-direction
+          - heading "Creative Direction" [level=2] [ref=f4e63]
+        - paragraph [ref=f4e65]: We turn business goals into bold, strategic brand identities that stand out and create impact.
+      - list [ref=f4e67]:
+        - listitem [ref=f4e68]:
+          - link [ref=f4e69] [cursor=pointer]:
+            - /url: /tags/concept-development
+            - paragraph [ref=f4e71]: Concept Development
+        - listitem [ref=f4e72]:
+          - link [ref=f4e73] [cursor=pointer]:
+            - /url: /tags/scriptwriting
+            - paragraph [ref=f4e75]: Scriptwriting
+        - listitem [ref=f4e76]:
+          - link [ref=f4e77] [cursor=pointer]:
+            - /url: /tags/storyboarding
+            - paragraph [ref=f4e79]: Storyboarding
+        - listitem [ref=f4e80]:
+          - link [ref=f4e81] [cursor=pointer]:
+            - /url: /tags/art-direction
+            - paragraph [ref=f4e83]: Art Direction
+      - generic [ref=f4e86]:
+        - link "LEARN MORE" [ref=f4e88] [cursor=pointer]:
+          - /url: /services/creative-direction
+        - generic [ref=f4e90]: LEARN MORE
+    - listitem [ref=f4e92]:
+      - generic [ref=f4e93]:
+        - link [ref=f4e94] [cursor=pointer]:
+          - /url: /services/video-production
+          - heading "Video Production" [level=2] [ref=f4e95]
+        - paragraph [ref=f4e97]: At Podium, we create tailored productions to maximize brand and product visibility.
+      - list [ref=f4e99]:
+        - listitem [ref=f4e100]:
+          - link [ref=f4e101] [cursor=pointer]:
+            - /url: /tags/commercials
+            - paragraph [ref=f4e103]: Commercials
+        - listitem [ref=f4e104]:
+          - link [ref=f4e105] [cursor=pointer]:
+            - /url: /tags/brand-films
+            - paragraph [ref=f4e107]: Brand Films
+        - listitem [ref=f4e108]:
+          - link [ref=f4e109] [cursor=pointer]:
+            - /url: /tags/corporate-videos
+            - paragraph [ref=f4e111]: Corporate Videos
+        - listitem [ref=f4e112]:
+          - link [ref=f4e113] [cursor=pointer]:
+            - /url: /tags/product-videos
+            - paragraph [ref=f4e115]: Product Videos
+      - generic [ref=f4e118]:
+        - link "LEARN MORE" [ref=f4e120] [cursor=pointer]:
+          - /url: /services/video-production
+        - generic [ref=f4e122]: LEARN MORE
+    - listitem [ref=f4e124]:
+      - generic [ref=f4e125]:
+        - link [ref=f4e126] [cursor=pointer]:
+          - /url: /services/social-media-content
+          - heading "Social Media Content" [level=2] [ref=f4e127]
+        - paragraph [ref=f4e129]: We create strategic, brand-aligned content that engages your audience, strengthens your social presence, and drives real results focused on impact, not just content for content’s sake.
+      - list [ref=f4e131]:
+        - listitem [ref=f4e132]:
+          - link [ref=f4e133] [cursor=pointer]:
+            - /url: /tags/short-videos
+            - paragraph [ref=f4e135]: Short Videos
+        - listitem [ref=f4e136]:
+          - link [ref=f4e137] [cursor=pointer]:
+            - /url: /tags/reels-stories
+            - paragraph [ref=f4e139]: Reels & Stories
+        - listitem [ref=f4e140]:
+          - link [ref=f4e141] [cursor=pointer]:
+            - /url: /tags/tiktok-youtube
+            - paragraph [ref=f4e143]: TikTok & YouTube
+        - listitem [ref=f4e144]:
+          - link [ref=f4e145] [cursor=pointer]:
+            - /url: /tags/viral-content
+            - paragraph [ref=f4e147]: Viral Content
+      - generic [ref=f4e150]:
+        - link "LEARN MORE" [ref=f4e152] [cursor=pointer]:
+          - /url: /services/social-media-content
+        - generic [ref=f4e154]: LEARN MORE
+    - listitem [ref=f4e156]:
+      - generic [ref=f4e157]:
+        - link [ref=f4e158] [cursor=pointer]:
+          - /url: /services/post-production-and-editing
+          - heading "Post-Production & Editing" [level=2] [ref=f4e159]
+        - paragraph [ref=f4e161]: We create brand-aligned content that engages your audience and strengthens your social presence.
+      - list [ref=f4e163]:
+        - listitem [ref=f4e164]:
+          - link [ref=f4e165] [cursor=pointer]:
+            - /url: /tags/video-editing
+            - paragraph [ref=f4e167]: Video Editing
+        - listitem [ref=f4e168]:
+          - link [ref=f4e169] [cursor=pointer]:
+            - /url: /tags/color-grading
+            - paragraph [ref=f4e171]: Color Grading
+        - listitem [ref=f4e172]:
+          - link [ref=f4e173] [cursor=pointer]:
+            - /url: /tags/motion-graphics
+            - paragraph [ref=f4e175]: Motion Graphics
+        - listitem [ref=f4e176]:
+          - link [ref=f4e177] [cursor=pointer]:
+            - /url: /tags/sound-design
+            - paragraph [ref=f4e179]: Sound Design
+      - generic [ref=f4e182]:
+        - link "LEARN MORE" [ref=f4e184] [cursor=pointer]:
+          - /url: /services/post-production-and-editing
+        - generic [ref=f4e186]: LEARN MORE
+    - listitem [ref=f4e188]:
+      - generic [ref=f4e189]:
+        - link [ref=f4e190] [cursor=pointer]:
+          - /url: /services/event-coverage
+          - heading "Event Coverage" [level=2] [ref=f4e191]
+        - paragraph [ref=f4e193]: Post-production is our core strength delivering high-quality, automotive-focused editing and VFX with precision, flexibility, and consistent results.
+      - list [ref=f4e195]:
+        - listitem [ref=f4e196]:
+          - link [ref=f4e197] [cursor=pointer]:
+            - /url: /tags/live-stream
+            - paragraph [ref=f4e199]: Live Stream
+        - listitem [ref=f4e200]:
+          - link [ref=f4e201] [cursor=pointer]:
+            - /url: /tags/multi-cam
+            - paragraph [ref=f4e203]: Multi-Cam
+        - listitem [ref=f4e204]:
+          - link [ref=f4e205] [cursor=pointer]:
+            - /url: /tags/event-filming
+            - paragraph [ref=f4e207]: Event Filming
+        - listitem [ref=f4e208]:
+          - link [ref=f4e209] [cursor=pointer]:
+            - /url: /tags/bts-footage
+            - paragraph [ref=f4e211]: BTS Footage
+      - generic [ref=f4e214]:
+        - link "LEARN MORE" [ref=f4e216] [cursor=pointer]:
+          - /url: /services/event-coverage
+        - generic [ref=f4e218]: LEARN MORE
+    - listitem [ref=f4e219]:
+      - generic [ref=f4e220]:
+        - link [ref=f4e221] [cursor=pointer]:
+          - /url: /services/aerial-drone-filming
+          - heading "Aerial & Drone Filming" [level=2] [ref=f4e222]
+        - paragraph [ref=f4e224]: We capture breathtaking aerial perspectives that add depth and cinematic impact to your visuals, delivering stunning high-altitude shots.
+      - list [ref=f4e226]:
+        - listitem [ref=f4e227]:
+          - link [ref=f4e228] [cursor=pointer]:
+            - /url: /tags/drone-filming
+            - paragraph [ref=f4e230]: Drone Filming
+        - listitem [ref=f4e231]:
+          - link [ref=f4e232] [cursor=pointer]:
+            - /url: /tags/aerial-shots
+            - paragraph [ref=f4e234]: Aerial Shots
+        - listitem [ref=f4e235]:
+          - link [ref=f4e236] [cursor=pointer]:
+            - /url: /tags/fpv-filming
+            - paragraph [ref=f4e238]: FPV Filming
+        - listitem [ref=f4e239]:
+          - link [ref=f4e240] [cursor=pointer]:
+            - /url: /tags/landscape-cityscapes
+            - paragraph [ref=f4e242]: Landscape & Cityscapes
+      - generic [ref=f4e245]:
+        - link "LEARN MORE" [ref=f4e247] [cursor=pointer]:
+          - /url: /services/aerial-drone-filming
+        - generic [ref=f4e249]: LEARN MORE
+  - generic [ref=f4e251]:
+    - generic [ref=f4e257]:
+      - paragraph [ref=f4e262]: 00.00.00
+      - paragraph [ref=f4e265]: Your next story starts here...
+      - paragraph [ref=f4e271]: GET IN TOUCH
+      - paragraph [ref=f4e274]: info@podium-studios.com
+      - link [ref=f4e276] [cursor=pointer]:
+        - /url: /contact
+    - generic [ref=f4e281]:
+      - generic [ref=f4e284]:
+        - generic [ref=f4e286]:
+          - paragraph [ref=f4e288]: NEWSLETTER
+          - paragraph [ref=f4e290]: Join our mailing list
+          - form "Newsletter Form" [ref=f4e292]:
+            - textbox "Email Address" [ref=f4e293]
+            - button "Submit" [ref=f4e294] [cursor=pointer]
+        - generic [ref=f4e296]:
+          - generic [ref=f4e297]:
+            - generic [ref=f4e298]: Homepage
+            - link "Homepage" [ref=f4e300] [cursor=pointer]:
+              - /url: /
+          - generic [ref=f4e302]:
+            - generic [ref=f4e303]: Blog
+            - link "Blog" [ref=f4e305] [cursor=pointer]:
+              - /url: /blog
+          - generic [ref=f4e307]:
+            - generic [ref=f4e308]: Store
+            - link "Store" [ref=f4e310] [cursor=pointer]:
+              - /url: /store
+          - generic [ref=f4e312]:
+            - generic [ref=f4e313]: Portfolio
+            - link "Portfolio" [ref=f4e315] [cursor=pointer]:
+              - /url: /portfolio
+          - generic [ref=f4e317]:
+            - generic [ref=f4e318]: Contact
+            - link "Contact" [ref=f4e320] [cursor=pointer]:
+              - /url: /contact
+        - generic [ref=f4e323]:
+          - paragraph [ref=f4e325]: LOS ANGELES
+          - paragraph [ref=f4e327]: SYDNEY
+      - generic [ref=f4e332]:
+        - paragraph [ref=f4e334]: © 2026 Podium Studios — all rights reserved.
+        - generic [ref=f4e337]:
+          - generic [ref=f4e338]: Privacy Policy
+          - button "Privacy Policy" [ref=f4e340] [cursor=pointer]
+        - generic [ref=f4e344]:
+          - generic:
+            - link:
+              - /url: https://www.instagram.com/podium_studios
+          - generic:
+            - link:
+              - /url: /contact

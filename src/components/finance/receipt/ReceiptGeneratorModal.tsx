@@ -155,7 +155,7 @@ export function ReceiptGeneratorModal({ open, onClose, person, transactions, dis
             <button
               onClick={handleExport}
               disabled={exporting || displayTxs.length === 0}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 text-black text-xs font-semibold hover:bg-amber-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-5 py-2.5 rounded-lg bg-amber-500 text-black text-xs font-bold hover:bg-amber-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-amber-500/20"
             >
               {done ? (
                 <><Check className="w-3.5 h-3.5" /> Saved!</>
@@ -316,8 +316,8 @@ export function ReceiptGeneratorModal({ open, onClose, person, transactions, dis
           </div>
 
           {/* Right Panel — Live Preview */}
-          <div className="flex-1 overflow-auto p-6 flex justify-center" style={{ background: '#1a1a2e' }}>
-            <div className="flex flex-col items-center gap-4">
+          <div className="flex-1 overflow-auto p-6 flex justify-center items-start" style={{ background: '#1a1a2e' }}>
+            <div className="w-full max-w-[720px] flex flex-col items-center gap-4">
               <div className="flex items-center gap-2 text-[11px] text-zinc-500">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 Live Preview

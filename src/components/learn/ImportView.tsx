@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Import, FileUp, FileCode2, HelpCircle, Download, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { ValidationReport } from './ValidationReport';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 import type { ValidationIssue } from '../../shared/learn/types';
 
 export function ImportView({ importText, setImportText, onImport, onPickFile, onImportExample, importingExample, loading, result, mode, setMode, errors, warnings, onJumpToNode, onShowOnboarding }: {
@@ -93,6 +94,18 @@ export function ImportView({ importText, setImportText, onImport, onPickFile, on
 
           {mode === 'paste' && (
             <motion.div key="paste" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] text-zinc-500">Paste .lmd or .ldoc content</span>
+                <FieldAIButton
+                  fieldName="importText"
+                  label="Lesson Content"
+                  value={importText}
+                  onUpdate={setImportText}
+                  allFields={{ importText }}
+                  category="learn"
+                  context="Help convert or validate this lesson content format"
+                />
+              </div>
               <textarea
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}

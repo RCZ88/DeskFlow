@@ -137,9 +137,10 @@ function checkDag(doc: LdocDocument): ValidationIssue[] {
  */
 function checkVisual(doc: LdocDocument): ValidationIssue[] {
   const visualTypes = new Set([
-    'mermaid', 'image', 'widget', 'math', 'chart', 'finchart', 'flow', 'svg',
-    'code', 'table', 'layer', 'illustration', 'viz_heatmap', 'viz_graph',
-    'viz_timeline', 'viz_concept_map', 'flashcard', 'layer_reveal', 'whiteboard',
+    'mermaid', 'image', 'html', 'figure', 'math', 'annotated-math', 'code',
+    'annotated-code', 'chart', 'finchart', 'flow', 'layer', 'table',
+    'illustration', 'viz_heatmap', 'viz_graph', 'viz_timeline',
+    'viz_concept_map', 'flashcard', 'layer_reveal', 'whiteboard',
   ]);
   const levelOrder = ['L0', 'L1', 'L2', 'L3', 'L4', 'L5'];
   const issues: ValidationIssue[] = [];
@@ -155,6 +156,59 @@ function checkVisual(doc: LdocDocument): ValidationIssue[] {
         nodeId: node.id,
         message: `node "${node.id}" targets ${node.mastery_target} (>= L2) but has no visual block`,
       });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * @ref resolution: every @ref[id] must resolve to a target_id in the same node,
+ * and every target_id must be referenced at least once.
+ */
+function checkRefs(doc: LdocDocument): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  for (const node of doc.nodes) {
+    // Collect target_ids from annotated-code, annotated-math, figure, html blocks
+    const targetIds = new Set<string>();
+    for (const block of node.blocks) {
+      if (block.type === 'annotated-code' && 'targets' in block) {
+        for (const t of (block as any).targets) targetIds.add(t.id);
+      } else if (block.type === 'annotated-math' && 'targets' in block) {
+        for (const t of (block as any).targets) targetIds.add(t.id);
+      }
+    }
+
+    // Collect referenced IDs from prose blocks
+    const referencedIds = new Set<string>();
+    for (const block of node.blocks) {
+      if (block.type === 'prose' && 'md' in block) {
+        const matches = (block as any).md.matchAll(/@ref\[([a-zA-Z0-9_-]+)\]/g);
+        for (const m of matches) referencedIds.add(m[1]);
+      }
+    }
+
+    // Rule 1: every @ref must resolve
+    for (const refId of referencedIds) {
+      if (!targetIds.has(refId)) {
+        issues.push({
+          rule: 'unresolved-ref',
+          nodeId: node.id,
+          message: `Unresolved @ref target: "${refId}" in node "${node.id}". No annotated-code, annotated-math, figure, or html block defines this ID.`,
+        });
+      }
+    }
+
+    // Rule 2: every target must be referenced (orphaned target)
+    for (const targetId of targetIds) {
+      if (!referencedIds.has(targetId)) {
+        issues.push({
+          rule: 'orphaned-target',
+          nodeId: node.id,
+          message: `Orphaned visual target: "${targetId}" in node "${node.id}". All visual parts must be referenced via @ref[${targetId}].`,
+        });
+      }
     }
   }
 
@@ -250,6 +304,7 @@ export function validateFull(doc: unknown, publishedIds: Set<string> = new Set()
   allErrors.push(...checkDag(ldoc));
   allErrors.push(...checkPrereqIds(ldoc, publishedIds));
   allErrors.push(...checkVisual(ldoc));
+  allErrors.push(...checkRefs(ldoc));
   allErrors.push(...checkFactGrounding(ldoc));
   allErrors.push(...checkQuizKeys(ldoc));
   allErrors.push(...checkScope(ldoc));

@@ -5,6 +5,12 @@ export interface ActiveFocusGroup {
   groupId: number;
   allowedCategories: string[];
   startedAt: number;
+  name?: string;
+  strictness?: 'distracting' | 'non_allowed';
+  allowedApps?: string[];
+  allowedDomains?: string[];
+  groupIds?: number[];
+  groupNames?: string[];
 }
 
 let activeGroup: ActiveFocusGroup | null = null;

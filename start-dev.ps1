@@ -134,12 +134,11 @@ if (-not $NoDesktop) {
     & npm install
   }
 
-  $outputs = @(
-    "$scriptDir\dist-electron\preload.cjs",
-    "$scriptDir\dist-electron\main.cjs",
-    "$scriptDir\dist\index.html",
-    "$scriptDir\dist\assets\index.js"
-  )
+  # Check actual build outputs — Vite produces hashed filenames (index-[hash].js)
+  $preloadExists = Test-Path "$scriptDir\dist-electron\preload.cjs" -PathType Leaf
+  $mainExists = Test-Path "$scriptDir\dist-electron\main.cjs" -PathType Leaf
+  $htmlExists = Test-Path "$scriptDir\dist\index.html" -PathType Leaf
+  $indexJsExists = (Get-ChildItem "$scriptDir\dist\assets\index-*.js" -ErrorAction SilentlyContinue).Count -gt 0
 
   $needBuild = $Build
   $buildReason = ""
@@ -147,23 +146,45 @@ if (-not $NoDesktop) {
   if ($Build) {
     $buildReason = "Force rebuild (-Build flag)"
     Write-Host "Forced via parameter" -ForegroundColor Gray
-  } else {
-    $missing = $outputs | Where-Object { -not (Test-Path $_ -PathType Leaf) }
-    if ($missing.Count -gt 0) {
-      $needBuild = $true
-      $buildReason = "Missing: ($($missing -join ', '))"
-    }
+  } elseif (-not $preloadExists -or -not $mainExists -or -not $htmlExists -or -not $indexJsExists) {
+    $needBuild = $true
+    $missing = @()
+    if (-not $preloadExists) { $missing += "preload.cjs" }
+    if (-not $mainExists) { $missing += "main.cjs" }
+    if (-not $htmlExists) { $missing += "dist/index.html" }
+    if (-not $indexJsExists) { $missing += "dist/assets/index-*.js" }
+    $buildReason = "Missing: ($($missing -join ', '))"
   }
 
   if ($needBuild) {
     Write-Host "[build] $buildReason" -ForegroundColor Yellow
-    Write-Host "[build] Rebuilding..." -ForegroundColor Cyan
-    & npx esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Host "[build] Preload failed!" -ForegroundColor Red; exit $LASTEXITCODE }
-    & node scripts/rebuild-main.mjs 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Host "[build] Main build failed!" -ForegroundColor Red; exit $LASTEXITCODE }
-    & npx vite build 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Host "[build] Renderer build failed!" -ForegroundColor Red; exit $LASTEXITCODE }
+
+    # Only rebuild preload if missing
+    if (-not $preloadExists) {
+      Write-Host "[build] Building preload..." -ForegroundColor Cyan
+      & npx esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist-electron/preload.cjs 2>&1
+      if ($LASTEXITCODE -ne 0) { Write-Host "[build] Preload failed!" -ForegroundColor Red; exit $LASTEXITCODE }
+    } else {
+      Write-Host "[build] Preload OK (skipping)" -ForegroundColor DarkGray
+    }
+
+    # Only rebuild main if missing
+    if (-not $mainExists) {
+      Write-Host "[build] Building main..." -ForegroundColor Cyan
+      & node scripts/rebuild-main.mjs 2>&1
+      if ($LASTEXITCODE -ne 0) { Write-Host "[build] Main build failed!" -ForegroundColor Red; exit $LASTEXITCODE }
+    } else {
+      Write-Host "[build] Main OK (skipping)" -ForegroundColor DarkGray
+    }
+
+    # Only rebuild renderer if missing
+    if (-not $htmlExists -or -not $indexJsExists) {
+      Write-Host "[build] Building renderer..." -ForegroundColor Cyan
+      & npx vite build 2>&1
+      if ($LASTEXITCODE -ne 0) { Write-Host "[build] Renderer build failed!" -ForegroundColor Red; exit $LASTEXITCODE }
+    } else {
+      Write-Host "[build] Renderer OK (skipping)" -ForegroundColor DarkGray
+    }
   } else {
     Write-Host "[build] Skipped (use -Build to force)" -ForegroundColor Green
   }

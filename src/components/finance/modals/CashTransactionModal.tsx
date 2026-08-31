@@ -108,7 +108,7 @@ export const CashTransactionModal: React.FC<TxModalProps> = (props) => {
 								merchants={f.merchants}
 								value={f.merchantId || null}
 								onChange={(id, name) => { f.setMerchantId(id); f.setMerchant(name); }}
-								onAddMerchant={async (name) => { try { const res = await (window as any).deskflowAPI?.financeCreateMerchant?.({ name, account_id: props.wallet.account_id }); if (res?.id) { f.setMerchants((prev: any[]) => [...prev, res].sort((a: any, b: any) => a.name.localeCompare(b.name))); } } catch {} }}
+								onAddMerchant={async (name) => { try { const res = await (window as any).deskflowAPI?.financeCreateMerchant?.({ name, account_id: props.wallet.account_id }); if (res?.id) { f.setMerchants((prev: any[]) => [...prev, res].sort((a: any, b: any) => a.name.localeCompare(b.name))); return res.id; } } catch {} return null; }}
 								placeholder="e.g. Netflix, Starbucks"
 							/>
 						</div>

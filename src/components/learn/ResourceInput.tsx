@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Plus, X, Link, FileText, Upload, Globe, Type } from 'lucide-react';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 
 export interface Resource {
   id: string;
@@ -163,6 +164,15 @@ export function ResourceInput({ resources, onChange }: ResourceInputProps) {
             className="w-full px-2.5 py-1.5 rounded-lg bg-zinc-800/60 border border-zinc-700/50 text-zinc-200 text-xs leading-relaxed focus:outline-none focus:border-clay-500/40 resize-none placeholder:text-zinc-600 min-h-[48px]"
             rows={2}
             autoFocus
+          />
+          <FieldAIButton
+            fieldName="textInput"
+            label="Resource Notes"
+            value={textInput}
+            onUpdate={setTextInput}
+            allFields={{ textInput, linkInput }}
+            category="learn"
+            context="Help write or summarize resource notes"
           />
           <div className="flex items-center gap-1">
             <button onClick={addText} className="px-2 py-1 rounded-lg bg-clay-500/15 text-clay-300 text-[11px] font-medium border border-clay-400/20 hover:bg-clay-500/25 transition">Add</button>

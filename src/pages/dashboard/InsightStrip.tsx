@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Sparkles, Target, TrendingUp, Moon, Brain, Zap, Globe } from 'lucide-react';
 import { BlurFade } from '../../components/ui/blur-fade';
 

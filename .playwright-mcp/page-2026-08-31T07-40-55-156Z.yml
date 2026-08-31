@@ -1,0 +1,55 @@
+- generic [ref=f3e3]:
+  - banner:
+    - heading "Kenichi Aikawa is a photographer from Japan." [level=1] [ref=f3e4]:
+      - link "Kenichi Aikawa" [ref=f3e5] [cursor=pointer]:
+        - /url: /about
+        - generic [ref=f3e6]:
+          - generic [ref=f3e7]: Kenichi
+          - generic [ref=f3e8]: Aikawa
+      - generic [ref=f3e12]:
+        - generic [ref=f3e13]: is
+        - generic [ref=f3e14]: a
+        - generic [ref=f3e15]: photographer
+        - generic [ref=f3e16]: from
+        - generic [ref=f3e17]: Japan.
+  - generic:
+    - main
+  - navigation [ref=f3e18]:
+    - generic: Back
+    - generic [ref=f3e21]:
+      - generic [ref=f3e26]:
+        - generic:
+          - generic:
+            - generic: Work
+            - generic: Fashion
+            - generic: Journey
+      - generic:
+        - button "Previous category" [ref=f3e37] [cursor=pointer]
+        - button "Next category" [ref=f3e38] [cursor=pointer]
+    - generic [ref=f3e39] [cursor=pointer]: Mode
+    - list [ref=f3e44]:
+      - listitem [ref=f3e45]:
+        - link "Email Copy to clipboard Email copied" [ref=f3e46] [cursor=pointer]:
+          - /url: mailto:contact[at]aikawakenichi[dot]com
+          - generic [ref=f3e47]: Email
+          - generic [ref=f3e48]: Copy to clipboard
+          - generic [ref=f3e49]: Email copied
+      - listitem [ref=f3e50]:
+        - link "Instagram Instagram" [ref=f3e51] [cursor=pointer]:
+          - /url: https://www.instagram.com/aikawa_kenichi
+          - generic [ref=f3e52]:
+            - generic [ref=f3e53]: Instagram
+            - generic [ref=f3e54]: Instagram
+      - listitem [ref=f3e55]:
+        - link "Facebook Facebook" [ref=f3e56] [cursor=pointer]:
+          - /url: https://www.facebook.com/aikawa1977
+          - generic [ref=f3e57]:
+            - generic [ref=f3e58]: Facebook
+            - generic [ref=f3e59]: Facebook
+  - generic:
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic: Kenichi Aikawa
+            - generic: 0%

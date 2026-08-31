@@ -501,6 +501,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getSleepForDate: (dateStr: string) => ipcRenderer.invoke('get-sleep-for-date', dateStr),
   updateManualSleep: (sessionId: string, sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds?: number; wake_up_to_app_seconds?: number }) => ipcRenderer.invoke('update-manual-sleep', sessionId, sleepData),
   checkSleepDetection: () => ipcRenderer.invoke('check-sleep-detection'),
+  computeAdjacentGaps: (params: { sleepStartIso: string; sleepEndIso: string }) => ipcRenderer.invoke('compute-adjacent-gaps', params),
   confirmSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds: number; wake_up_to_app_seconds: number }) => ipcRenderer.invoke('confirm-sleep', sleepData),
   dismissSleepDetection: () => ipcRenderer.invoke('dismiss-sleep-detection'),
   addExternalTime: (activityId: string, durationMinutes: number, started_at?: string, ended_at?: string) => ipcRenderer.invoke('add-external-time', { activityId, durationMinutes, started_at, ended_at }),

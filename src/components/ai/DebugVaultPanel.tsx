@@ -194,8 +194,8 @@ export function DebugVaultPanel({ open }: { open: boolean }) {
 
   if (!open) return null;
 
-  return (
-    <div className="border-t border-zinc-800/60 bg-zinc-950/40 px-4 py-3 space-y-3 text-xs">
+    return (
+    <div className="h-full overflow-y-auto bg-zinc-950/40 px-4 py-3 space-y-3 text-xs">
       {/* Collapsible capture-points */}
       <button onClick={() => setShowCapture(v => !v)} className="flex items-center gap-2 text-zinc-400 hover:text-zinc-300 transition-colors">
         {showCapture ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}

@@ -1,32 +1,32 @@
-# CONTEXT_BUNDLE — AI Canvas: Default Setup, UX Pass, Research Digest, Provider Fallback, Context/RAG System
+# CONTEXT_BUNDLE â€” AI Canvas: Default Setup, UX Pass, Research Digest, Provider Fallback, Context/RAG System
 
 > Generated 2026-08-12 by opencode (Hands & Eyes) for the Architect.
 > This bundle is SELF-CONTAINED: the target AI must be able to design the complete
 > solution using only this file. Read it fully before writing the RESULT.md.
 > Repo root: `C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker`
-> App name: DeskFlow (AI page = route `/` → AiPage; canvas = the AI Assistant canvas).
+> App name: DeskFlow (AI page = route `/` â†’ AiPage; canvas = the AI Assistant canvas).
 
 ---
 
-## PART A — CRITICAL CONTEXT & CURRENT STATE (verified 2026-08-12)
+## PART A â€” CRITICAL CONTEXT & CURRENT STATE (verified 2026-08-12)
 
 ### A1. What has ALREADY been fixed (do NOT regress)
 
-1. **Canvas drag** — dnd-kit/framer-motion intercept `pointerdown` in capture phase
+1. **Canvas drag** â€” dnd-kit/framer-motion intercept `pointerdown` in capture phase
    (stopPropagation), so React's `#root` delegation NEVER fires for real events.
    CanvasCard.tsx now uses `mousedown`/`mousemove`/`mouseup` with window-level
    listeners + a `dragCleanupRef` cleanup pattern. Never convert back to pointer events.
-2. **Snap-back bug** — fixed via blur-only safety net (see CanvasCard excerpt below).
-3. **Grouping** — 30% area-overlap threshold, groups excluded as targets AND as
+2. **Snap-back bug** â€” fixed via blur-only safety net (see CanvasCard excerpt below).
+3. **Grouping** â€” 30% area-overlap threshold, groups excluded as targets AND as
    dragged items; rAF-throttled drop-target scan in CanvasGrid.
-4. **Seeding dedup** — unified seeding effect in AiPage; `wasLoaded` flag in
+4. **Seeding dedup** â€” unified seeding effect in AiPage; `wasLoaded` flag in
    useCanvasState; `clearAll()` resets the flag + sets `stateRef.current = DEFAULT_STATE`
    immediately (beforeunload race fixed).
-5. **Persistence** — `clearCanvasLayout()` removes ALL `deskflow-canvas-*` keys
-   (was: only active key → old canvases resurrected). `Save` overwrites the active
+5. **Persistence** â€” `clearCanvasLayout()` removes ALL `deskflow-canvas-*` keys
+   (was: only active key â†’ old canvases resurrected). `Save` overwrites the active
    canvas; **`Save As` (canvas.saveAs(name)) creates a NEW named canvas**.
 6. **CardDrawer.tsx** + **CustomConfirmDialog.tsx** were just created (see Part C).
-   `window.confirm` is BANNED in this app — all confirmations use CustomConfirmDialog.
+   `window.confirm` is BANNED in this app â€” all confirmations use CustomConfirmDialog.
 
 ### A2. The user's current demands (verbatim intent)
 
@@ -37,30 +37,30 @@ The user is frustrated that the canvas/AI page is not "fully implemented". They 
    save that setup, and every new canvas starts with those cards as defaults.
    "we should be able to setup like the default setup that we want on our new canvas
    so that everytime we create a new canvas, those cards that we have setup appear."
-2. **A full humancentred-UIUX pass over ALL canvas cards** — empty/loading/error/
+2. **A full humancentred-UIUX pass over ALL canvas cards** â€” empty/loading/error/
    populated states, hover/focus/disabled, keyboard, confirmation dialogs, coherent
    visual hierarchy. Cards: focus, plan, finance, digest, reflect, response,
    annotation, connectors, schedule, deadlines, planner, automation, generated, group.
-3. **Daily Research (Research Digest) must WORK properly** — generation, polling,
+3. **Daily Research (Research Digest) must WORK properly** â€” generation, polling,
    fallback chain (providers), error surfacing. Verify `get-topic-digest` end-to-end.
-4. **The provider fallback system must WORK** — `buildChain` + `runWithFallback`
+4. **The provider fallback system must WORK** â€” `buildChain` + `runWithFallback`
    (see Part D) must be used by EVERY AI feature; assignment UI exists
    (AiProviderSelectModal) for default/researchDigest/goalAssistant.
-5. **The system must be ADAPTIVE/DYNAMIC to the feature list** — cards appear
-   based on which features/data exist (e.g. no finance data → finance card shows
+5. **The system must be ADAPTIVE/DYNAMIC to the feature list** â€” cards appear
+   based on which features/data exist (e.g. no finance data â†’ finance card shows
    empty state with CTA, not a broken card).
-6. **Context system design** — the user asks: "how do we handle the context system
+6. **Context system design** â€” the user asks: "how do we handle the context system
    in using RAG or more advanced systems like Graph RAG, Tiered Memory, multi-strategy
-   retrieval and stuff like that?" **This is an ARCHITECTURE DESIGN QUESTION** —
+   retrieval and stuff like that?" **This is an ARCHITECTURE DESIGN QUESTION** â€”
    the Architect must propose a concrete, buildable design (files, IPC, schemas)
    for the AI page's context/memory, NOT a vague essay.
-7. **Use frontend MCP inventory + skills** — shadcn, Magic UI, Lucide, React Bits,
+7. **Use frontend MCP inventory + skills** â€” shadcn, Magic UI, Lucide, React Bits,
    Iconify; re-skin to DeskFlow tokens (see Part F).
 
 ### A3. Hard invariants (NEVER regress)
 
 - Canvas card drag = mouse events only (see A1.1).
-- `window.confirm`/`alert` BANNED — CustomConfirmDialog everywhere.
+- `window.confirm`/`alert` BANNED â€” CustomConfirmDialog everywhere.
 - localStorage access wrapped in try/catch; files CRLF; dark-mode only.
 - Seeding: seed defaults ONLY on fresh canvases or after explicit New Canvas;
   never re-seed when canvas state was loaded from storage (even if empty).
@@ -68,11 +68,11 @@ The user is frustrated that the canvas/AI page is not "fully implemented". They 
   `node scripts/rebuild-main.mjs`. After renderer changes, the app must be
   fully closed + relaunched (stale bundles cause false "still broken" reports).
 - The canvas state is saved **synchronously** on every change
-  (saveCanvasLayout(state) in a useEffect) — no debounce explosion.
+  (saveCanvasLayout(state) in a useEffect) â€” no debounce explosion.
 
 ---
 
-## PART B — CANVAS DATA MODEL (verbatim)
+## PART B â€” CANVAS DATA MODEL (verbatim)
 
 ### B1. src/types/canvas.ts (full current types)
 
@@ -127,7 +127,7 @@ export const DEFAULT_STATE: CanvasState = {
 }
 ```
 
-### B2. src/services/canvasPersistence.ts (verbatim — the CURRENT saving system)
+### B2. src/services/canvasPersistence.ts (verbatim â€” the CURRENT saving system)
 
 ```ts
 const STORAGE_PREFIX = 'deskflow-canvas-'
@@ -235,7 +235,7 @@ export function useCanvasState() {
   const stateRef = useRef(state)
   stateRef.current = state
 
-  // Save on every state change — synchronous
+  // Save on every state change â€” synchronous
   useEffect(() => {
     setSaveStatus('saving')
     try {
@@ -290,15 +290,15 @@ export function useCanvasState() {
 ```
 ---
 
-## PART C � CURRENT CANVAS UI COMPONENTS (key excerpts)
+## PART C — CURRENT CANVAS UI COMPONENTS (key excerpts)
 
-### C1. CanvasContainer.tsx � toolbar buttons (current state, ~L300-476)
+### C1. CanvasContainer.tsx — toolbar buttons (current state, ~L300-476)
 
 The toolbar currently has (in order): Add Card (emerald +), Focus, Zoom-, % label,
 Zoom+, Auto-focus toggle, Save (floppy), New Canvas (cross icon), Fullscreen.
 Save As is a separate dialog (`showSaveAs` state, name input) triggered from the
 Manager panel. The user said "the buttons are too similar, like the + button is the
-same for both functions. change it. and make sure they are properly arranged" �
+same for both functions. change it. and make sure they are properly arranged" —
 the toolbar was rearranged into Left (Add +, Manager) / Center (Arrange, Focus,
 Zoom) / Right (Auto-focus, Save, Save As, New, Fullscreen) groups, but the user has
 NOT yet confirmed the visual result. **Verify the arrangement matches and icons are
@@ -334,7 +334,7 @@ distinct.**
 )}
 ```
 
-### C2. CardDrawer.tsx (NEW � verbatim, full component, 155 lines)
+### C2. CardDrawer.tsx (NEW — verbatim, full component, 155 lines)
 
 ```tsx
 import { useState, useCallback } from "react"
@@ -376,7 +376,7 @@ export function CardDrawer({ open, onToggle, onAddCard }: CardDrawerProps) {
 }
 ```
 
-### C3. CustomConfirmDialog.tsx (NEW � verbatim, full component)
+### C3. CustomConfirmDialog.tsx (NEW — verbatim, full component)
 
 ```tsx
 // Props: { open, title, message, confirmLabel?, cancelLabel?, variant: "danger"|"warning"|"info", onConfirm, onCancel }
@@ -388,11 +388,11 @@ export function CardDrawer({ open, onToggle, onAddCard }: CardDrawerProps) {
 // and clicking the backdrop cancels.
 ```
 
-### C4. CanvasCard.tsx � drag architecture (current, DO NOT REGRESS)
+### C4. CanvasCard.tsx — drag architecture (current, DO NOT REGRESS)
 
 - Uses `mousedown` (not pointerdown!) on the drag handle; `mousemove`/`mouseup`
   registered on `window` inside `dragCleanupRef.current`; `onUp` commits position.
-- Safety net effect: `window.addEventListener("blur", cleanupInteraction)` ONLY �
+- Safety net effect: `window.addEventListener("blur", cleanupInteraction)` ONLY —
   no mouseup in the safety net (ordering bug), and the safety net's unmount
   cleanup must NOT call `cleanupInteraction()`.
 - `engageDrag(e)` stores start position; a ~2px movement threshold before
@@ -404,9 +404,9 @@ export function CardDrawer({ open, onToggle, onAddCard }: CardDrawerProps) {
 
 ---
 
-## PART D � AI PROVIDER CHAIN + FALLBACK (verbatim)
+## PART D — AI PROVIDER CHAIN + FALLBACK (verbatim)
 
-### D1. src/services/providers/router.ts (full, 132 lines � THE fallback system)
+### D1. src/services/providers/router.ts (full, 132 lines — THE fallback system)
 
 ```ts
 export function buildChain(
@@ -422,7 +422,7 @@ export function buildChain(
 
 async function callWithTokenTiers(provider, req, externalSignal?): Promise<CanonicalResponse> {
   // monthlyTokenBudget check ? 402 if exhausted
-  // tiers = [req.maxTokens ?? 1500, 100, 50, 40] � retry on 402/AbortError/5xx only
+  // tiers = [req.maxTokens ?? 1500, 100, 50, 40] — retry on 402/AbortError/5xx only
   // tracks cfg.tokensUsedThisMonth
 }
 
@@ -433,11 +433,11 @@ export async function runWithFallback(
 ): Promise<{ result: CanonicalResponse; usedProviderId: string }> {
   // tries chain[i] in order; callWithTokenTiers each; returns first success
   // aggregates errors; distinguishes timeout (AbortError) vs failure
-  // final: throw Error(`All ${n} provider(s) exhausted � ...`)
+  // final: throw Error(`All ${n} provider(s) exhausted — ...`)
 }
 ```
 
-**GOTCHA:** buildChain takes a CLOSED feature union � ANY new AI feature that wants
+**GOTCHA:** buildChain takes a CLOSED feature union — ANY new AI feature that wants
 provider routing MUST extend that union in router.ts, or TS errors block the renderer
 build. New AI IPC features go through `buildChain(pState, "<feature>")` +
 `runWithFallback` for the chain, then OpenRouter direct fallback.
@@ -447,7 +447,7 @@ build. New AI IPC features go through `buildChain(pState, "<feature>")` +
 - preload.ts: `getTopicDigest: (opts?: { force?: boolean }) => ipcRenderer.invoke("get-topic-digest", opts)`
 - preload.ts: `isDigestGenerating: () => ipcRenderer.invoke("is-digest-generating")`
 - preload.ts: `onDigestGenerationComplete: (handler) => { ipcRenderer.on("digest-generation-complete", handler); return () => ipcRenderer.removeListener(...) }`
-- main.ts:15963: `ipcMain.handle("get-topic-digest", ...)` � checks in-progress flag,
+- main.ts:15963: `ipcMain.handle("get-topic-digest", ...)` — checks in-progress flag,
   returns { topics, status, reason } shapes; on completion sends
   `digest-generation-complete` event to renderer.
 - AiPage digest polling: `digestPollRef` setInterval (AiPage.tsx:683-704) polls
@@ -466,7 +466,7 @@ build. New AI IPC features go through `buildChain(pState, "<feature>")` +
 
 ---
 
-## PART E � SEEDING & ADAPTIVE CARD LOGIC (AiPage.tsx)
+## PART E — SEEDING & ADAPTIVE CARD LOGIC (AiPage.tsx)
 
 ### E1. Seeding effect (unified, uses canvas.wasLoaded)
 
@@ -475,7 +475,7 @@ build. New AI IPC features go through `buildChain(pState, "<feature>")` +
 //   digestTopics, reflectDays, connectorsState, connectors, connectorSyncing])
 // if (!canvas.wasLoaded && cards.length === 0) ? seed core cards at grid positions:
 //   focus {x:200,y:80}, plan {x:200,y:320}, finance {x:200,y:560},
-//   digest {x:200,y:320} (digest only when digestTopics exist? � verify),
+//   digest {x:200,y:320} (digest only when digestTopics exist? — verify),
 //   reflect, connectors, schedule, deadlines, planner
 // if cards exist ? UPDATE existing cards' data in place (never duplicate)
 // getCardPosition(type, index) ? 4-column grid, 200px spacing (replaces old 40px diagonal)
@@ -483,23 +483,23 @@ build. New AI IPC features go through `buildChain(pState, "<feature>")` +
 
 ### E2. Bridge effect (message ? card)
 
-AiPage.tsx:197: `case "digest_item": return "digest"` � message parsing maps parsed
+AiPage.tsx:197: `case "digest_item": return "digest"` — message parsing maps parsed
 types to CardTypes. Line 273-274: digest_item ? `canvas.addCard("digest", { topics: [...], msgId }, ...)`.
 Other parsed types: goal_card, plan_item, reflection, finance, connector, schedule,
-deadline, planner, annotation, transient � each mapped to a card add.
+deadline, planner, annotation, transient — each mapped to a card add.
 
 ### E3. Adaptive requirement (user demand #5)
 
 Cards must react to DATA PRESENCE: e.g. finance card with no transactions shows an
-empty state + CTA ("No finance data yet � add your first transaction"), not a blank
+empty state + CTA ("No finance data yet — add your first transaction"), not a blank
 or broken body. Each card component should own its 4 states (empty/loading/error/
 populated) per the humancentred-UIUX skill (Part F2).
 
 ---
 
-## PART F � DESIGN SYSTEM & MCP INVENTORY
+## PART F — DESIGN SYSTEM & MCP INVENTORY
 
-### F1. DeskFlow tokens (re-skin rules � MANDATORY for any MCP-sourced component)
+### F1. DeskFlow tokens (re-skin rules — MANDATORY for any MCP-sourced component)
 
 - Dark mode only. Glass layer: `bg-[rgba(24,24,27,0.60)]` or `bg-zinc-900/80` + `backdrop-blur-xl`.
 - Max radius `rounded-xl` (exception: dialogs use rounded-2xl). Padding `p-5`.
@@ -509,21 +509,21 @@ populated) per the humancentred-UIUX skill (Part F2).
 - Canvas CSS vars: `--dk-accent`, `--dk-text-muted` used by toolbar buttons.
 - Text scale: 14px semibold titles, 12px muted secondary, 11px labels.
 
-### F2. humancentred-UIUX skill � 6 pillars to apply to EVERY canvas card
+### F2. humancentred-UIUX skill — 6 pillars to apply to EVERY canvas card
 
-1. Clarity over cleverness � plain-language labels, no raw tokens.
-2. Progressive disclosure � advanced options hidden behind toggles.
-3. Visual hierarchy � one focal point, muted metadata.
-4. **Complete state coverage** � EVERY data-driven card: Empty (icon + one-line
+1. Clarity over cleverness — plain-language labels, no raw tokens.
+2. Progressive disclosure — advanced options hidden behind toggles.
+3. Visual hierarchy — one focal point, muted metadata.
+4. **Complete state coverage** — EVERY data-driven card: Empty (icon + one-line
    explanation + CTA), Loading (skeleton matching content shape), Error (plain
    cause + Retry), Populated, Partial/Overflow (truncation).
-5. Feedback & micro-interactions � hover/focus/active/disabled on every control;
+5. Feedback & micro-interactions — hover/focus/active/disabled on every control;
    150-300ms transitions; destructive actions confirmed (CustomConfirmDialog);
    submit feedback (loading?success/error).
-6. Forgiveness & affordance � =44px targets, inline validation, keyboard nav,
+6. Forgiveness & affordance — =44px targets, inline validation, keyboard nav,
    visible focus rings, no mouse-only interactions.
 
-### F3. MCP component inventory (query results � use these, do NOT invent)
+### F3. MCP component inventory (query results — use these, do NOT invent)
 
 | Component | Source | Use for |
 |-----------|--------|---------|
@@ -533,28 +533,28 @@ populated) per the humancentred-UIUX skill (Part F2).
 | Target, Calendar, TrendingUp, Newspaper, Plug, Clock, ListTodo, Bell, MessageSquare, Layers | lucide-react (installed) | Card icons (already used) |
 | React Bits (135+), Iconify (200k+) | MCP | Fallbacks if a specific effect/icon is missing |
 
-**Anti-slop checklist after sourcing:** re-skin to F1 tokens � max rounded-xl �
-p-5 � dark-only � Geist/JetBrains Mono � glass layer � no default purple gradients �
-no identical-radius-everything � real empty states, not blank boxes.
+**Anti-slop checklist after sourcing:** re-skin to F1 tokens · max rounded-xl ·
+p-5 · dark-only · Geist/JetBrains Mono · glass layer · no default purple gradients ·
+no identical-radius-everything · real empty states, not blank boxes.
 
 ---
 
-## PART G � CONTEXT SYSTEM (user demand #6 � DESIGN REQUIRED)
+## PART G — CONTEXT SYSTEM (user demand #6 — DESIGN REQUIRED)
 
-Current state of context/knowledge systems in the app (do NOT rebuild these � DESIGN
+Current state of context/knowledge systems in the app (do NOT rebuild these — DESIGN
 the integration for the AI page):
 
-- **Graphify** � `graphify-out/graph.json`, skill at agent/skills/graphify/SKILL.md.
-- **LLM Wiki** � all `agent/*.md` files.
-- **Obsidian Skills** � `agent/skills/<name>/SKILL.md`.
-- **PARA** � `CZVault/` (00_Projects, 01_Areas, 02_Resources, 03_Archives).
-- **QMD** � `agent/templates/*.qmd`.
-- **Automations** � `agent/automations/automations.json`.
+- **Graphify** — `graphify-out/graph.json`, skill at agent/skills/graphify/SKILL.md.
+- **LLM Wiki** — all `agent/*.md` files.
+- **Obsidian Skills** — `agent/skills/<name>/SKILL.md`.
+- **PARA** — `CZVault/` (00_Projects, 01_Areas, 02_Resources, 03_Archives).
+- **QMD** — `agent/templates/*.qmd`.
+- **Automations** — `agent/automations/automations.json`.
 - Terminal context assembly: `assemble-context` IPC (2000 token budget) injects
   problems/requests/sessions into agent prompts (TerminalPage.initializeTerminal).
 
 The DESIGN must answer concretely: how the AI page (chat + canvas + digest) pulls
-context via RAG / Graph RAG / Tiered Memory / multi-strategy retrieval � with real
+context via RAG / Graph RAG / Tiered Memory / multi-strategy retrieval — with real
 file paths, IPC channel names, DB schema (or file locations), and a phased build plan.
 Prefer: main-process index built from existing knowledge stores, chunked + embedded
 (or keyword-scored if no embedding key), multi-strategy (BM25 + graph adjacency +
@@ -562,7 +562,7 @@ recency tier), exposed via a single `context:query` IPC.
 
 ---
 
-## PART H � OPEN QUESTIONS FOR THE ARCHITECT
+## PART H — OPEN QUESTIONS FOR THE ARCHITECT
 
 1. Should the "default canvas setup" be a NEW localStorage key (e.g.
    `deskflow-canvas-default-setup`) storing an array of {type, data, position,
@@ -572,5 +572,5 @@ recency tier), exposed via a single `context:query` IPC.
 3. Should "New Canvas" use the default setup, and should there be a per-canvas
    "Apply default setup" action?
 4. Digest: is `get-topic-digest` generation synchronous-blocking or async with
-   polling? (AiPage polls isDigestGenerating � verify handler returns quickly.)
+   polling? (AiPage polls isDigestGenerating — verify handler returns quickly.)
 5. Context system scope: AI-page only, or shared with terminal agents?

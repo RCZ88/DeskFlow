@@ -5,7 +5,7 @@
 // ============================================================
 
 import { useEffect, useState, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 
 interface BlurTextProps {
   text: string;

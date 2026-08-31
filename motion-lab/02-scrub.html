@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>02 — Scroll Scrub</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{height:300vh;background:#050506;color:rgba(255,255,255,.85)}
+  body{position:fixed;top:0;left:0;width:100%;height:100vh;font-family:'JetBrains Mono',monospace;overflow:hidden}
+  .pin{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;padding:40px}
+  .time{font-family:'Space Grotesk',sans-serif;font-size:72px;font-weight:600;letter-spacing:-2px;color:rgba(255,255,255,.9);line-height:1}
+  .label{font-size:11px;color:rgba(255,255,255,.3);letter-spacing:2px;text-transform:uppercase}
+  .ruler{position:relative;width:min(90vw,720px);height:48px}
+  .ruler-bg{position:absolute;top:50%;left:0;right:0;height:1px;background:rgba(255,255,255,.08)}
+  .ruler-tick{position:absolute;top:50%;width:1px;height:12px;background:rgba(255,255,255,.15);transform:translateY(-50%)}
+  .ruler-tick.major{height:20px;background:rgba(255,255,255,.3)}
+  .ruler-label{position:absolute;top:calc(50% + 18px);font-size:10px;color:rgba(255,255,255,.35);transform:translateX(-50%);white-space:nowrap}
+  .playhead{position:absolute;top:0;width:2px;height:100%;background:rgba(255,255,255,.85);border-radius:1px;will-change:transform}
+  .playhead::before{content:'';position:absolute;top:-4px;left:-4px;width:10px;height:10px;border-radius:50%;background:#fff}
+  .counters{display:flex;gap:40px}
+  .counter{text-align:center}
+  .counter .val{font-family:'Space Grotesk',sans-serif;font-size:32px;font-weight:600;color:rgba(255,255,255,.9)}
+  .counter .unit{font-size:10px;color:rgba(255,255,255,.3);margin-top:4px;text-transform:uppercase;letter-spacing:1px}
+  .phases{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+  .phase{padding:4px 12px;border-radius:99px;font-size:11px;border:1px solid rgba(255,255,255,.08);color:rgba(255,255,255,.3);transition:all .25s ease}
+  .phase.active{border-color:rgba(255,255,255,.4);color:rgba(255,255,255,.85);background:rgba(255,255,255,.05)}
+  svg.poly{width:min(90vw,720px);height:80px;overflow:visible}
+  svg.poly path{fill:none;stroke:rgba(255,255,255,.6);stroke-width:1.5;stroke-linecap:round}
+  .bar{width:min(90vw,720px);height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+  .bar-fill{height:100%;background:rgba(255,255,255,.5);border-radius:2px}
+  @media(prefers-reduced-motion:reduce){.playhead,.bar-fill{transition:none}}
+</style>
+</head>
+<body>
+<div class="pin">
+  <div class="label">scroll scrub</div>
+  <div class="time" id="time">00:00</div>
+  <div class="ruler" id="ruler">
+    <div class="ruler-bg"></div>
+    <div class="playhead" id="ph"></div>
+  </div>
+  <svg class="poly" id="poly" viewBox="0 0 720 80" preserveAspectRatio="none">
+    <path id="polyPath"/>
+  </svg>
+  <div class="counters">
+    <div class="counter"><div class="val" id="cTasks">0</div><div class="unit">tasks</div></div>
+    <div class="counter"><div class="val" id="cTokens">0</div><div class="unit">tokens</div></div>
+    <div class="counter"><div class="val" id="cCost">$0.00</div><div class="unit">cost</div></div>
+  </div>
+  <div class="phases" id="phases"></div>
+  <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+</div>
+<script type="module">
+import {scroll} from 'https://cdn.jsdelivr.net/npm/motion@11.18.2/+esm';
+
+const TOTAL_TASKS  = 247;
+const TOTAL_TOKENS = 184200;
+const TOTAL_COST   = 4.73;
+const TOTAL_H      = 86400;
+const PHASES       = ['boot','plan','execute','verify','report'];
+const SPRING_CFG   = {stiffness:120,damping:25,restDelta:0.001};
+
+const ruler    = document.getElementById('ruler');
+const phEl     = document.getElementById('ph');
+const timeEl   = document.getElementById('time');
+const polyPath = document.getElementById('polyPath');
+const cTasks   = document.getElementById('cTasks');
+const cTokens  = document.getElementById('cTokens');
+const cCost    = document.getElementById('cCost');
+const barFill  = document.getElementById('barFill');
+const phasesEl = document.getElementById('phases');
+
+const W = 720;
+
+// Build ruler ticks (once)
+for (let i = 0; i <= 24; i++) {
+  const x = (i / 24) * W;
+  const tick = document.createElement('div');
+  tick.className = 'ruler-tick' + (i % 6 === 0 ? ' major' : '');
+  tick.style.left = x + 'px';
+  ruler.appendChild(tick);
+  if (i % 6 === 0) {
+    const lbl = document.createElement('div');
+    lbl.className = 'ruler-label';
+    lbl.style.left = x + 'px';
+    lbl.textContent = String(i).padStart(2,'0') + ':00';
+    ruler.appendChild(lbl);
+  }
+}
+
+// Build phase chips (once)
+const phaseEls = PHASES.map((p, i) => {
+  const el = document.createElement('div');
+  el.className = 'phase';
+  el.textContent = p;
+  phasesEl.appendChild(el);
+  return el;
+});
+
+// SVG polyline (once)
+const pts = [];
+for (let i = 0; i <= 60; i++) {
+  const x = (i / 60) * W;
+  const y = 40 + Math.sin(i * 0.3) * 15 + Math.sin(i * 0.7) * 8;
+  pts.push(`${x},${y}`);
+}
+polyPath.setAttribute('d', 'M' + pts.join(' L'));
+const totalLen = polyPath.getTotalLength();
+polyPath.style.strokeDasharray = totalLen;
+polyPath.style.strokeDashoffset = totalLen;
+
+let smoothP = 0;
+let vel = 0;
+let targetP = 0;
+let lastPhaseIdx = -1;
+
+function springStep(target, dt) {
+  const dx = target - smoothP;
+  const accel = SPRING_CFG.stiffness * dx - SPRING_CFG.damping * vel;
+  vel += accel * dt;
+  smoothP += vel * dt;
+  if (Math.abs(dx) < SPRING_CFG.restDelta && Math.abs(vel) < SPRING_CFG.restDelta) {
+    smoothP = target;
+    vel = 0;
+  }
+}
+
+function hhmm(p) {
+  const s = Math.round(p * TOTAL_H);
+  const h = Math.floor(s / 3600) % 24;
+  const m = Math.floor((s % 3600) / 60);
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
+let lastT = performance.now();
+function tick(now) {
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
+  springStep(targetP, dt);
+
+  const p = smoothP;
+
+  // Playhead — GPU composited via transform
+  phEl.style.transform = `translateX(${p * 100}vw)`;
+
+  // Time readout
+  timeEl.textContent = hhmm(p);
+
+  // Counters
+  cTasks.textContent = Math.round(p * TOTAL_TASKS);
+  cTokens.textContent = Math.round(p * TOTAL_TOKENS).toLocaleString();
+  cCost.textContent = '$' + (p * TOTAL_COST).toFixed(2);
+
+  // SVG polyline dashoffset
+  polyPath.style.strokeDashoffset = totalLen * (1 - p);
+
+  // Phase chips — skip DOM writes if unchanged
+  const phaseIdx = Math.min((p * PHASES.length) | 0, PHASES.length - 1);
+  if (phaseIdx !== lastPhaseIdx) {
+    for (let i = 0; i < phaseEls.length; i++) {
+      phaseEls[i].classList.toggle('active', i <= phaseIdx);
+    }
+    lastPhaseIdx = phaseIdx;
+  }
+
+  // Progress bar
+  barFill.style.width = (p * 100) + '%';
+
+  requestAnimationFrame(tick);
+}
+
+scroll(
+  (p) => { targetP = Math.max(0, Math.min(1, p)); },
+  { target: document.documentElement }
+);
+
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  smoothP = 0.5; targetP = 0.5;
+  phEl.style.transform = 'translateX(50vw)';
+  timeEl.textContent = '12:00';
+  cTasks.textContent = Math.round(TOTAL_TASKS / 2);
+  cTokens.textContent = Math.round(TOTAL_TOKENS / 2).toLocaleString();
+  cCost.textContent = '$' + (TOTAL_COST / 2).toFixed(2);
+  polyPath.style.strokeDashoffset = totalLen * 0.5;
+  barFill.style.width = '50%';
+  phaseEls.forEach((el,i) => { el.classList.toggle('active', i <= 2); });
+} else {
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

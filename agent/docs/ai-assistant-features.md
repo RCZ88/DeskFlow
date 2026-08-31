@@ -345,3 +345,148 @@ DeskFlow is a desktop productivity tracker (Electron + React + SQLite). The AI A
 | Error boundary at bottom of page | MEDIUM | Card-level, not page-level |
 | Schedule card not showing data | MEDIUM | IPC response fix should resolve |
 | Deadlines not showing | MEDIUM | IPC response fix should resolve |
+
+---
+
+## Feature 23: Automations System (Visual Builder) — "the fully automation"
+
+**User Problem:** The user wants a feature where the AI (or the user) can *create* behavior — "the feature thing where the AI is able to be the ones creating the stuff." This is the **Automations** tab on the AI page (the `CompositionsPanel` component literally renders the Automations list).
+
+**What It Should Do:**
+- A "Create Automation" button opens a **Visual Builder** (5 steps): Trigger → Conditions → Action → Configure → Review
+- Trigger picks an event from one of 6 data sources: `finance`, `focus`, `goals`, `learning`, `ide`, `system`
+- Conditions filter the trigger (operator map: equals / not-equals / greater-than / contains …)
+- Action is one of: `notify` (send notification), `goal:create`, `goal:complete`, `schedule:add`, `deadline:add`, `email:send`, `calendar:create`, `log`
+- Natural-language input: the AI can describe an automation and `nlParser` + `dslGenerator` turn it into a config
+- Stored in `agent/automations/automations.json`
+- Toggle on/off per automation, delete, and "Test Run" (fires `compositionsEvaluate` on the engine)
+
+**Current State:** UI is built end-to-end. `CompositionPanel` → `AutomationList`/`AutomationCard` → `VisualBuilderModal` (5 steps) → `useAutomationActions` (create/toggle/delete/testRun). Triggers (`triggerRegistry.ts`) and actions (`actionRegistry.ts`) are registered. The builder and the list render. **NOT YET VERIFIED at runtime** — the open question is whether real app events (e.g. a transaction created) actually propagate to the engine and fire the action. If automations never fire on real events, the wiring from `compositions:enqueue-event` to the live event sources is missing.
+
+**What's Broken / Unknown:**
+- The executor is the **compositions engine** (see Feature 24). `testRun` calls `compositionsEvaluate`, so a manual test can work even if live event propagation does not.
+- Need to confirm: does anything call `compositions:enqueue-event` when a real transaction/goal/session event happens? If no caller exists, automations only run on manual Test Run.
+
+**How to verify (idiot-proof):**
+1. Open `/ai` → switch mode to **Compositions** (the third canvas-mode tab).
+2. Click **Create Automation** → the 5-step Visual Builder modal must open (Trigger step visible first).
+3. Pick trigger `finance.transaction.created`, add no conditions, action `notify` with message "test".
+4. Save → the automation appears in the list with a toggle.
+5. Toggle it ON, click **Test Run** → a notification titled "test" should appear (or the action log entry written). If nothing happens → engine wiring broken.
+
+---
+
+## Feature 24: Self-Expanding Agentic System / Composition Engine (the "AI feature maker")
+
+**User Problem:** From the voice memo `self-expanding-agentic-system-30072026`: a system where the AI composes NEW capabilities by *connecting existing data*, without writing code. "Why not make the AI have the capabilities to do whatever?" — e.g. "sleep by 10pm" goal auto-evaluates from tracked sleep data; the system is the sole judge.
+
+**What It Should Do (the mandate):**
+1. **Ambient Goal Evaluation ("AI Judge")** — goals like "sleep by 10pm" auto-evaluate from tracked data; system decides pass/fail, no manual tick.
+2. **Constrained Composition DSL** — `WHEN {event} IF {condition} THEN {action}`; bounded, auditable, reviewable. NOT arbitrary code.
+3. **Data Connectivity Mesh** — every subsystem registers data sources + triggers; any feature can subscribe (polling + push events).
+4. **Self-Expansion Without Code Access** — new "feature" = new composition of existing primitives; saved in a registry.
+5. **Safety Guardrails** — rate limits, scope limits, kill switch, audit trail, human review for finance/destructive actions.
+6. **User-Facing UI** — Compositions tab: cards (active/paused/error), create/edit modal, activity feed, per-item toggle, kill switch.
+
+**What Actually Exists In The Repo (verified):**
+- Backend engine: `src/domains/compositions/` — `compositionEngine.ts`, `CompositionEngineManager.ts`, `CompositionEngineService.ts`, `compositionEventBus.ts`, `compositionLexer.ts`, `compositionParser.ts`, `compositionSchema.ts`, `compositionScopeChecker.ts`, `dataSourceRegistry.ts`, and 6 data adapters (`dataAdapterFinance/Goals/Focus/Ide/Learning/System.ts`).
+- Initialized in `src/main.ts` (~line 5160): `compositionEngine = new CompositionEngineManager(db, …)`.
+- IPC handlers present: `compositions:validate`, `compositions:evaluate`, `compositions:enqueue-event` (+ more registered by the manager). Preload bridges: `compositionsList/Get/Create/Update/Delete/Compile/Validate/Evaluate/History/Status/SettingsGet/SettingsSet`.
+- Frontend: `CompositionPanel` (renders the Automations list), `CompositionEditorModal`, `CompositionHistoryDrawer`, `CompositionRuleCard`.
+- DB schema + scope checker (sandbox) + event bus are implemented.
+
+**Current State:** The engine and DSL infrastructure are implemented and wired into `main.ts` + preload. This is the actual realization of the "self-expanding" plan. **Gaps to verify:** (a) are the DSL tables actually created on first run? (b) does the event bus receive real app events, or only manual `evaluate`? (c) is the guided DSL editor (`CompositionEditorModal`) reachable from the UI, or is only the Visual Builder (Feature 23) exposed? (d) kill switch + rate limiter + audit trail wired to the toggle?
+
+**How to verify (idiot-proof):**
+1. In the Compositions tab, open an existing automation (or create one) → does a DSL/source editor show the actual `WHEN/IF/THEN` rule? If only the Visual Builder shows, the raw DSL editor may be unreachable.
+2. Run `window.deskflowAPI.compositionsList()` in DevTools console → should return an array (even empty) without throwing. If it throws "No handler" → engine not registered.
+3. Run `window.deskflowAPI.compositionsStatus()` → should return status object. A thrown error = engine init failed (check main console for `[DeskFlow] Failed to init CompositionEngine`).
+
+---
+
+## Feature 25: Brain Chat (Context Brain integration)
+
+**What It Should Do:** A chat surface (`BrainChatPanel.tsx`) that talks to the Context Brain (knowledge graph + retrieval). Show memory/entity/signal results inline.
+
+**Current State:** Component exists at `src/components/ai/BrainChatPanel.tsx`. NOT referenced in the doc before. Status unknown — verify it mounts on the AI page and queries the brain.
+
+---
+
+## Feature 26: AI Context Panel (grounding / capture viewer)
+
+**What It Should Do:** `AiContextPanel.tsx` — shows captured AI-context (from the browser extension), topics, brain facts/entities/signals, with copy / send-to-AI / manual capture.
+
+**Current State:** Component exists and is imported by `AiPage.tsx`. This is the viewer for the Context Brain capture pipeline.
+
+---
+
+## Feature 27: Slash Commands
+
+**What It Should Do:** `/focus`, `/plan`, `/schedule`, `/finance` etc. typed in chat or canvas input create the right card or run an action. Managed by `useSlashCommands` + `SlashCommandManager`.
+
+**Current State:** Hook + manager exist; `SlashCommandManager` is lazy-loaded in `AiPage.tsx`. Verify the palette opens and commands resolve.
+
+---
+
+## Feature 28: Voice Input
+
+**What It Should Do:** `useVoiceInput` lets the user dictate into chat/canvas inputs (speech-to-text fallback chain).
+
+**Current State:** Hook exists. Verify mic permission + transcription reaches the input.
+
+---
+
+## Feature 29: AIFeaturesModal (feature catalog)
+
+**What It Should Do:** A modal listing every AI capability (the in-app showcase of Features 1–28). Lazy-loaded in `AiPage.tsx` as `AIFeaturesModal`.
+
+**Current State:** Component exists. This is the natural home for the checklist below.
+
+---
+
+## Feature 30: Connectors
+
+**What It Should Do:** `ConnectorsPanel` + `ConnectorItemModal` — configure external data connectors (e.g. finance/calendar sources) the automations/compositions can read.
+
+**Current State:** Component exists and is a lazy-loaded canvas mode. Verify connector setup + status display.
+
+---
+
+## IDIOT-PROOF VERIFICATION CHECKLIST
+
+> Run the app, open DevTools (F12) → Console. For every item: do the ACTION, look for the EXPECTED result. If you see the PASS sign → done. If you see the FAIL sign → that feature is broken, report it.
+> Rule from AGENTS.md: if the app is NOT launched with `--remote-debugging-port`, mark the feature **NOT LAUNCHED** and do NOT claim PASS.
+
+### A. Canvas basics
+- [ ] **A1 Pan** — ACTION: click empty canvas, drag. EXPECTED: everything moves with cursor, no jump. PASS: smooth drag. FAIL: nothing moves / card jumps.
+- [ ] **A2 Zoom** — ACTION: scroll wheel over canvas. EXPECTED: zoom % in toolbar changes, zooms toward cursor. PASS: % changes. FAIL: stuck at one value.
+- [ ] **A3 Minimap** — ACTION: look bottom-right. EXPECTED: dots for cards + viewport rectangle. PASS: visible. FAIL: absent.
+- [ ] **A4 Find arrow** — ACTION: pan far away from all cards. EXPECTED: floating pill with arrow appears. PASS: arrow points to cards. FAIL: lost, no help.
+- [ ] **A5 Auto-arrange** — ACTION: open command palette (Ctrl+K) → arrange. EXPECTED: cards line up in rows. PASS: tidy. FAIL: still scattered.
+
+### B. The "AI creates stuff" (Automations + Composition Engine)
+- [ ] **B1 Open** — ACTION: `/ai` → Compositions tab. EXPECTED: "Automations" header + Create button. PASS: visible. FAIL: tab missing / blank.
+- [ ] **B2 Build** — ACTION: Create Automation → pick `finance.transaction.created` → action `notify "hi"` → Save. EXPECTED: card appears in list. PASS: card listed. FAIL: save does nothing.
+- [ ] **B3 Test run** — ACTION: click Test Run on that automation. EXPECTED: notification "hi" appears. PASS: notification. FAIL: silent.
+- [ ] **B4 Engine alive** — ACTION: console → `await window.deskflowAPI.compositionsList()`. EXPECTED: returns `[]` or array, no throw. PASS: array. FAIL: "No handler registered" / throws.
+- [ ] **B5 Live fire** — ACTION: create a real finance transaction while an automation watching `transaction.created` is ON. EXPECTED: the action fires automatically. PASS: auto-fired. FAIL: only manual Test Run works → event wiring missing.
+
+### C. Chat (thinking / loading / result / process)
+- [ ] **C1 Send** — ACTION: type a question, press Enter. EXPECTED: your message appears immediately. PASS: appears. FAIL: nothing shows.
+- [ ] **C2 Thinking** — ACTION: watch while AI answers. EXPECTED: a "thinking" indicator / ThoughtSection shows BEFORE the text streams. PASS: thinking shown. FAIL: text just pops with no thinking state.
+- [ ] **C3 Loading description** — ACTION: during generation. EXPECTED: a clear loading label (e.g. "Generating…", progress) is visible. PASS: label visible. FAIL: blank / frozen / spinner with no text.
+- [ ] **C4 Result** — ACTION: after generation. EXPECTED: full answer rendered (markdown + any cards). PASS: answer shown. FAIL: truncated / error / blank.
+- [ ] **C5 Process of interacting w/ UI** — ACTION: ask AI to "add a goal" / "create a schedule entry". EXPECTED: an ActionConfirmCard or card appears on canvas/deck and the action is reflected in data. PASS: action executed + visible. FAIL: AI says it did but nothing changes.
+
+### D. Goals / Schedule separation (the mixing complaint)
+- [ ] **D1 Separation** — ACTION: open canvas / deck. EXPECTED: Goals cards and Schedule/Weekly cards are in distinct card types, not merged into one blob. PASS: separate cards. FAIL: goals and schedule interleaved confusingly in one view.
+- [ ] **D2 Default size** — ACTION: fresh load (no saved layout). EXPECTED: cards are readable (not tiny). PASS: readable. FAIL: everything zoomed out to specks → default zoom too small (see Feature 1 / CanvasContainer fitZoom).
+
+### E. Brain / Context / Connectors
+- [ ] **E1 Context panel** — ACTION: open AI Context panel. EXPECTED: shows captured contexts / topics. PASS: data shown. FAIL: empty even after captures.
+- [ ] **E2 Connectors** — ACTION: open Connectors mode. EXPECTED: list of connectors + add/setup. PASS: manageable. FAIL: blank/broken.
+- [ ] **E3 Brain chat** — ACTION: open Brain Chat, ask a question. EXPECTED: brain-backed answer or retrieval. PASS: responds. FAIL: errors.
+
+### How to read the result
+- Count PASS / FAIL / NOT LAUNCHED per section. A feature is **working** only if its PASS items all pass at runtime. "NOT LAUNCHED" is NOT a pass.
+- Any FAIL in B (Automations/Engine) or C (chat thinking/loading/result) is exactly the "none of the features work" complaint — report which letter failed.

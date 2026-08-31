@@ -63,7 +63,7 @@ Known backend reality (see bundle §4):
 
 User calls them "the red thing with weird cursed letters" — problems cards (status `AI Attempted Fix`) on the IDE Analytics page / workspace issues UI display mojibake text.
 
-Confirmed root cause: `agent/problems.json` (485 occurrences) and `agent/requests.json` (327 occurrences) contain **double-encoded UTF-8** (mojibake sequences like `â€"`, `â€™`, `Aâ€'A`, `Ãª`). Sample from problems.json:
+Confirmed root cause: `agent/problems.json` (485 occurrences) and `agent/requests.json` (327 occurrences) contain **double-encoded UTF-8** (mojibake sequences like `â€"`, `â€™`, `Aâ€'A`, `ê`). Sample from problems.json:
 ```
 voke('write-terminal', { terminalId, text })` A��'A.A�A�A�A��?sA�A.�?oA��'A+�?TA��?sA,A�A��'A+�?TA�A�A��?sA�A,A� `ipcRenderer.invoke('write-...
 ```

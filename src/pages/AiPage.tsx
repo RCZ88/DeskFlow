@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo, Bug, MessageSquare } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Settings, BookOpen, Newspaper, Bell, History, Sparkles, ListTodo, Bug, MessageSquare, Eye } from 'lucide-react';
 import { useCanvasState } from '../hooks/useCanvasState';
 import { loadDefaultSetup } from '../services/canvasPersistence';
 import type { CardType } from '../types/canvas';
@@ -23,6 +23,9 @@ import { useAiActions } from '../hooks/useAiActions';
 import { useDynamicUI } from '../hooks/useDynamicUI';
 import { actionBus } from '../components/ai/lib/actionBus';
 import type { ActionType } from '../components/ai/tokens';
+import { CurrentCanvas } from '../components/CurrentCanvas';
+import { renderCellular } from '../lib/renderers/cellular';
+import { startPhaseClock } from '../lib/currentPhase';
 
 // Eagerly load the page-shell + deck styles. The dk-* classes (dk-root,
 // dk-topbar, dk-chip, ...) are used by AiPage in every mode, but deck.css is
@@ -93,6 +96,7 @@ const modeLabelMap: Record<Mode, string> = {
 };
 
 export function AiPage() {
+  useEffect(() => { startPhaseClock(); }, []);
   const today = getToday();
   const [goals, setGoals] = useState<Goal[]>([]);
   const [review, setReview] = useState<string | null>(null);
@@ -116,9 +120,8 @@ export function AiPage() {
 
   const [aiProviders, setAiProviders] = useState<Array<{ id: string; label: string; models: string[]; enabled: boolean }>>([]);
   const [aiRouting, setAiRouting] = useState<Record<string, { providerId: string; model: string; smallProviderId?: string; smallModel?: string } | null>>({});
-  const [configuringFeature, setConfiguringFeature] = useState<'default' | 'researchDigest' | 'goalAssistant' | null>(null);
-  const [vaultOpen, setVaultOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
+  const [configuringFeature, setConfiguringFeature] = useState<'default' | 'researchDigest' | 'goalAssistant' | 'vision' | null>(null);
+  const [aiSubPage, setAiSubPage] = useState<'assistant' | 'vault' | 'context'>('assistant');
   const [showConnectorSetup, setShowConnectorSetup] = useState(false);
   const [connectorsState, setConnectorsState] = useState<'loading' | 'error' | 'empty' | 'ready'>('loading');
   const [connectors, setConnectors] = useState<Array<{ id: string; name: string; status: string; detail?: string; itemCount?: number; type?: string }>>([]);
@@ -174,6 +177,11 @@ export function AiPage() {
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [expandedCardIds, setExpandedCardIds] = useState<Set<string>>(new Set());
   const [canvasMode, setCanvasMode] = useState<'deck' | 'canvas' | 'compositions'>('canvas');
+  const location = useLocation();
+  useEffect(() => {
+    const mode = (location.state as any)?.tab;
+    if (mode === 'canvas' || mode === 'deck' || mode === 'compositions') setCanvasMode(mode);
+  }, []);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const canvas = useCanvasState();
@@ -220,12 +228,24 @@ export function AiPage() {
     return false
   }
 
+  // Lanes keep related card families separated instead of one shared grid
+  // (fixes "goals and schedule mixed together in one ui")
+  const LANE_OF: Record<string, number> = {
+    focus: 0, goal: 0, plan: 0, longterm: 0,            // Goals lane
+    dailyplanner: 1, weeklyschedule: 1, deadline: 1,    // Schedule lane
+    finance: 2,                                         // Finance lane
+    digest: 3,                                          // Digest lane
+    connectors: 4, automation: 4,                       // Automation/Connectors lane
+    annotation: 5, approval: 5, response: 5,            // Misc lane
+  }
+  const LANE_X = [40, 540, 1040, 1540, 2040, 2540, 3040]
   function getCardPosition(type: CardType): { x: number; y: number } {
-    // Grid layout: 4 columns, 200px spacing, starting below core cards
-    const responseCards = Object.values(canvas.allCards).filter((c: any) => c.type === type)
-    const col = responseCards.length % 4
-    const row = Math.floor(responseCards.length / 4)
-    return { x: 40 + col * 220, y: 40 + row * 220 }
+    const lane = LANE_OF[type] ?? 6
+    const laneCards = Object.values(canvas.allCards).filter((c: any) => (LANE_OF[c.type] ?? 6) === lane)
+    const idx = laneCards.length
+    const x = LANE_X[lane] ?? 40 + lane * 500
+    const y = 40 + idx * 260
+    return { x, y }
   }
 
   // Canvas-mode automation cards: sync automations into the canvas store as first-class cards
@@ -463,21 +483,32 @@ export function AiPage() {
     });
     if (lastMatched) lastCardId.current = lastMatched;
 
-    // Streaming content updates to existing assistant cards (works after remount)
+    // Streaming content updates to existing assistant cards (works after remount).
+    // Also live-updates a PAIRED user-input card's aiResponse as the assistant
+    // message streams — without this the canvas only ever shows the first chunk.
     let changed = false;
     chat.messages.forEach(msg => {
       const ids = cardsByMsgId.get(msg.id) || [];
       for (const cardId of ids) {
         const card = canvas.allCards[cardId];
-        if (!card || card.data?.isUserInput) continue;
+        if (!card) continue;
         const prevLen = msgContentLengths.current.get(msg.id) || 0;
         if (msg.content && msg.content.length > prevLen) {
-          canvas.updateCard(cardId, {
-            data: {
-              ...card.data,
-              content: stripAutomationBlock(msg.content),
-            },
-          });
+          const clean = stripAutomationBlock(msg.content);
+          if (card.data?.isUserInput) {
+            canvas.updateCard(cardId, {
+              data: {
+                ...card.data,
+                aiResponse: clean,
+                aiTimestamp: msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : card.data?.aiTimestamp,
+              },
+              size: { w: 10, h: 8 },
+            });
+          } else {
+            canvas.updateCard(cardId, {
+              data: { ...card.data, content: clean },
+            });
+          }
           msgContentLengths.current.set(msg.id, msg.content.length);
           setFocusedCardId(cardId);
           changed = true;
@@ -941,17 +972,7 @@ export function AiPage() {
             pinned: entry.pinned !== false,
           }
         })
-      : [
-          { type: 'focus', data: { goals }, pos: { x: 40, y: 40 }, size: { w: 8, h: 6 } },
-          { type: 'plan', data: { goals: longTermGoals, notes: planningNotes }, pos: { x: 400, y: 40 }, size: { w: 8, h: 6 } },
-          { type: 'finance', data: {}, pos: { x: 40, y: 320 }, size: { w: 6, h: 4 } },
-          { type: 'digest', data: { topics: digestTopics }, pos: { x: 200, y: 320 }, size: { w: 6, h: 4 } },
-          { type: 'reflect', data: { days: reflectDays }, pos: { x: 400, y: 320 }, size: { w: 6, h: 4 } },
-          { type: 'connectors', data: { state: connectorsState, connectors, syncing: connectorSyncing }, pos: { x: 600, y: 40 }, size: { w: 10, h: 8 } },
-          { type: 'schedule', data: {}, pos: { x: 600, y: 360 }, size: { w: 14, h: 10 } },
-          { type: 'deadlines', data: {}, pos: { x: 40, y: 600 }, size: { w: 6, h: 8 } },
-          { type: 'planner', data: {}, pos: { x: 200, y: 600 }, size: { w: 8, h: 8 } },
-        ]
+      : []
 
     seeds.forEach(({ type, data, pos, size, pinned }) => {
       const existingCard = existingByType.get(type)
@@ -1122,7 +1143,7 @@ export function AiPage() {
   }, [chat, updateConnectorStatus])
 
   // Intercept send for slash commands + Knowledge Base context injection (R5)
-  const handleSend = useCallback(async (text: string) => {
+  const handleSend = useCallback(async (text: string, images?: string[]) => {
     const result = await slash.parseAndExecute(text, { connectors, currentThreadDate: chat.currentThreadDate });
     if (result.handled && result.messages) {
       for (const msg of result.messages) {
@@ -1131,7 +1152,7 @@ export function AiPage() {
       return;
     }
     // R5: retrieve the most relevant KB chunks and prepend them as context.
-    if (window.deskflowAPI?.kbQuery && text.trim()) {
+    if (window.deskflowAPI?.kbQuery && text.trim() && !images?.length) {
       try {
         const chunks = await window.deskflowAPI.kbQuery(text.trim(), 3);
         if (chunks && chunks.length > 0) {
@@ -1141,7 +1162,7 @@ export function AiPage() {
         }
       } catch (e) { console.warn('[AiPage] KB context injection failed:', e); }
     }
-    chat.send(text);
+    chat.send(text, images);
   }, [slash, connectors, chat]);
 
   const [suggesting, setSuggesting] = useState(false);
@@ -1464,7 +1485,8 @@ export function AiPage() {
       ) : (
       <div className="dk-root">
         <div className="dk-wrap">
-          <div className="dk-topbar">
+          <CurrentCanvas accent="#8b5cf6" render={renderCellular} />
+          <div className="relative z-10 dk-topbar">
             <div className="dk-brand">
               <div className="dk-logo">D</div>
               
@@ -1529,32 +1551,50 @@ export function AiPage() {
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Features</span>
               </button>
               <button
-                onClick={() => setVaultOpen(v => !v)}
+                onClick={() => setAiSubPage(p => (p === 'vault' ? 'assistant' : 'vault'))}
                 title="AI Debug Vault"
                 className="dk-topbar-btn"
-                style={{ height: 26, padding: "0 10px", borderColor: vaultOpen ? "rgba(251,191,36,0.4)" : undefined, color: vaultOpen ? "#fbbf24" : undefined }}
+                style={{ height: 26, padding: "0 10px", borderColor: aiSubPage === 'vault' ? "rgba(251,191,36,0.4)" : undefined, color: aiSubPage === 'vault' ? "#fbbf24" : undefined }}
               >
                 <Bug size={11} />
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Vault</span>
               </button>
               <button
-                onClick={() => setContextOpen(v => !v)}
+                onClick={() => setAiSubPage(p => (p === 'context' ? 'assistant' : 'context'))}
                 title="AI Context Captures"
                 className="dk-topbar-btn"
-                style={{ height: 26, padding: "0 10px", borderColor: contextOpen ? "rgba(34,211,238,0.4)" : undefined, color: contextOpen ? "#22d3ee" : undefined }}
+                style={{ height: 26, padding: "0 10px", borderColor: aiSubPage === 'context' ? "rgba(34,211,238,0.4)" : undefined, color: aiSubPage === 'context' ? "#22d3ee" : undefined }}
               >
                 <MessageSquare size={11} />
                 <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Context</span>
+              </button>
+              <button
+                onClick={() => setConfiguringFeature('vision')}
+                title="Configure Vision Model"
+                className="dk-topbar-btn"
+                style={{ height: 26, padding: "0 10px", borderColor: aiRouting.vision ? "rgba(244,114,182,0.4)" : undefined, color: aiRouting.vision ? "#f472b6" : undefined }}
+              >
+                <Eye size={11} />
+                <span style={{ fontSize: 11, fontFamily: "var(--mono)" }}>Vision</span>
               </button>
             </div>
           </div>
 
           <Suspense fallback={<LazyFallback />}>
-          {canvasMode === 'compositions' ? (
-            <div style={{ flex: 1, minHeight: 0, padding: 20 }}>
+          {aiSubPage === 'vault' ? (
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              <DebugVaultPanel open={true} />
+            </div>
+          ) : aiSubPage === 'context' ? (
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              <AiContextPanel open={true} />
+            </div>
+          ) : canvasMode === 'compositions' ? (
+            <div style={{ flex: 1, minHeight: 0, padding: 20 }} data-section="ai.compositions">
               <CompositionPanel />
             </div>
           ) : canvasMode === 'deck' ? (
+          <div data-section="ai.deck">
           <AiPageDeck
               messages={chat.messages.map((m): import('../components/ai/chat/ChatPanel').ChatMessage => ({
                 id: m.id,
@@ -1797,8 +1837,9 @@ export function AiPage() {
                 />
               }
             />
+          </div>
           ) : (
-          <div data-tutorial="ai.canvas" style={{ flex: 1, minHeight: 0 }}>
+          <div data-tutorial="ai.canvas" data-section="ai.canvas" style={{ flex: 1, minHeight: 0 }}>
             <CanvasContainer
               cards={enrichedCards}
               onMoveCard={canvas.moveCard}
@@ -1860,9 +1901,6 @@ export function AiPage() {
           )}
           </Suspense>
 
-          <DebugVaultPanel open={vaultOpen} />
-          <AiContextPanel open={contextOpen} />
-
         </div>
       </div>
       )}
@@ -1875,6 +1913,7 @@ export function AiPage() {
       <AiProviderSelectModal open={configuringFeature === 'researchDigest'} onClose={() => setConfiguringFeature(null)} featureKey="researchDigest" featureLabel="Research Digest" accentColor="from-cyan-500 to-blue-500" providers={aiProviders} currentRouting={aiRouting.researchDigest} onSave={(e) => handleRoutingSave('researchDigest', e)} />
       <AiProviderSelectModal open={configuringFeature === 'goalAssistant'} onClose={() => setConfiguringFeature(null)} featureKey="goalAssistant" featureLabel="Daily Plan" accentColor="from-emerald-500 to-teal-500" providers={aiProviders} currentRouting={aiRouting.goalAssistant} onSave={(e) => handleRoutingSave('goalAssistant', e)} />
       <AiProviderSelectModal open={configuringFeature === 'default'} onClose={() => setConfiguringFeature(null)} featureKey="default" featureLabel="AI Chat" accentColor="from-violet-500 to-purple-500" providers={aiProviders} currentRouting={aiRouting.default} onSave={(e) => handleRoutingSave('default', e)} />
+      <AiProviderSelectModal open={configuringFeature === 'vision'} onClose={() => setConfiguringFeature(null)} featureKey="vision" featureLabel="Vision Model" accentColor="from-pink-500 to-rose-500" providers={aiProviders} currentRouting={aiRouting.vision} onSave={(e) => handleRoutingSave('vision', e)} />
 
       {/* Chat History Modal */}
       <ChatHistory

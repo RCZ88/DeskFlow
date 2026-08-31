@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageTitle } from './components/PageTitle';
 import confetti from 'canvas-confetti';
+import { navigateTo, scrollToSection } from './lib/deepNav';
 import { SidebarLogo } from './components/SidebarLogo';
 import {
   Home, Monitor, Globe, Code2, BarChart3, Settings, Play, Pause, Clock,
@@ -11,8 +12,8 @@ import {
   Shield, ShieldAlert, ToggleLeft, ToggleRight, PieChart, CreditCard,
   ChevronLeft, ChevronRight, Calendar, Terminal, Save, Clock4,
   X,   FolderTree, Bot, Minus, HelpCircle, Settings2, Moon, FileText, BookOpen, Wallet, GraduationCap, Activity, Smartphone, Brain,
-  HeartHandshake, Sparkles,
-  PanelLeftClose, PanelRightClose, GitBranch, FileCode, GripVertical, Pencil, Check, RotateCcw
+  HeartHandshake, Sparkles, Trophy,
+  PanelLeftClose, PanelRightClose, GitBranch, FileCode, GripVertical, Pencil, Check, RotateCcw,
 } from 'lucide-react';
 import {
   DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter,
@@ -38,13 +39,14 @@ import { LearnPage } from './components/learn/LearnPage';
 import GuidePage from './pages/GuidePage';
 import TerminalPage from './pages/TerminalPage';
 import ExternalPage from './pages/ExternalPage';
+import RankingsPage from './pages/RankingsPage';
 import FocusPage from './pages/FocusPage';
 import ConductorPage from './pages/ConductorPage';
 
 import { AiPage } from './pages/AiPage';
 import { FeatureStudioPage } from './features/overlay-studio/OverlayStudioPage';
 import { AppBackground } from './components/AppBackground';
-import { RheoCurrent } from './components/rheo-current';
+import { ThemeToggle } from './components/ThemeToggle';
 
 import InsightsPage from './pages/InsightsPage';
 import { FinancePage } from './pages/FinancePage';
@@ -62,28 +64,30 @@ import { PairPhoneModal } from './components/PairPhoneModal';
 import { VoiceProvider } from './context/VoiceContext';
 import { getDateRange } from './lib/dateRange';
 import type { Period } from './lib/dateRange';
+import GlobalSearchCommandPalette from './components/GlobalSearchCommandPalette';
 // Agent dashboard is disabled - file incomplete
 
 // Lazy load OrbitSystem - it's heavy and should only load when needed
 const OrbitSystem = lazy(() => import('./components/OrbitSystem').then(module => ({ default: module.default })));
 
 // Life page combines Covenant (commitments/streaks) and Memories (photo/video
-// collage) under a single tabbed page � warm clay/sage/amber/sky palette
+// collage) under a single tabbed page — warm clay/sage/amber/sky palette
 const LifePage = lazy(() => import('./features/warmth/LifePage'));
+
+// Agentic System page (agent comms + session groups + context brain)
+const AgenticSystemPage = lazy(() => import('./pages/AgenticSystemPage'));
 
 // --- Sidebar navigation (reorderable) ---
 const DEFAULT_SIDEBAR_ITEMS = [
   { icon: Home, label: 'Dashboard', path: '/' },
   { icon: Activity, label: 'Activity', path: '/activity' },
   { icon: Brain, label: 'AI Assistant', path: '/ai' },
-  { icon: Sparkles, label: 'Feature Studio', path: '/studio' },
+  { icon: Sparkles, label: 'Documentation', path: '/studio' },
   { icon: GraduationCap, label: 'Learn', path: '/learn' },
   { icon: FileText, label: 'Resume', path: '/resume' },
   { icon: Code2, label: 'IDE Projects', path: '/ide' },
-  { icon: Clock4, label: 'External', path: '/external' },
   { icon: Wallet, label: 'Finance', path: '/finance' },
   { icon: BarChart3, label: 'Insights', path: '/reports' },
-  { icon: Database, label: 'Database', path: '/database' },
   { icon: HeartHandshake, label: 'Life', path: '/life' },
   { icon: Settings, label: 'Settings', path: '/settings' },
   { icon: BookOpen, label: 'Guide', path: '/guide' },
@@ -367,7 +371,9 @@ function isAppMatchingBrowserRenderer(appName: string, browserName: string | str
 }
 
 import { GapBanner } from './components/GapBanner';
-import { GapFillDrawer } from './components/GapFillDrawer';
+import { GapFillModal } from './components/external/GapFillModal';
+import { ManualAssignModal } from './components/external/ManualAssignModal';
+import { fillGapWithSegments } from './lib/external/gaps';
 import { TutorialProvider } from './contexts/TutorialContext';
 import TutorialOverlay from './components/TutorialOverlay';
 
@@ -380,6 +386,19 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const [, forceRender] = useState(0);
+
+  // Global command palette — ⌘K / Ctrl+K navigation search (app-wide)
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   // Fallback: poll hash and force re-render if React Router misses the change
   const lastHashRef = useRef(window.location.hash);
@@ -398,6 +417,13 @@ function App() {
       : location.pathname.replace('/', '') || 'dashboard';
     document.documentElement.setAttribute('data-page', page);
   }, [location.pathname]);
+
+  useEffect(() => {
+    // Selection engine activated via UI button, not keyboard shortcut
+  }, []);
+
+  // Theme is auto-initialized by src/lib/theme.ts at module load (line 94-96).
+  // No additional useEffect needed here — adding one causes a flash by fighting the module init.
 
   const [isTracking, setIsTracking] = useState(true);
   const [dbConnected, setDbConnected] = useState(true);
@@ -922,6 +948,9 @@ function App() {
   const [sleepModalStep, setSleepModalStep] = useState<'sleep' | 'gaps'>('sleep');
   const [sleepFillActivities, setSleepFillActivities] = useState<any[] | null>(null);
   const [sleepFillSessions, setSleepFillSessions] = useState<any[] | null>(null);
+  const [sleepGapFillTarget, setSleepGapFillTarget] = useState<any>(null);
+  const [sleepGapQueue, setSleepGapQueue] = useState<any[]>([]);
+  const [sleepFilledGapStarts, setSleepFilledGapStarts] = useState<string[]>([]);
   const [sleepDetectCustomBedtime, setSleepDetectCustomBedtime] = useState({ hours: 22, minutes: 0 });
   const [sleepDetectCustomWaketime, setSleepDetectCustomWaketime] = useState({ hours: 7, minutes: 0 });
   const [sleepDetectFellAsleepAt, setSleepDetectFellAsleepAt] = useState({ hours: 22, minutes: 15 });
@@ -1008,6 +1037,46 @@ function App() {
     }
   }, []);
 
+  // Foreground sleep detection: check for overnight gaps when user returns to app
+  const lastVisibilityCheckRef = useRef(Date.now());
+  useEffect(() => {
+    const handleVisibility = async () => {
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      const gapMs = now - lastVisibilityCheckRef.current;
+      lastVisibilityCheckRef.current = now;
+      // If app was hidden for >45 minutes and it's sleep hours, check for sleep
+      if (gapMs < 45 * 60 * 1000) return;
+      const hour = new Date().getHours();
+      const isSleepHours = hour >= 21 || hour < 10;
+      if (!isSleepHours) return;
+      try {
+        const detResult = await window.deskflowAPI?.checkSleepDetection?.();
+        if (detResult?.detected && !showSleepDetection) {
+          setSleepDetectionData(detResult);
+          const bed = new Date(detResult.suggestedBedtime);
+          const wake = new Date(detResult.suggestedWakeTime);
+          setSleepDetectCustomBedtime({ hours: bed.getHours(), minutes: bed.getMinutes() });
+          setSleepDetectCustomWaketime({ hours: wake.getHours(), minutes: wake.getMinutes() });
+          setSleepDetectFellAsleepAt({ hours: bed.getHours(), minutes: (bed.getMinutes() + 15) % 60 });
+          setSleepDetectWakeUpAt({ hours: wake.getHours(), minutes: Math.max(0, wake.getMinutes() - 5) });
+          const bd = new Date(bed);
+          if (bd.getHours() < 12) bd.setDate(bd.getDate() - 1);
+          setSleepDetectDate(`${bd.getFullYear()}-${String(bd.getMonth() + 1).padStart(2, '0')}-${String(bd.getDate()).padStart(2, '0')}`);
+          setSleepModalStep('sleep');
+          setShowSleepDetection(true);
+        }
+      } catch { /* ignore */ }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    // Also check on window focus (Electron sometimes doesn't fire visibilitychange)
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, [showSleepDetection]);
+
   const dismissSleepDetection = async () => {
     sleepActiveRef.current = false;
     sleepPeriodRef.current = null;
@@ -1016,6 +1085,9 @@ function App() {
     setSleepDetectionData(null);
     setSleepFillActivities(null);
     setSleepFillSessions(null);
+    setSleepGapFillTarget(null);
+    setSleepGapQueue([]);
+    setSleepFilledGapStarts([]);
     try {
       if (window.deskflowAPI?.dismissSleepDetection) {
         await window.deskflowAPI.dismissSleepDetection();
@@ -1087,10 +1159,20 @@ function App() {
         if (result?.success) {
           window.dispatchEvent(new CustomEvent('sleep-confirmed'));
           window.dispatchEvent(new CustomEvent('external-data-changed'));
-          const gaps = sleepDetectionData.adjacentGaps || [];
+          // Recompute adjacent gaps using USER-ADJUSTED times
+          let gaps: any[] = [];
+          try {
+            const gapResult = await (window as any).deskflowAPI?.computeAdjacentGaps?.({
+              sleepStartIso: deviceOff.toISOString(),
+              sleepEndIso: wokeUp.toISOString(),
+            });
+            gaps = gapResult?.gaps || [];
+            console.log(`[App] Recomputed adjacent gaps: ${gaps.length} gap(s)`);
+          } catch { /* fall back to original detection data */ }
+          if (gaps.length === 0) gaps = sleepDetectionData.adjacentGaps || [];
+          sleepActiveRef.current = false;
           if (gaps.length > 0) {
-            sleepActiveRef.current = false;
-            // Load activities/sessions for auto-fill in the gaps step
+            // Load activities/sessions, then transition to gaps step INSIDE the popup
             try {
               const [acts, sess] = await Promise.all([
                 window.deskflowAPI?.getExternalActivities?.(),
@@ -1099,9 +1181,12 @@ function App() {
               setSleepFillActivities(acts || []);
               setSleepFillSessions(sess || []);
             } catch { /* non-fatal */ }
+            setSleepDetectionData(prev => prev ? { ...prev, adjacentGaps: gaps } : prev);
             setSleepModalStep('gaps');
-            return;
+          } else {
+            dismissSleepDetection();
           }
+          return;
         }
       }
     } catch (err) {
@@ -1422,7 +1507,15 @@ function App() {
     defaultNotAfk: boolean;
   }
   const [afkPromptQueue, setAfkPromptQueue] = useState<AfkPromptEntry[]>([]);
-  const [showGapDrawer, setShowGapDrawer] = useState(false);
+  const [afkGapsData, setAfkGapsData] = useState<{ gaps: any[]; activities: any[]; sessions: any[] } | null>(null);
+  const [afkGapFillTarget, setAfkGapFillTarget] = useState<any>(null);
+  const [afkGapQueue, setAfkGapQueue] = useState<any[]>([]);
+  const [afkFilledGapStarts, setAfkFilledGapStarts] = useState<string[]>([]);
+  const [smartFillGaps, setSmartFillGaps] = useState<Array<{ id: string; start: Date; end: Date; duration_seconds: number }> | null>(null);
+  const [smartFillActivities, setSmartFillActivities] = useState<any[]>([]);
+  const [smartFillSessions, setSmartFillSessions] = useState<any[]>([]);
+  const [smartFillSource, setSmartFillSource] = useState<'afk' | 'sleep' | 'external' | null>(null);
+  const [showManualAssign, setShowManualAssign] = useState(false);
   const afkQueueIdRef = useRef(0);
   const afkPromptShownRef = useRef(false);
   const pendingIdleRangeRef = useRef<{ idleStart: number; idleEnd: number | null } | null>(null);
@@ -1504,9 +1597,33 @@ function App() {
       } catch (err) { console.error('[DeskFlow] createExternalSessionsBatch error:', err); }
     }
     pendingIdleRangeRef.current = null;
-    setAfkPromptQueue(prev => prev.slice(1));
     window.dispatchEvent(new CustomEvent('external-data-changed'));
-  }, []);
+    // Compute adjacent gaps around the AFK period — keep popup open, pass gaps to it
+    const entry = afkPromptQueue[0];
+    if (entry?.idleStartMs && entry?.returnMs) {
+      try {
+        const gapResult = await (window as any).deskflowAPI?.computeAdjacentGaps?.({
+          sleepStartIso: new Date(entry.idleStartMs).toISOString(),
+          sleepEndIso: new Date(entry.returnMs).toISOString(),
+        });
+        const gaps = gapResult?.gaps || [];
+        if (gaps.length > 0) {
+          let acts: any[] = externalActivities;
+          let sess: any[] = [];
+          try {
+            const [a, s] = await Promise.all([
+              window.deskflowAPI?.getExternalActivities?.(),
+              window.deskflowAPI?.getExternalSessions?.('all'),
+            ]);
+            acts = a || externalActivities;
+            sess = s || [];
+          } catch {}
+          setAfkGapsData({ gaps, activities: acts, sessions: sess });
+        }
+      } catch {}
+    }
+    // DO NOT remove from queue — popup stays open
+  }, [afkPromptQueue, externalActivities]);
   
   const handleAfkDismiss = useCallback(() => {
     console.log('[DeskFlow] handleAfkDismiss called');
@@ -1522,9 +1639,32 @@ function App() {
     }
   }, [afkPromptQueue]);
 
-  // Listen for gap-drawer open event
+  // Listen for gap-drawer open event — now opens the new GapFillModal
   useEffect(() => {
-    const handler = () => setShowGapDrawer(true);
+    const handler = async () => {
+      try {
+        const api = (window as any).deskflowAPI;
+        const [gaps, apps, ext] = await Promise.all([
+          api?.detectUsageGaps?.({ period: 'week', minGapMinutes: 5 }) || [],
+          api?.getKnownApps?.() || [],
+          api?.getExternalActivities?.() || [],
+        ]);
+        const activities = [
+          ...((apps || []).map((a: any) => ({ id: 'app:' + a.app, name: a.app, category: a.category || 'Other', color: '#6366f1', type: 'app' as const }))),
+          ...((ext || []).filter((a: any) => a.name !== 'AFK' && a.type !== 'sleep').map((a: any) => ({ id: 'ext:' + a.id, name: a.name, category: 'External', color: a.color || '#6b7280', type: 'external' as const }))),
+        ];
+        const fillGaps = (Array.isArray(gaps) ? gaps : []).map((g: any, i: number) => ({
+          id: `gap-${i}`,
+          start: new Date(g.start),
+          end: new Date(g.end),
+          duration_seconds: g.durationSeconds,
+        }));
+        setSmartFillGaps(fillGaps.length > 0 ? fillGaps : null);
+        setSmartFillActivities(activities);
+      } catch (err) {
+        console.error('[App] Failed to detect gaps for smart fill:', err);
+      }
+    };
     window.addEventListener('open-gap-panel', handler);
     window.addEventListener('open-gap-drawer', handler);
     return () => {
@@ -2579,7 +2719,6 @@ Trend: +14% vs. yesterday. Keep it up!`;
     <TutorialProvider>
     <div className="flex h-screen overflow-hidden bg-[#121212] text-white">
       <AppBackground />
-      <RheoCurrent />
       {/* Sidebar � hidden on workspace (/terminal) and during solar overlay */}
       {location.pathname !== '/terminal' && !solarOverlayActive && (
       <motion.div
@@ -2636,7 +2775,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
                     collapsed={sidebarCollapsed}
                     reorderMode={reorderMode}
                     isActive={location.pathname === item.path}
-                    onNavigate={() => { console.log('[NAV] fired � path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
+                    onNavigate={() => { console.log('[NAV] fired – path:', item.path, 'current:', location.pathname); handleSidebarNavigation(item.path); }}
                   />
                 ))}
               </SortableContext>
@@ -2664,7 +2803,11 @@ Trend: +14% vs. yesterday. Keep it up!`;
         </div>
 
         <AnimatePresence initial={false}>
-          {!sidebarCollapsed && (
+          {sidebarCollapsed ? (
+            <div className="px-2 py-2 border-t border-zinc-800 flex flex-col items-center gap-2 shrink-0">
+              <ThemeToggle size="sm" />
+            </div>
+          ) : !sidebarCollapsed && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -2674,6 +2817,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
             >
               <span className="text-[10px] text-zinc-500">Local SQLite � Zero Cloud � Privacy-First</span>
               <div className="flex items-center gap-2">
+                <ThemeToggle size="sm" />
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent('open-pair-modal', { detail: { terminalId: '', label: 'Phone Pairing' } }))}
                   className="p-1 rounded-md text-zinc-600 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
@@ -2878,6 +3022,14 @@ Trend: +14% vs. yesterday. Keep it up!`;
               )}
             </div>
 
+            <button
+              onClick={() => (window as any).deskflowAPI?.restartApp?.() ?? window.location.reload()}
+              title="Restart app (full reload including main process)"
+              className="p-1.5 rounded-lg bg-zinc-800/50 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+
             <motion.button
               onClick={toggleTracking}
               className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition ${isTracking
@@ -2895,7 +3047,7 @@ Trend: +14% vs. yesterday. Keep it up!`;
         )}
 
         {/* Main Scroll Area */}
-        <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' ? 'flex flex-col overflow-hidden' : 'overflow-auto p-5'}`}>
+        <div className={`flex-1 min-h-0 ${location.pathname === '/terminal' || location.pathname === '/database' ? 'flex flex-col overflow-hidden' : 'overflow-auto'}`}>
           <ErrorBoundary key={location.pathname}>
             <Routes key={location.pathname}>
               {/* Dashboard */}
@@ -2923,6 +3075,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
               {/* Stats Page */}
               {/* Activity Page � unified Apps/Websites/Productivity */}
               <Route path="/activity" element={<ActivityPage appStats={appStats} logs={filteredLogs} allLogs={allLogs} browserLogs={browserLogs} selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} timeMode={timeMode} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} liveActivityLogs={liveActivityLogs} domainKeywordRules={domainKeywordRules} externalActivities={externalActivities} externalActivityTiers={externalActivityTiers} />} />
+              {/* Rankings Page */}
+              <Route path="/rankings" element={<RankingsPage selectedPeriod={selectedPeriod} dateOffset={dateOffset} onDateOffsetChange={setDateOffset} tierAssignments={tierAssignments || DEFAULT_TIER_ASSIGNMENTS} />} />
               {/* Legacy routes � redirect to unified Activity page */}
               <Route path="/stats" element={<Navigate to="/activity?tab=apps" replace />} />
               <Route path="/productivity" element={<Navigate to="/activity?tab=productivity" replace />} />
@@ -2952,6 +3106,8 @@ Trend: +14% vs. yesterday. Keep it up!`;
 
               <Route path="/learn" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Learn...</div>}><LearnPage /></Suspense></ErrorBoundary>} />
               <Route path="/conductor" element={<div className="flex items-center justify-center h-full text-zinc-500 text-sm">Conductor is now in the workspace sidebar</div>} />
+
+              <Route path="/agentic" element={<ErrorBoundary><Suspense fallback={<div className="p-5 text-zinc-500 text-sm">Loading Agentic System...</div>}><AgenticSystemPage /></Suspense></ErrorBoundary>} />
 
               <Route path="/ide-help" element={<IDEHelpPage />} />
 
@@ -3101,10 +3257,65 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 activities={sleepFillActivities || []}
                 sessions={sleepFillSessions || []}
                 onDone={dismissSleepDetection}
+                onFillGapRequest={(gaps) => {
+                  if (gaps.length === 1) {
+                    setSleepGapFillTarget(gaps[0]);
+                  } else if (gaps.length > 1) {
+                    setSmartFillSource('sleep');
+                    setSmartFillGaps(gaps.map((g, i) => ({ id: `sleep-gap-${i}`, start: g.start, end: g.end, duration_seconds: g.duration_seconds })));
+                    setSmartFillActivities(sleepFillActivities || []);
+                    setSmartFillSessions(sleepFillSessions || []);
+                  }
+                }}
+                filledGapStarts={sleepFilledGapStarts}
               />
             )}
           </AnimatePresence>
 
+          {/* -- Sleep Gap Fill Modal (reuses external GapFillModal) -- */}
+          <GapFillModal
+            open={!!sleepGapFillTarget}
+            gap={sleepGapFillTarget ? {
+              start: new Date(sleepGapFillTarget.start),
+              end: new Date(sleepGapFillTarget.end),
+              duration_seconds: sleepGapFillTarget.duration_seconds,
+            } : null}
+            activities={sleepFillActivities || []}
+            sessions={sleepFillSessions || []}
+            onClose={() => {
+              // Skip this gap, move to next in queue
+              const startKey = sleepGapFillTarget ? (typeof sleepGapFillTarget.start === 'string' ? sleepGapFillTarget.start : sleepGapFillTarget.start?.toISOString?.()) : null;
+              if (startKey) setSleepFilledGapStarts(prev => [...prev, startKey]);
+              if (sleepGapQueue.length > 0) {
+                setSleepGapFillTarget(sleepGapQueue[0]);
+                setSleepGapQueue(q => q.slice(1));
+              } else {
+                setSleepGapFillTarget(null);
+                setSleepGapQueue([]);
+              }
+            }}
+            onFillGap={async (gap, segments) => {
+              await fillGapWithSegments(
+                gap,
+                segments,
+                async (activityId, minutes, startedAt, endedAt) => {
+                  await window.deskflowAPI?.addExternalTime(activityId, minutes, startedAt, endedAt);
+                }
+              );
+              const startKey = sleepGapFillTarget ? (typeof sleepGapFillTarget.start === 'string' ? sleepGapFillTarget.start : sleepGapFillTarget.start?.toISOString?.()) : null;
+              if (startKey) setSleepFilledGapStarts(prev => [...prev, startKey]);
+              window.dispatchEvent(new CustomEvent('external-data-changed'));
+              // Move to next gap in queue
+              if (sleepGapQueue.length > 0) {
+                setSleepGapFillTarget(sleepGapQueue[0]);
+                setSleepGapQueue(q => q.slice(1));
+              } else {
+                setSleepGapFillTarget(null);
+                setSleepGapQueue([]);
+              }
+            }}
+            zClass="z-[10000]"
+          />
 
           {/* Confirm Export Modal */}
           <AnimatePresence>
@@ -3332,26 +3543,112 @@ Trend: +14% vs. yesterday. Keep it up!`;
                 onDismiss={handleAfkDismiss}
                 onNotAfk={() => { pendingIdleRangeRef.current = null; setAfkPromptQueue(prev => prev.slice(1)); }}
                 defaultNotAfk={entry.defaultNotAfk}
+                adjacentGaps={afkGapsData?.gaps || []}
+                onFillGapRequest={(gaps) => {
+                  if (gaps.length === 1) {
+                    setAfkGapFillTarget(gaps[0]);
+                  } else if (gaps.length > 1) {
+                    setSmartFillSource('afk');
+                    setSmartFillGaps(gaps.map((g, i) => ({ id: `afk-gap-${i}`, start: g.start, end: g.end, duration_seconds: g.duration_seconds })));
+                    setSmartFillActivities(afkGapsData?.activities || []);
+                    setSmartFillSessions(afkGapsData?.sessions || []);
+                  }
+                }}
+                filledGapStarts={afkFilledGapStarts}
+                onGapsDone={() => { setAfkGapsData(null); setAfkPromptQueue(prev => prev.slice(1)); }}
               >
                 <MissedTimePanel
-                  onFillNow={() => {
-                    pendingIdleRangeRef.current = null;
-                    setAfkPromptQueue(prev => prev.slice(1));
-                    window.dispatchEvent(new Event('open-gap-drawer'));
+                  onFillNow={async () => {
+                    // Use detectUsageGaps to get ALL of today's unfilled gaps,
+                    // not just the 1-2 adjacent gaps from computeAdjacentGaps.
+                    const allGaps = await (window as any).deskflowAPI?.detectUsageGaps?.({ period: 'today', minGapMinutes: 5 });
+                    const gaps = Array.isArray(allGaps) ? allGaps : [];
+                    if (gaps.length > 0) {
+                      const fillGaps = gaps.map((g: any, i: number) => ({
+                        id: `afk-gap-${i}`,
+                        start: new Date(g.start),
+                        end: new Date(g.end),
+                        duration_seconds: g.durationSeconds,
+                      }));
+                      setSmartFillGaps(fillGaps);
+                      setSmartFillActivities(afkGapsData?.activities || []);
+                      setSmartFillSessions(afkGapsData?.sessions || []);
+                    }
                   }}
                 />
               </AfkPromptModal>
             );
           })()}
 
-          {/* ── Smart Gap Fill Drawer ── */}
-          {showGapDrawer && (
-            <GapFillDrawer
-              open={showGapDrawer}
-              onClose={() => setShowGapDrawer(false)}
-              onFilled={() => { fetchGaps(); }}
-            />
-          )}
+          {/* -- AFK Gap Fill Modal -- */}
+          <GapFillModal
+            open={!!afkGapFillTarget}
+            gap={afkGapFillTarget ? { start: new Date(afkGapFillTarget.start), end: new Date(afkGapFillTarget.end), duration_seconds: afkGapFillTarget.duration_seconds } : null}
+            activities={afkGapsData?.activities || []}
+            sessions={afkGapsData?.sessions || []}
+            onClose={() => {
+              setAfkFilledGapStarts(prev => afkGapFillTarget ? [...prev, afkGapFillTarget.start] : prev);
+              if (afkGapQueue.length > 0) {
+                setAfkGapFillTarget(afkGapQueue[0]);
+                setAfkGapQueue(q => q.slice(1));
+              } else {
+                setAfkGapFillTarget(null);
+                setAfkGapQueue([]);
+              }
+            }}
+            onFillGap={async (gap, segments) => {
+              await fillGapWithSegments(gap, segments, async (activityId, minutes, startedAt, endedAt) => {
+                await window.deskflowAPI?.addExternalTime(activityId, minutes, startedAt, endedAt);
+              });
+              setAfkFilledGapStarts(prev => [...prev, afkGapFillTarget.start]);
+              window.dispatchEvent(new CustomEvent('external-data-changed'));
+              if (afkGapQueue.length > 0) {
+                setAfkGapFillTarget(afkGapQueue[0]);
+                setAfkGapQueue(q => q.slice(1));
+              } else {
+                setAfkGapFillTarget(null);
+                setAfkGapQueue([]);
+              }
+            }}
+            zClass="z-[10000]"
+          />
+
+          {/* ── Smart Fill Modal (replaces old GapFillDrawer) ── */}
+          <GapFillModal
+            open={!!smartFillGaps && smartFillGaps.length > 0}
+            gap={smartFillGaps && smartFillGaps.length === 1 ? smartFillGaps[0] : null}
+            multiGaps={smartFillGaps && smartFillGaps.length > 1 ? smartFillGaps : undefined}
+            activities={smartFillActivities}
+            sessions={smartFillSessions}
+            onClose={() => { setSmartFillGaps(null); }}
+            onFillGap={async (gap, segments) => {
+              await fillGapWithSegments(
+                gap,
+                segments,
+                async (activityId, minutes, startedAt, endedAt) => {
+                  await window.deskflowAPI?.addExternalTime(activityId, minutes, startedAt, endedAt);
+                }
+              );
+              // Mark filled gaps in the originating popup's tracking state
+              if (smartFillSource === 'afk' && smartFillGaps) {
+                setAfkFilledGapStarts(prev => [...prev, ...smartFillGaps.map(g => g.start.toISOString())]);
+              } else if (smartFillSource === 'sleep' && smartFillGaps) {
+                setSleepFilledGapStarts(prev => [...prev, ...smartFillGaps.map(g => g.start.toISOString())]);
+              }
+              setSmartFillGaps(null);
+              setSmartFillSource(null);
+              window.dispatchEvent(new CustomEvent('external-data-changed'));
+              fetchGaps();
+            }}
+            zClass="z-[10000]"
+          />
+
+          {/* ── Manual Time Assign Modal ── */}
+          <ManualAssignModal
+            open={showManualAssign}
+            onClose={() => setShowManualAssign(false)}
+            onChanged={() => { fetchGaps(); }}
+          />
 
           {/* Global Pair Phone Modal (accessible from any page) */}
           {pairPhoneModal && (
@@ -3361,6 +3658,30 @@ Trend: +14% vs. yesterday. Keep it up!`;
               onClose={() => setPairPhoneModal(null)}
             />
           )}
+
+          {/* Global Command Palette — ⌘K / Ctrl+K navigation search */}
+          <GlobalSearchCommandPalette
+            isOpen={paletteOpen}
+            onClose={() => setPaletteOpen(false)}
+            onNavigate={(item) => {
+              setPaletteOpen(false);
+              // Use deepNav so sub-tabs switch and the page scrolls to the exact section.
+              navigateTo(
+                { route: item.route, tab: item.tab, section: item.section },
+                navigate,
+              );
+              // After navigation + tab switch, scroll to the anchored section.
+              if (item.section) {
+                const tryScroll = (attempts: number) => {
+                  if (attempts <= 0) return;
+                  if (!scrollToSection(item.section!)) {
+                    setTimeout(() => tryScroll(attempts - 1), 200);
+                  }
+                };
+                setTimeout(() => tryScroll(8), 250);
+              }
+            }}
+          />
         </div>
       </div>
       <TutorialOverlay />

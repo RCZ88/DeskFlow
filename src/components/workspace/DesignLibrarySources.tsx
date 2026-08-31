@@ -80,13 +80,18 @@ export default function DesignLibrarySources({ libraries, onBrowse, onToggle, on
           return (
             <div
               key={library.id}
-              className="rounded-xl p-4 bg-zinc-900/80 backdrop-blur-xl border border-zinc-800/60 flex flex-col gap-2"
-              style={{ borderTop: `3px solid ${library.accentColor}/30` }}
+              className="group relative overflow-hidden rounded-xl p-4 bg-zinc-900/40 backdrop-blur-xl border border-zinc-800/60 flex flex-col gap-2 transition-all hover:-translate-y-0.5 hover:border-zinc-700"
             >
+              {/* accent strip */}
+              <span className="pointer-events-none absolute inset-x-0 top-0 h-0.5" style={{ background: `linear-gradient(to right, ${library.accentColor}, ${library.accentColor}00)` }} />
+              {/* hover glow in source accent */}
+              <span className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100" style={{ boxShadow: `0 0 28px -8px ${library.accentColor}66, inset 0 0 0 1px ${library.accentColor}33` }} />
               {/* Header */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Icon className="w-4 h-4" style={{ color: library.accentColor }} />
+                  <span className="grid size-7 place-items-center rounded-lg" style={{ backgroundColor: `${library.accentColor}1a` }}>
+                    <Icon className="w-4 h-4" style={{ color: library.accentColor }} />
+                  </span>
                   <span className="text-sm font-semibold text-zinc-100">{library.label}</span>
                 </div>
                 <button

@@ -271,7 +271,6 @@ export function RingCanvas({
           strokeDasharray="1 10"
           strokeLinecap="round"
           opacity={0.5}
-          className="df-edge-breath"
           style={reducedMotion ? { opacity: 0.45 } : undefined}
         />
         {todayFlecks.map(f => (

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Check, Edit3, Trash2, RefreshCw, Flame, Clock, Target,
-  Monitor, AlertCircle, Zap, ArrowRight
+  Monitor, AlertCircle, Zap, ArrowRight, Calendar
 } from 'lucide-react';
 import { confetti } from '../ui/confetti';
 import type { Goal as GoalType } from '../dashboard/types';
@@ -112,6 +112,20 @@ export function GoalCard({ goal, onToggle, onDelete, onEdit, longTermGoals = [] 
               <Target size={8} />{goal.target.type}
             </span>
 
+            {/* Cross-feature link badge */}
+            {goal.crossFeatureLink && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-violet-500/10 text-violet-400 border-violet-500/20">
+                {goal.crossFeatureLink.feature}: {goal.crossFeatureLink.label}
+              </span>
+            )}
+
+            {/* Linked schedule badge */}
+            {goal.linkedScheduleId && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20">
+                <Calendar size={8} className="inline mr-0.5" />Scheduled
+              </span>
+            )}
+
             {isTime && goal.target.targetSeconds && (
               <span className="text-[10px] text-zinc-600">
                 {formatTime(goal.progressSeconds || 0)} / {formatTime(goal.target.targetSeconds)}
@@ -138,6 +152,28 @@ export function GoalCard({ goal, onToggle, onDelete, onEdit, longTermGoals = [] 
             {goal.streak && goal.streak > 1 && (
               <span className="text-[10px] text-amber-500/80 flex items-center gap-0.5">
                 <Flame size={8} />{goal.streak}
+              </span>
+            )}
+
+            {goal.trackingMode && goal.trackingMode !== 'manual' && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
+                goal.trackingMode === 'system'
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
+              }`}>
+                {goal.trackingMode === 'system' ? '⚙️ system' : '🔄 hybrid'}
+              </span>
+            )}
+
+            {goal.completionLogic?.lateAllowed && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-amber-500/10 text-amber-400 border-amber-500/20">
+                <Clock size={8} className="inline mr-0.5" />late OK
+              </span>
+            )}
+
+            {goal.status === 'missed' && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full border bg-rose-500/10 text-rose-400 border-rose-500/20">
+                missed
               </span>
             )}
           </div>
@@ -216,15 +252,15 @@ export function GoalEmptyState({ onAdd }: { onAdd: () => void }) {
       <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
         <Target size={24} className="text-zinc-600" />
       </div>
-      <p className="text-[14px] font-medium text-zinc-400">No goals for this day</p>
+      <p className="text-[14px] font-medium text-zinc-400">No routines yet</p>
       <p className="text-[12px] text-zinc-600 mt-1 max-w-[220px]">
-        Add a goal or check another day on the calendar
+        Routines are the things you do daily or weekly. Add one to start tracking.
       </p>
       <button
         onClick={onAdd}
         className="mt-3 px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors text-[12px] font-medium"
       >
-        Add Goal
+        Add Routine
       </button>
     </div>
   );

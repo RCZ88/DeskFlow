@@ -81,9 +81,31 @@ export function deriveStats(raw: AnalyticsRawData): DerivedStats {
   }
 
   const activeDays = activeDaysSet.size || 1;
-  const dailyAvgTokens = dailyTotalTokens > 0 ? dailyTotalTokens / activeDays : totalTokens / activeDays;
-  const dailyAvgCost = dailyTotalCost > 0 ? dailyTotalCost / activeDays : totalCost / activeDays;
-  const dailyAvgMessages = dailyTotalMessages > 0 ? dailyTotalMessages / activeDays : totalMessages / activeDays;
+  // Per-day averages: divide by full timeframe (all calendar days in range),
+  // not just days that happen to have data.
+  const allDayStrs: string[] = [];
+  for (const data of Object.values(byTool)) {
+    const daily = (data as any)?.daily;
+    if (daily) {
+      for (const dayStr of Object.keys(daily)) {
+        if (!allDayStrs.includes(dayStr)) allDayStrs.push(dayStr);
+      }
+    }
+  }
+  allDayStrs.sort();
+  let timeframeDays = 0;
+  if (allDayStrs.length >= 2) {
+    const first = new Date(allDayStrs[0]).getTime();
+    const last = new Date(allDayStrs[allDayStrs.length - 1]).getTime();
+    timeframeDays = Math.round((last - first) / 86400000) + 1;
+  } else if (allDayStrs.length === 1) {
+    timeframeDays = 1;
+  } else {
+    timeframeDays = activeDays;
+  }
+  const dailyAvgTokens = timeframeDays > 0 ? totalTokens / timeframeDays : 0;
+  const dailyAvgCost = timeframeDays > 0 ? totalCost / timeframeDays : 0;
+  const dailyAvgMessages = timeframeDays > 0 ? totalMessages / timeframeDays : 0;
 
   const tokenEntries = Object.entries(byTool)
     .map(([tool, data]) => ({ tool, tokens: (data as any)?.tokens || 0 }))

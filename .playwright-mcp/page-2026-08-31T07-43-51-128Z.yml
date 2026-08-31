@@ -1,0 +1,123 @@
+- generic [active] [ref=f5e1]:
+  - navigation [ref=f5e2]:
+    - generic [ref=f5e3]:
+      - link "Home" [ref=f5e5] [cursor=pointer]:
+        - /url: "#page-top"
+      - list [ref=f5e8]:
+        - listitem [ref=f5e9]:
+          - link "日本語" [ref=f5e10] [cursor=pointer]:
+            - /url: jp.html
+  - banner [ref=f5e11]:
+    - generic [ref=f5e14]:
+      - heading "Hiroto Sato Hiroto Sato" [level=1] [ref=f5e15]:
+        - img "Hiroto Sato" [ref=f5e16]
+        - generic [ref=f5e17]: Hiroto Sato
+      - paragraph [ref=f5e18]: "Email: sato.hiroto.s9(at)f.mail.nagoya-u.ac.jp"
+      - paragraph [ref=f5e19]: I am a postdoctoral researcher at Nagoya University. I am a microeconomic theorist with a focus on information economics.
+      - paragraph [ref=f5e20]: I received my PhD in Economics from the University of Tokyo in 2024.
+  - generic [ref=f5e23]:
+    - heading "Working Papers" [level=2] [ref=f5e24]
+    - tab "Allocating Common-Value Goods Joint with Ryo Shirakawa ▼ Abstract [Slides] Updated" [ref=f5e25]:
+      - heading [level=4] [ref=f5e26]:
+        - link "Allocating Common-Value Goods" [ref=f5e28] [cursor=pointer]:
+          - /url: https://arxiv.org/abs/2512.20001
+        - generic [ref=f5e29]:
+          - text: Joint with
+          - link "Ryo Shirakawa" [ref=f5e30] [cursor=pointer]:
+            - /url: https://sites.google.com/view/ryoshirakawa
+      - generic [ref=f5e32]:
+        - generic [ref=f5e33] [cursor=pointer]: ▼ Abstract
+        - link "[Slides]" [ref=f5e34] [cursor=pointer]:
+          - /url: Slide.pdf
+        - generic [ref=f5e35]: Updated
+    - tab "Feasible Search Behavior Joint with Ryo Shirakawa ▼ Abstract [Slides] Submitted" [ref=f5e36]:
+      - heading [level=4] [ref=f5e37]:
+        - link "Feasible Search Behavior" [ref=f5e39] [cursor=pointer]:
+          - /url: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4979402
+        - generic [ref=f5e40]:
+          - text: Joint with
+          - link "Ryo Shirakawa" [ref=f5e41] [cursor=pointer]:
+            - /url: https://sites.google.com/view/ryoshirakawa
+      - generic [ref=f5e43]:
+        - generic [ref=f5e44] [cursor=pointer]: ▼ Abstract
+        - link "[Slides]" [ref=f5e45] [cursor=pointer]:
+          - /url: Pandora_Slide.pdf
+        - generic [ref=f5e46]: Submitted
+    - 'tab "Information Aggregation and Social Networks: Responsiveness and Overturning Joint with Shinpei Noguchi and Konan Shimizu ▼ Abstract New" [ref=f5e47]':
+      - heading [level=4] [ref=f5e48]:
+        - 'link "Information Aggregation and Social Networks: Responsiveness and Overturning" [ref=f5e50] [cursor=pointer]':
+          - /url: https://arxiv.org/abs/2607.28921
+        - generic [ref=f5e51]:
+          - text: Joint with
+          - link "Shinpei Noguchi" [ref=f5e52] [cursor=pointer]:
+            - /url: https://sites.google.com/view/shinpeinoguchi/home
+          - text: and
+          - link "Konan Shimizu" [ref=f5e53] [cursor=pointer]:
+            - /url: https://sites.google.com/keio.jp/konanshimizu/home
+      - generic [ref=f5e55]:
+        - generic [ref=f5e56] [cursor=pointer]: ▼ Abstract
+        - generic [ref=f5e57]: New
+    - tab "Persuaded Choice in Ordered Search Joint with Ryo Shirakawa ▼ Abstract R&R at Economic Theory" [ref=f5e58]:
+      - heading [level=4] [ref=f5e59]:
+        - link "Persuaded Choice in Ordered Search" [ref=f5e61] [cursor=pointer]:
+          - /url: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4483732
+        - generic [ref=f5e62]:
+          - text: Joint with
+          - link "Ryo Shirakawa" [ref=f5e63] [cursor=pointer]:
+            - /url: https://sites.google.com/view/ryoshirakawa
+      - generic [ref=f5e65]:
+        - generic [ref=f5e66] [cursor=pointer]: ▼ Abstract
+        - generic [ref=f5e67]: R&R at Economic Theory
+    - 'tab "Value of History in Social Learning: Applications to Markets for History Joint with Konan Shimizu ▼ Abstract" [ref=f5e68]':
+      - heading [level=4] [ref=f5e69]:
+        - 'link "Value of History in Social Learning: Applications to Markets for History" [ref=f5e71] [cursor=pointer]':
+          - /url: https://arxiv.org/abs/2507.11029
+        - generic [ref=f5e72]:
+          - text: Joint with
+          - link "Konan Shimizu" [ref=f5e73] [cursor=pointer]:
+            - /url: https://sites.google.com/keio.jp/konanshimizu/home
+      - generic [ref=f5e74]: ▼ Abstract
+    - heading "Published Papers" [level=2] [ref=f5e77]
+    - tab "Value of Information in Social Learning Joint with Konan Shimizu ▼ Abstract [Working Paper] [Slides] Journal of Economic Theory, 2026" [ref=f5e78]:
+      - heading [level=4] [ref=f5e79]:
+        - link "Value of Information in Social Learning" [ref=f5e81] [cursor=pointer]:
+          - /url: https://www.sciencedirect.com/science/article/pii/S0022053126000955
+        - generic [ref=f5e82]:
+          - text: Joint with
+          - link "Konan Shimizu" [ref=f5e83] [cursor=pointer]:
+            - /url: https://sites.google.com/keio.jp/konanshimizu/home
+      - generic [ref=f5e85]:
+        - generic [ref=f5e86] [cursor=pointer]: ▼ Abstract
+        - link "[Working Paper]" [ref=f5e87] [cursor=pointer]:
+          - /url: https://arxiv.org/abs/2503.05015
+        - link "[Slides]" [ref=f5e88] [cursor=pointer]:
+          - /url: Blackwell_Slide.pdf
+        - generic [ref=f5e89]: Journal of Economic Theory, 2026
+    - tab "Information Structures in College Admissions Joint with Ryo Shirakawa ▼ Abstract [Working Paper] Journal of Economic Behavior and Organization, 2025" [ref=f5e90]:
+      - heading [level=4] [ref=f5e91]:
+        - link "Information Structures in College Admissions" [ref=f5e93] [cursor=pointer]:
+          - /url: https://www.sciencedirect.com/science/article/pii/S0167268125004391
+        - generic [ref=f5e94]:
+          - text: Joint with
+          - link "Ryo Shirakawa" [ref=f5e95] [cursor=pointer]:
+            - /url: https://sites.google.com/view/ryoshirakawa
+      - generic [ref=f5e97]:
+        - generic [ref=f5e98] [cursor=pointer]: ▼ Abstract
+        - link "[Working Paper]" [ref=f5e99] [cursor=pointer]:
+          - /url: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=4244770
+        - generic [ref=f5e100]: Journal of Economic Behavior and Organization, 2025
+    - tab "Robust Implementation in Sequential Information Design under Supermodular Payoffs and Objective ▼ Abstract [Working Paper] Review of Economic Design, 2022 Review of Economic Design Nedim Okan Prize in 2023" [ref=f5e101]:
+      - heading [level=4] [ref=f5e102]:
+        - link "Robust Implementation in Sequential Information Design under Supermodular Payoffs and Objective" [ref=f5e104] [cursor=pointer]:
+          - /url: https://link.springer.com/article/10.1007/s10058-022-00304-8
+      - generic [ref=f5e106]:
+        - generic [ref=f5e107] [cursor=pointer]: ▼ Abstract
+        - link "[Working Paper]" [ref=f5e108] [cursor=pointer]:
+          - /url: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3950143
+        - generic [ref=f5e109]: Review of Economic Design, 2022 Review of Economic Design Nedim Okan Prize in 2023
+  - generic [ref=f5e112]:
+    - heading "Resume" [level=2] [ref=f5e113]
+    - paragraph [ref=f5e114]:
+      - text: "Download:"
+      - link "Curriculum Vitae (PDF)" [ref=f5e115] [cursor=pointer]:
+        - /url: CV.pdf

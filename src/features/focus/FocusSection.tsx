@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Focus as FocusIcon, AlertTriangle } from 'lucide-react';
 import { SectionHeader } from '../../components/SectionHeader';
 import { LoadingState } from '../../components/LoadingState';
-import { AnimatedGradientText } from '../../components/ui/animated-gradient-text';
-import { confetti } from '../../components/ui/confetti';
 import { useFocusSession } from '../../hooks/useFocusSession';
 import { useFocusGroups, type FocusGroup, type GroupDraft } from '../../hooks/useFocusGroups';
 import { setActiveGroup } from '../../hooks/useActiveFocusGroup';
@@ -18,18 +16,19 @@ import { FocusLeaderboard } from './FocusLeaderboard';
 import { FocusDistractionLog } from './FocusDistractionLog';
 import { FocusGroupEditor } from './FocusGroupEditor';
 import { computeTodayStats, computeStreak, type FocusHistoryRow } from './focusHelpers';
+import { cn } from '@/lib/utils';
 
 type FocusMode = 'timer' | 'stopwatch';
 
 interface PendingGroupSession {
-  groupId: number;
+  groupIds: number[];
   sessionId: number;
   plannedSec: number;
 }
 
 export function FocusSection() {
-  const { state, history, start, stop, startWithGroup } = useFocusSession();
-  const { groups, loading, error: groupsError, save, remove, selectedId, setSelectedId, selected } = useFocusGroups();
+  const { state, history, start, stop, startWithGroup, startWithGroups } = useFocusSession();
+  const { groups, loading, error: groupsError, save, remove, selectedId, setSelectedId, selectedIds, toggleSelect, clearSelection } = useFocusGroups();
   const { toasts, showToast, removeToast } = useToasts();
   const [mins, setMins] = useState(25);
   const [strict, setStrict] = useState<'distracting' | 'non_allowed'>('distracting');
@@ -65,12 +64,35 @@ export function FocusSection() {
       if (res?.success === false) {
         console.error('[Focus] startWithGroup failed:', res.error);
       } else if (res?.sessionId != null) {
-        pendingGroupRef.current = { groupId, sessionId: Number(res.sessionId), plannedSec: durationSec };
+        pendingGroupRef.current = { groupIds: [groupId], sessionId: Number(res.sessionId), plannedSec: durationSec };
         const group = groups.find(g => g.id === groupId);
         setActiveGroup({
           sessionId: Number(res.sessionId),
           groupId,
+          groupIds: [groupId],
+          groupNames: [group?.name ?? 'Group'],
           allowedCategories: (group?.allowed_categories ?? []).map((c: string) => String(c)),
+          startedAt: Date.now(),
+        });
+      }
+    });
+  };
+
+  const handleStartWithGroups = (groupIds: number[], durationSec: number, strictness: 'distracting' | 'non_allowed') => {
+    if (groupIds.length === 0) return;
+    startWithGroups(groupIds, durationSec, strictness).then(res => {
+      if (res?.success === false) {
+        console.error('[Focus] startWithGroups failed:', res.error);
+      } else if (res?.sessionId != null) {
+        pendingGroupRef.current = { groupIds, sessionId: Number(res.sessionId), plannedSec: durationSec };
+        const selected = groupIds.map(id => groups.find(g => g.id === id)).filter((g): g is FocusGroup => !!g);
+        const allCategories = Array.from(new Set(selected.flatMap(g => (g.allowed_categories ?? []).map((c: string) => String(c)))));
+        setActiveGroup({
+          sessionId: Number(res.sessionId),
+          groupId: selected[0]?.id ?? groupIds[0],
+          groupIds,
+          groupNames: selected.map(g => g.name),
+          allowedCategories: allCategories,
           startedAt: Date.now(),
         });
       }
@@ -79,10 +101,12 @@ export function FocusSection() {
 
   const onGroupSessionEnded = async (pending: PendingGroupSession) => {
     try {
-      const group = groups.find(g => g.id === pending.groupId);
-      if (!group) return;
+      const pendingGroups = pending.groupIds
+        .map(id => groups.find(g => g.id === id))
+        .filter((g): g is FocusGroup => !!g);
+      if (pendingGroups.length === 0) return;
       const api = (window as any).deskflowAPI;
-      const allowed = (group.allowed_categories || []).map((c: string) => String(c).toLowerCase());
+      const allowed = Array.from(new Set(pendingGroups.flatMap(g => (g.allowed_categories || []).map((c: string) => String(c).toLowerCase()))));
       const goalIds: string[] = [];
       let goalTitle = '';
       let bestPct = 0;
@@ -103,19 +127,22 @@ export function FocusSection() {
       }
       try {
         if (api?.focusGroup?.linkUsage) {
-          await api.focusGroup.linkUsage({ sessionId: pending.sessionId, groupId: pending.groupId, goalIds });
+          for (const gid of pending.groupIds) {
+            await api.focusGroup.linkUsage({ sessionId: pending.sessionId, groupId: gid, goalIds });
+          }
         }
       } catch (e) {
         console.error('[Focus] linkUsage failed:', e);
       }
       const minsDone = Math.max(1, Math.round(pending.plannedSec / 60));
+      const label = pendingGroups.length === 1 ? pendingGroups[0].name : `${pendingGroups.length} combined groups`;
       if (bestPct >= 100) {
-        confetti({ particleCount: 120, spread: 75, startVelocity: 42, colors: ['#ec4899', '#a855f7', '#fbbf24', '#34d399'] });
+        // confetti handled by FocusTimer completion state
       }
       showToast(
         goalTitle
-          ? `${group.name} · ${minsDone} min · ${bestPct}% of '${goalTitle}' goal`
-          : `${group.name} · ${minsDone} min · no matching goal`,
+          ? `${label} · ${minsDone} min · ${bestPct}% of '${goalTitle}' goal`
+          : `${label} · ${minsDone} min · no matching goal`,
         'success',
       );
     } catch (e) {
@@ -150,7 +177,7 @@ export function FocusSection() {
   if (apiMissing || (loading && groups.length === 0)) {
     return (
       <div>
-        <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-4 h-4" />} />
+        <SectionHeader title="Deep Focus" icon={<FocusIcon className="w-4 h-4 text-[var(--page-accent)]" />} />
         <LoadingState variant="skeleton" className="h-96" />
       </div>
     );
@@ -159,7 +186,7 @@ export function FocusSection() {
   if (groupsError && groups.length === 0) {
     return (
       <div>
-        <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-5 h-5" />} />
+        <SectionHeader title="Deep Focus" icon={<FocusIcon className="w-5 h-5 text-[var(--page-accent)]" />} />
         <div className="rounded-xl border border-rose-500/30 bg-zinc-900/95 p-5">
           <p className="text-[13px] font-semibold text-rose-300 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
@@ -172,21 +199,27 @@ export function FocusSection() {
   }
 
   return (
-    <div className="space-y-6">
-      <SectionHeader title={<AnimatedGradientText colorFrom="#ec4899" colorTo="#a855f7">Deep Focus</AnimatedGradientText>} icon={<FocusIcon className="w-5 h-5" />} />
-      <FocusStats stats={todayStats} streak={streak} />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-1">
+    <div className="space-y-5">
+      <SectionHeader title="Deep Focus" icon={<FocusIcon className="w-5 h-5 text-clay-400" />} />
+
+      {/* Main grid: timer hero left-center, groups left, stats/insights right */}
+      <div className="grid grid-cols-12 gap-5">
+        {/* LEFT: Focus groups sidebar */}
+        <div className="col-span-12 lg:col-span-3 order-first">
           <FocusGroupsPanel
             groups={groups}
             selectedId={selectedId}
             onSelect={setSelectedId}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
             onCreate={() => { setEditingGroup(null); setEditorOpen(true); }}
             onEdit={g => { setEditingGroup(g); setEditorOpen(true); }}
             onDelete={handleDeleteGroup}
           />
         </div>
-        <div className="lg:col-span-1 space-y-4">
+
+        {/* CENTER: Timer hero */}
+        <div className="col-span-12 lg:col-span-5 order-2 lg:order-2">
           <FocusTimer
             state={state}
             mins={mins}
@@ -199,43 +232,53 @@ export function FocusSection() {
             mode={mode}
             onModeChange={setMode}
             groups={groups}
-            selectedGroupId={selectedId}
+            selectedGroupIds={selectedIds}
             activeGroup={selected}
             onStartWithGroup={handleStartWithGroup}
+            onStartWithGroups={handleStartWithGroups}
             onDurationDrag={sec => setMins(Math.round(sec / 60))}
           />
         </div>
-        <div className="lg:col-span-1 space-y-4">
+
+        {/* RIGHT: Stats + goals + insights stacked */}
+        <div className="col-span-12 lg:col-span-4 order-3 space-y-4">
+          <FocusStats stats={todayStats} streak={streak} />
           <FocusGoals history={rows} />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <FocusInsights history={rows} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <FocusLeaderboard history={rows} />
             <FocusDistractionLog distractions={distractions} isActive={!!state?.active} />
           </div>
           <FocusHistory history={rows} onStartFirstSession={handleStart} />
-          <FocusInsights history={rows} />
         </div>
       </div>
+
       <FocusGroupEditor
         open={editorOpen}
         onOpenChange={setEditorOpen}
         group={editingGroup}
         onSave={handleSaveGroup}
       />
+
       {toasts.length > 0 && (
         <div className="fixed bottom-6 right-6 z-[300] flex flex-col gap-2 max-w-sm">
           {toasts.map(t => (
             <button
               key={t.id}
               onClick={() => removeToast(t.id)}
-              className={`flex items-start gap-2.5 text-left px-4 py-3 rounded-xl bg-[rgba(24,24,27,0.95)] backdrop-blur-xl border shadow-2xl transition-opacity hover:opacity-90 ${
-                t.type === 'success'
-                  ? 'border-emerald-500/40'
-                  : t.type === 'error'
-                    ? 'border-rose-500/40'
-                    : 'border-zinc-800/60'
-              }`}
+              className={cn(
+                `flex items-start gap-2.5 text-left px-4 py-3 rounded-xl bg-zinc-900/95 border transition-opacity hover:opacity-90`,
+                t.type === 'success' ? 'border-emerald-500/40' :
+                t.type === 'error' ? 'border-rose-500/40' :
+                'border-zinc-800/60'
+              )}
             >
-              <span className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${t.type === 'success' ? 'bg-emerald-400' : t.type === 'error' ? 'bg-rose-400' : 'bg-zinc-400'}`} />
+              <span className={cn(
+                'mt-0.5 w-2 h-2 rounded-full shrink-0',
+                t.type === 'success' ? 'bg-emerald-400' :
+                t.type === 'error' ? 'bg-rose-400' :
+                'bg-zinc-400'
+              )} />
               <span className="text-sm text-zinc-100">{t.message}</span>
             </button>
           ))}

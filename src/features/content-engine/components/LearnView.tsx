@@ -24,8 +24,8 @@ export function LearnView({ episodeId, onPhaseChange }: LearnViewProps) {
   console.log('%c[ContentEngine] Phase45 v1.0 loaded', 'color:#f5c518;font-weight:bold')
 
   const [correlations, setCorrelations] = useState<Correlation[]>([])
-  const [bestPerformer, setBestPerformer] = useState<string | null>(null)
-  const [worstPerformer, setWorstPerformer] = useState<string | null>(null)
+  const [bestPerformer, setBestPerformer] = useState<{ title: string; why: string } | null>(null)
+  const [worstPerformer, setWorstPerformer] = useState<{ title: string; why: string } | null>(null)
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -43,8 +43,10 @@ export function LearnView({ episodeId, onPhaseChange }: LearnViewProps) {
       ])
       if (corrRes?.ok) {
         setCorrelations(Array.isArray(corrRes.correlations) ? corrRes.correlations : [])
-        setBestPerformer(corrRes.best_performer ?? null)
-        setWorstPerformer(corrRes.worst_performer ?? null)
+        const bp = corrRes.best_performer
+        setBestPerformer(bp && typeof bp === 'object' ? bp : bp ? { title: String(bp), why: '' } : null)
+        const wp = corrRes.worst_performer
+        setWorstPerformer(wp && typeof wp === 'object' ? wp : wp ? { title: String(wp), why: '' } : null)
         setRecommendations(Array.isArray(corrRes.recommendations) ? corrRes.recommendations : [])
       } else {
         setError(corrRes?.error || 'Failed to load correlations.')
@@ -138,7 +140,8 @@ export function LearnView({ episodeId, onPhaseChange }: LearnViewProps) {
                   <Trophy size={13} className="text-emerald-400" />
                   <span className="text-[10px] tracking-wider text-zinc-500 uppercase">Best Performer</span>
                 </div>
-                <p className="text-sm font-medium text-zinc-200">{bestPerformer}</p>
+                <p className="text-sm font-medium text-zinc-200">{bestPerformer.title}</p>
+                {bestPerformer.why && <p className="text-[11px] text-zinc-400">{bestPerformer.why}</p>}
               </Card>
             )}
             {worstPerformer && (
@@ -147,7 +150,8 @@ export function LearnView({ episodeId, onPhaseChange }: LearnViewProps) {
                   <AlertTriangle size={13} className="text-rose-400" />
                   <span className="text-[10px] tracking-wider text-zinc-500 uppercase">Worst Performer</span>
                 </div>
-                <p className="text-sm font-medium text-zinc-200">{worstPerformer}</p>
+                <p className="text-sm font-medium text-zinc-200">{worstPerformer.title}</p>
+                {worstPerformer.why && <p className="text-[11px] text-zinc-400">{worstPerformer.why}</p>}
               </Card>
             )}
           </div>

@@ -41,6 +41,7 @@ import { GlassCard } from '../GlassCard'
 import { SectionHeader } from '../SectionHeader'
 import { StatsDashboard } from '../stats/StatsDashboard'
 import { AISessionHistory } from './AISessionHistory'
+import { WordTrackerPanel } from './WordTrackerPanel'
 import { MOTION, SURFACE, RING, TEXT } from './tokens'
 import { cn } from './lib/cn'
 
@@ -137,6 +138,7 @@ const AGENT_CONFIG: Record<
   qwen: { name: 'Qwen CLI', icon: 'qwen', color: '#f59e0b' },
   aider: { name: 'Aider', icon: 'aider', color: '#f59e0b' },
   kilocode: { name: 'KiloCode', icon: 'kilocode', color: '#22c55e' },
+  hermes: { name: 'Hermes', icon: 'hermes', color: '#8b5cf6' },
 }
 
 const MODEL_COLORS = [
@@ -1117,6 +1119,9 @@ export default function AIToolsTab({
         onRetry={onRetryAnalytics}
       />
 
+      {/* ── Word Tracker ── */}
+      <WordTrackerPanel overview={overview} />
+
       {/* ── Debug Panel ── */}
       <AnimatePresence>
         {showAgentDebug && agentDebugInfo && (
@@ -1902,15 +1907,15 @@ export default function AIToolsTab({
 
                         {/* Daily Averages row */}
                         {(() => {
-                          const activeDays = periodData.filter(d => (d.tokens || 0) > 0).length || 1
-                          const dTokens = totalTokens / activeDays
-                          const dCost = totalCost / activeDays
-                          const dMsgs = totalMessages / activeDays
+                          const timeframeDays = periodDays.length
+                          const dTokens = totalTokens / timeframeDays
+                          const dCost = totalCost / timeframeDays
+                          const dMsgs = totalMessages / timeframeDays
                           return (
                             <div className="grid grid-cols-3 gap-3">
                               <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-amber-500/20">
                                 <div className="text-base font-bold text-amber-400 tabular-nums"><TokenValue value={Math.round(dTokens)} /></div>
-                                <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Tokens/Day ({activeDays}d)</div>
+                                <div className="text-[9px] text-zinc-600 uppercase tracking-wider mt-1">Tokens/Day ({timeframeDays}d)</div>
                               </div>
                               <div className="bg-zinc-950/60 rounded-xl p-3 text-center ring-1 ring-cyan-500/20">
                                 <div className="text-base font-bold text-cyan-400 tabular-nums"><CostValue value={dCost} /></div>
@@ -3201,8 +3206,21 @@ export default function AIToolsTab({
                     dailyCosts[dayStr] = (dailyCosts[dayStr] || 0) + (dayData.cost || 0)
                   }
                 }
-                const costDays = Object.values(dailyCosts).filter(v => v > 0)
-                const avgDailyCost = costDays.length > 0 ? costDays.reduce((s, v) => s + v, 0) / costDays.length : 0
+                const dailyCostDays = Object.values(dailyCosts).filter(v => v > 0)
+                const sortedCostDays = Object.keys(dailyCosts).sort()
+                let costTimeframeDays = 0
+                if (sortedCostDays.length >= 2) {
+                  const first = new Date(sortedCostDays[0]).getTime()
+                  const last = new Date(sortedCostDays[sortedCostDays.length - 1]).getTime()
+                  costTimeframeDays = Math.max(1, Math.round((last - first) / 86400000) + 1)
+                } else if (sortedCostDays.length === 1) {
+                  costTimeframeDays = 1
+                } else {
+                  costTimeframeDays = effectiveAiPeriod === 'week' ? 7 : effectiveAiPeriod === 'month' ? 30 : 7
+                }
+                const avgDailyCost = dailyCostDays.length > 0
+                  ? dailyCostDays.reduce((s, v) => s + v, 0) / costTimeframeDays
+                  : 0
                 const projectedMonthly = avgDailyCost * 30
                 const projectedYearly = avgDailyCost * 365
 
@@ -3231,8 +3249,8 @@ export default function AIToolsTab({
                         <h3 className="text-[13px] font-semibold text-zinc-100">
                           Cost Insights
                         </h3>
-                        <p className="text-[11px] text-zinc-600">
-                          Projections based on {costDays.length} active day{costDays.length !== 1 ? 's' : ''}
+                        <p className="text-[11px] text-zinc-600 mt-1">
+                          Projections based on {dailyCostDays.length} active day{dailyCostDays.length !== 1 ? 's' : ''}
                         </p>
                       </div>
                     </div>

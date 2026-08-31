@@ -1,0 +1,75 @@
+/* =====================================================================
+   tokens.css — LANDING DESIGN SPEC §IV (single source of truth)
+   Loaded BEFORE all global styles (main.tsx imports this ahead of index.css).
+
+   MONOCHROME LAW
+   --------------
+   No color value may exist outside this file. The only permitted hues are
+   the two near-monochrome anchors below plus pure black/white expressed as
+   rgba(255,255,255,<alpha>) / rgba(0,0,0,<alpha>). Every derived shade is a
+   white or black layer at some opacity over --bg-0. "Bloom" (glow/aurora)
+   is capped at 8% so it never reads as a hue.
+   ===================================================================== */
+
+:root {
+  /* --- §IV anchors --- */
+  --bg-0: #050506;                 /* near-black canvas */
+  --text-hi: #f4f4f5;              /* high-contrast foreground (near-white) */
+  --hairline: rgba(255, 255, 255, 0.08); /* 1px structural separators */
+
+  /* --- derived monochrome (white/black @ opacity only) --- */
+  --surface-1: rgba(255, 255, 255, 0.03);   /* recessed glass */
+  --surface-2: rgba(255, 255, 255, 0.05);   /* raised glass */
+  --surface-3: rgba(255, 255, 255, 0.07);   /* active/hoisted glass */
+  --text-mid: rgba(244, 244, 245, 0.64);    /* secondary copy */
+  --text-lo: rgba(244, 244, 245, 0.40);     /* tertiary / disabled */
+  --text-faint: rgba(244, 244, 245, 0.24);  /* placeholder / hairline text */
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+  --hairline-soft: rgba(255, 255, 255, 0.05);
+  --on-invert: #050506;            /* text on a white (inverted) surface */
+
+  /* --- motion --- */
+  --ease-out-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --bloom-max: 0.08;               /* bloom ≤ 8% — never a hue */
+  --dur-fast: 150ms;
+  --dur-normal: 250ms;
+  --dur-slow: 400ms;
+
+  /* --- type --- */
+  --font-display: "Space Grotesk", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", "Menlo", monospace;
+
+  /* --- geometry (developer-tool restraint: max 12px) --- */
+  --radius-card: 12px;
+  --radius-sm: 8px;
+  --label-track: 0.14em;           /* +14% letter-spacing on mono labels */
+}
+
+/* LAMINAR helper layer: hairlines instead of shadows, white-only accents.
+   Components in src/components/landing/ compose these — never ad-hoc color. */
+.laminar-surface {
+  background: var(--surface-1);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-card);
+  backdrop-filter: blur(12px);
+}
+.laminar-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.2;
+  letter-spacing: var(--label-track);
+  text-transform: uppercase;
+  color: var(--text-mid);
+}
+.laminar-label--12 {
+  font-size: 12px;
+}
+.laminar-hairline {
+  background: var(--hairline);
+  height: 1px;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0.01ms; --dur-normal: 0.01ms; --dur-slow: 0.01ms; }
+}

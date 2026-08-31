@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CheckCircle2, RefreshCw, XCircle, AlertTriangle, Wand2 } from 'lucide-react'
 import type { ScriptFrame, ScoringSchemeInfo } from '@/types/deskflow-api'
 import { cn } from '@/lib/utils'
-import { Card, GhostButton, AmberButton, TextArea, FieldLabel } from './ui'
+import { Card, CopyPromptButton, GhostButton, AmberButton, ConfirmIconButton, TextArea, FieldLabel } from './ui'
 
 console.log('%c[ContentEngine] vX.2 loaded', 'color:#f5c518;font-weight:bold')
 
@@ -91,7 +91,8 @@ export function ScriptProofCard({
   const weight = scheme.weights?.value_loop ?? scheme.weights?.[criteria[0]] ?? 0
   const weighted = score * weight
 
-  const rejected = isRejected || frame.rejected
+  const autoRejected = !pass && score > 0 // score < 0.6 auto-rejects
+  const rejected = isRejected || frame.rejected || autoRejected
   const reasons = frame.rejection_reasons ?? []
   const evidenceLines = parseEvidenceLines(evidence)
 
@@ -291,15 +292,15 @@ export function ScriptProofCard({
         >
           <CheckCircle2 size={12} /> Accept
         </GhostButton>
-        <GhostButton
+        <ConfirmIconButton
+          onConfirm={onReject}
+          icon={<XCircle size={12} />}
+          label="Reject this frame"
           className={cn(
             'h-7 px-2 text-[11px]',
             !rejected && 'border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20',
           )}
-          onClick={onReject}
-        >
-          <XCircle size={12} /> Reject
-        </GhostButton>
+        />
         <GhostButton
           className="h-7 px-2 text-[11px]"
           onClick={() => setRegenMode((v) => !v)}
@@ -311,7 +312,10 @@ export function ScriptProofCard({
       {/* Regenerate inline */}
       {regenMode && (
         <div className="rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/[0.04] p-3">
-          <FieldLabel>Regeneration instruction</FieldLabel>
+          <div className="flex items-center gap-2">
+            <FieldLabel>Regeneration instruction</FieldLabel>
+            <CopyPromptButton fieldKey="regen-instruction" />
+          </div>
           <TextArea
             rows={2}
             value={instruction}

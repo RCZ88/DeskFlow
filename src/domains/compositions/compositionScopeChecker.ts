@@ -1,20 +1,29 @@
 import { ASTNode, CompositionRule, EventPattern, SchedulePattern, ConditionClause, ActionBlock, ActionItem, ExpressionNode, ScopeReport, ScopeError, ScopeWarning } from './compositionTypes';
 
 const ALLOWED_EVENT_SOURCES = ['finance', 'focus', 'goals', 'learning', 'ide', 'system', 'tracking'];
-const ALLOWED_ACTIONS = ['notify', 'log', 'query', 'update', 'create', 'delete', 'http', 'transform', 'filter', 'trigger', 'sleep', 'exec'];
+const ALLOWED_ACTIONS = [
+  'notify', 'log', 'query', 'update', 'create', 'delete', 'http', 'transform', 'filter', 'trigger', 'sleep', 'exec',
+  'open_link', 'goal:create', 'goal:complete', 'deadline:add', 'schedule:add', 'test:notify',
+];
 const ALLOWED_ACTION_PARAMS: Record<string, string[]> = {
-  notify: ['message', 'title', 'level', 'channel'],
-  log: ['level', 'message', 'data'],
-  query: ['table', 'columns', 'where', 'order', 'limit'],
+  notify: ['message', 'title', 'subject', 'body', 'text', 'level', 'channel'],
+  log: ['level', 'message', 'data', 'text', 'body'],
+  query: ['table', 'columns', 'where', 'order', 'limit', 'source'],
   update: ['table', 'set', 'where'],
   create: ['table', 'data'],
   delete: ['table', 'where'],
-  http: ['url', 'method', 'headers', 'body'],
+  http: ['url', 'endpoint', 'method', 'headers', 'body'],
   transform: ['expression', 'as'],
   filter: ['source', 'condition', 'as'],
   trigger: ['event', 'source', 'payload'],
-  sleep: ['ms'],
+  sleep: ['ms', 'duration'],
   exec: ['command', 'cwd', 'timeout'],
+  open_link: ['url', 'link', 'href'],
+  'goal:create': ['title', 'name', 'description', 'category', 'period'],
+  'goal:complete': ['title', 'id'],
+  'deadline:add': ['title', 'name', 'due_date', 'due', 'date', 'description', 'priority'],
+  'schedule:add': ['title', 'name', 'entries'],
+  'test:notify': ['title', 'message', 'body'],
 };
 
 export function scopeCheck(manifestId: string, dslSource: string, ast: ASTNode[]): ScopeReport {

@@ -33,8 +33,10 @@ export interface LifePhase {
   category: string
   startMonth: number
   startYear: number
+  startDate?: string | null         // optional ISO date YYYY-MM-DD
   endMonth?: number | null
   endYear?: number | null
+  endDate?: string | null           // optional ISO date YYYY-MM-DD
   magnitude: number          // 1–10
   color: string
   reflection: string

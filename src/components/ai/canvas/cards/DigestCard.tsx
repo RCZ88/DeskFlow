@@ -24,7 +24,7 @@ export function DigestCard({ card, topics = [], loading, error, onGenerate, onCo
       emptyProps={{
         icon: Newspaper,
         title: 'No research topics',
-        description: 'Configure research topics, then ask the AI for a daily digest.',
+        description: 'Configure research topics in Settings → AI, then refresh the digest.',
         ctaLabel: 'Configure in Settings',
         onCta: onConfigure,
       }}
@@ -32,10 +32,14 @@ export function DigestCard({ card, topics = [], loading, error, onGenerate, onCo
     >
       <div className="card-digest">
         <ul className="card-digest-list">
-          {items.slice(0, 5).map((t: any, i: number) => (
+          {items.slice(0, 8).map((t: any, i: number) => (
             <li key={i} className="card-digest-item">
               <span className="card-digest-topic">{t.topic || t.title}</span>
-              {t.summary && <span className="card-digest-summary">{t.summary.slice(0, 80)}...</span>}
+              {t.summary ? (
+                <span className="card-digest-summary">{t.summary.slice(0, 100)}...</span>
+              ) : (
+                <span className="card-digest-summary" style={{ fontStyle: 'italic', opacity: 0.5 }}>No summary yet — refresh to generate</span>
+              )}
             </li>
           ))}
         </ul>

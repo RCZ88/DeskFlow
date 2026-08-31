@@ -22,7 +22,7 @@ function isRepaid(tx: FinanceTransaction, all: FinanceTransaction[]): boolean {
   return s.repaid || Math.abs(tx.amount) - s.totalRepaid <= 0;
 }
 
-const W = 480;
+const W = 580;
 
 function headerBlock(s: ReceiptStyle, title: string, date: string) {
   const base: React.CSSProperties = {
@@ -42,21 +42,23 @@ function headerBlock(s: ReceiptStyle, title: string, date: string) {
     fontWeight: 600,
     letterSpacing: '0.08em',
     textTransform: 'uppercase' as const,
-    color: s.accent,
+    color: s.headerText,
   };
   const titleStyle: React.CSSProperties = {
     fontFamily: s.headingFont,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: 700,
-    color: s.text,
+    color: s.headerText,
     margin: 0,
     lineHeight: 1.3,
+    wordBreak: 'break-word',
   };
   const dateStyle: React.CSSProperties = {
     fontFamily: s.fontFamily,
     fontSize: 12,
-    color: s.textSecondary,
+    color: s.headerText,
     marginTop: 4,
+    opacity: 0.7,
   };
 
   if (s.headerStyle === 'center') {
@@ -162,6 +164,9 @@ function descCell(s: ReceiptStyle): React.CSSProperties {
     fontFamily: s.fontFamily,
     fontSize: 13,
     color: s.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
   };
 }
 
@@ -196,7 +201,7 @@ function classicRow(
   const cellPad = { padding: '10px 12px' };
   const grid: React.CSSProperties = {
     display: 'grid',
-    gridTemplateColumns: '1fr 80px 64px 80px',
+    gridTemplateColumns: '1fr 90px 72px 90px',
     alignItems: 'center',
     background: rowBg,
     borderBottom: `1px solid ${s.divider}`,
@@ -239,7 +244,7 @@ function classicTableHeader(s: ReceiptStyle) {
     <div
       style={{
         display: 'grid',
-        gridTemplateColumns: '1fr 80px 64px 80px',
+        gridTemplateColumns: '1fr 90px 72px 90px',
         borderBottom: `2px solid ${s.divider}`,
       }}
     >
@@ -705,7 +710,9 @@ export const ReceiptPreview = forwardRef<HTMLDivElement, ReceiptPreviewProps>(
     });
 
     const outerBg: React.CSSProperties = {
-      width: W,
+      width: '100%',
+      minWidth: W,
+      maxWidth: 720,
       background: s.bg,
       color: s.text,
       fontFamily: s.fontFamily,

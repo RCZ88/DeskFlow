@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { Mic, Square, Send, Mail, Inbox, Calendar, ClipboardList, RefreshCw, Search, PenLine, Newspaper, Eye, Target, Zap } from "lucide-react"
+import { Mic, Square, Send, Mail, Inbox, Calendar, ClipboardList, RefreshCw, Search, PenLine, Newspaper, Eye, Target, Zap, Paperclip, X } from "lucide-react"
 import { SlashCommandPalette } from "./SlashCommandPalette"
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { getAllCommands } from "../../../services/customSlashCommands"
@@ -7,7 +7,7 @@ import { getAllCommands } from "../../../services/customSlashCommands"
 export interface ChatInputProps {
   value: string
   onChange: (v: string) => void
-  onSend: (text: string) => void
+  onSend: (text: string, images?: string[]) => void
   onStop?: () => void
   streaming?: boolean
   listening?: boolean
@@ -32,9 +32,11 @@ const SLASH_COMMANDS = [
 
 export function ChatInput(props: ChatInputProps) {
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [paletteIndex, setPaletteIndex] = useState(0)
   const [filteredCommands, setFilteredCommands] = useState(SLASH_COMMANDS)
+  const [pendingImages, setPendingImages] = useState<string[]>([])
   const historyIndexRef = useRef(-1)
   const draftRef = useRef("")
 
@@ -45,7 +47,33 @@ export function ChatInput(props: ChatInputProps) {
     el.style.height = Math.min(el.scrollHeight, 140) + "px"
   }, [props.value])
 
-  const canSend = props.value.trim().length > 0 && !props.streaming
+  const canSend = (props.value.trim().length > 0 || pendingImages.length > 0) && !props.streaming
+
+  const doSend = useCallback(() => {
+    const text = props.value.trim()
+    if (!text && pendingImages.length === 0) return
+    props.onSend(text, pendingImages.length ? pendingImages : undefined)
+    setPendingImages([])
+  }, [props, pendingImages])
+
+  const handleFilePick = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ""
+    files.forEach((file) => {
+      if (!file.type.startsWith("image/")) return
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setPendingImages((prev) => [...prev, reader.result as string])
+        }
+      }
+      reader.readAsDataURL(file)
+    })
+  }, [])
+
+  const removeImage = useCallback((idx: number) => {
+    setPendingImages((prev) => prev.filter((_, i) => i !== idx))
+  }, [])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (paletteOpen) {
@@ -107,9 +135,9 @@ export function ChatInput(props: ChatInputProps) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       historyIndexRef.current = -1
-      if (canSend) props.onSend(props.value.trim())
+      if (canSend) doSend()
     }
-  }, [paletteOpen, filteredCommands, paletteIndex, canSend, props])
+  }, [paletteOpen, filteredCommands, paletteIndex, canSend, doSend, props])
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value
@@ -152,6 +180,28 @@ export function ChatInput(props: ChatInputProps) {
       )}
 
       <div className="dk-input-wrap">
+        {pendingImages.length > 0 && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 8px 0" }}>
+            {pendingImages.map((img, idx) => (
+              <div key={idx} style={{ position: "relative" }}>
+                <img
+                  src={img}
+                  alt="attachment"
+                  style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, border: "1px solid var(--border)", display: "block" }}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeImage(idx)}
+                  className="dk-iconbtn"
+                  style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, padding: 0, background: "var(--bg-elevated)", color: "var(--red)" }}
+                  title="Remove image"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <VoiceInputWrapper>
           <textarea
             ref={taRef}
@@ -165,6 +215,22 @@ export function ChatInput(props: ChatInputProps) {
           />
         </VoiceInputWrapper>
         <div className="dk-input-tools">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            style={{ display: "none" }}
+            onChange={handleFilePick}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="dk-iconbtn"
+            title="Attach image (for vision models)"
+          >
+            <Paperclip size={14} />
+          </button>
           {props.onOpenCommands && (
             <button
               type="button"
@@ -200,7 +266,7 @@ export function ChatInput(props: ChatInputProps) {
           ) : (
             <button
               type="button"
-              onClick={() => canSend && props.onSend(props.value.trim())}
+              onClick={() => canSend && doSend()}
               disabled={!canSend}
               className="dk-iconbtn dk-send"
               title="Send message"

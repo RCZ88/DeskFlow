@@ -728,7 +728,7 @@ export function NewSessionDialog({ open, mode = 'create', onClose, onCreate, pro
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-lg p-5 max-h-[85vh] overflow-y-auto" style={NSD_ACCENT}>
+      <DialogContent className="max-w-3xl p-5 max-h-[85vh] overflow-y-auto" style={NSD_ACCENT}>
         <DialogTitle className="sr-only">New session</DialogTitle>
         <DialogDescription className="sr-only">Create a new AI agent session</DialogDescription>
         <div className="relative">
@@ -763,7 +763,7 @@ export function NewSessionDialog({ open, mode = 'create', onClose, onCreate, pro
 
                     <div>
                       <label className="block text-[11px] font-medium text-zinc-400 mb-1.5">Agent</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
                         {SUPPORTED_AGENTS.map((a) => (
                           <button key={a.id} type="button" onClick={() => setAgentType(a.id)}
                             className={`rounded-xl border px-2 py-1.5 text-[11px] transition-all duration-150 ${agentType === a.id ? 'border-cyan-400/50 bg-cyan-400/10 text-cyan-200' : 'border-zinc-700/50 bg-zinc-900/40 text-zinc-400 hover:border-zinc-600 hover:text-zinc-300'}`}>
@@ -878,7 +878,7 @@ export function NewSessionDialog({ open, mode = 'create', onClose, onCreate, pro
                             <button type="button" onClick={() => { setCtxLoadFailed(false); loadSystemStatus(); }} className="text-[10px] text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors">Retry</button>
                           </div>
                         ) : (
-                          <ContextMapVisualization ctx={ctxState} prevNode={prevNode} allNodes={allNodes} toggleState={(n) => enabledNodes.has(n)} getColor={getColor} SYSTEM_DEFS={SYSTEM_DEFS} activeSystems={activeSystems} findSystem={findSystem} onNodeClick={onNodeClick} layoutMode={layoutMode} svgDim={{ w: 480, h: 170 }} />
+                          <ContextMapVisualization ctx={ctxState} prevNode={prevNode} allNodes={allNodes} toggleState={(n) => enabledNodes.has(n)} getColor={getColor} SYSTEM_DEFS={SYSTEM_DEFS} activeSystems={activeSystems} findSystem={findSystem} onNodeClick={onNodeClick} layoutMode={layoutMode} svgDim={{ w: 680, h: 190 }} />
                         )}
                       </div>
                       <div className="mt-1 flex items-center justify-between">

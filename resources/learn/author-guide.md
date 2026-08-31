@@ -119,13 +119,34 @@ rows:
 
 **`illustration`** — AI-generated hand-drawn illustration. JSON object with `prompt` and `concept`.
 
+**`animation`** — Interactive animated math visualization (Elucim DSL). JSON object with `dsl` (ElucimDocument), optional `title`, `concept`, `preset`. Use for 2D function plots, vector fields, calculus animations, interactive math. Example:
+
+```:::animation {"dsl": {"version":"2.0","scene":{"type":"player","width":800,"height":600},"elements":{"axes":{"type":"axes","props":{"domain":[-5,5],"range":[-2,8]}},"curve":{"type":"functionPlot","props":{"fn":"x^2","color":"#3b82f6"}}},"timelines":{"intro":{"duration":60,"tracks":[{"target":"curve","property":"opacity","keyframes":[{"frame":0,"value":0},{"frame":60,"value":1}]}]}}}, "title": "Parabola y=x²", "concept": "A parabola is the set of all points equidistant from a focus and a directrix"}```
+
+**`video_asset`** — Pre-rendered Manim animation video. Contains Python Manim source code. Example:
+
+```:::video_asset
+```python
+from manim import *
+class SlopeScene(Scene):
+    def construct(self):
+        axes = Axes(x_range=[-3, 3], y_range=[-1, 9])
+        curve = axes.plot(lambda x: x**2, color=BLUE)
+        self.play(Create(axes), Create(curve))
+```
+scene: SlopeScene
+quality: low
+caption: The slope of a curve at any point is the slope of the tangent line
+:::
+```
+
 ### Do not use
-`video` and `widget` directive kinds are **not implemented**. They silently fall through to untyped prose.
+`video` and `widget` directive kinds are **not implemented**. They silently fall through to untyped prose. Use `animation` or `video_asset` instead.
 
 ## Visual variety is mandatory
 
 **Every node targeting L2+ needs at least one visual block.** Visual types that count (exact parser list):
-`mermaid`, `image`, `widget`, `math`, `chart`, `finchart`, `flow`, `layer`, `svg`, `code`, `table`, `viz_heatmap`, `viz_graph`, `viz_timeline`, `viz_concept_map`, `flashcard`, `layer_reveal`, `whiteboard`, `illustration`.
+`mermaid`, `image`, `html`, `figure`, `math`, `annotated-math`, `code`, `annotated-code`, `chart`, `finchart`, `flow`, `layer`, `table`, `illustration`, `animation`, `video_asset`, `viz_heatmap`, `viz_graph`, `viz_timeline`, `viz_concept_map`, `flashcard`, `layer_reveal`, `whiteboard`.
 
 Non-visual (do NOT count): `quiz`, `callout`, `prose`, bare GFM tables.
 
@@ -136,6 +157,18 @@ Non-visual (do NOT count): `quiz`, `callout`, `prose`, bare GFM tables.
 - At least 1 callout per lesson
 - At least 1 code block in technical lessons
 - Use `chart` for data, `mermaid` for flow, `flow sankey` for proportions
+- Use `animation` for interactive 2D math (functions, derivatives, vectors, slopes)
+- Use `video_asset` for complex 3D animations that exceed browser performance
+
+## Routing guide — which tool for what
+| Concept type | Use | Why |
+|-------------|-----|-----|
+| Inline equation in text | `math` (KaTeX) | Lightweight, no animation needed |
+| 2D function plot, derivative, slope | `animation` | Interactive, user can scrub/explore |
+| Vector field, linear algebra | `animation` | Elucim has built-in VectorField primitive |
+| Complex 3D scene, camera choreography | `video_asset` | Manim handles 3D better than browser |
+| Real-time 3D exploration | Existing Three.js | User controls camera |
+| Simple diagram/flow | `mermaid` or `flow` | Sufficient for static diagrams |
 
 ## Depth and length
 Write full chapters, not snippets. No "..." placeholders. End a node when the concept is actually taught, not when it feels "long enough."

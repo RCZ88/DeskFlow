@@ -454,7 +454,7 @@ export function TransactionDetailModal({
                       merchants={merchants}
                       value={editData.merchant_id || null}
                       onChange={(id, name) => { set('merchant_id', id); set('merchant', name); }}
-                      onAddMerchant={async (name) => { try { const res = await (window as any).deskflowAPI?.financeCreateMerchant?.({ name, account_id: transaction?.account_id }); if (res?.id) { setMerchants(prev => [...prev, res].sort((a, b) => a.name.localeCompare(b.name))); } } catch {} }}
+                      onAddMerchant={async (name) => { try { const res = await (window as any).deskflowAPI?.financeCreateMerchant?.({ name, account_id: transaction?.account_id }); if (res?.id) { setMerchants(prev => [...prev, res].sort((a, b) => a.name.localeCompare(b.name))); return res.id; } } catch {} return null; }}
                       placeholder="e.g. Netflix, Starbucks"
                     />
                   </InlineRow>

@@ -52,6 +52,10 @@ export default function AfkPromptModal({
   onNotAfk,
   defaultNotAfk,
   children,
+  adjacentGaps = [],
+  onFillGapRequest,
+  filledGapStarts = [],
+  onGapsDone,
 }: {
   allActivities: ExternalActivity[];
   totalDurationSeconds: number;
@@ -65,6 +69,10 @@ export default function AfkPromptModal({
   onNotAfk: () => void;
   defaultNotAfk?: boolean;
   children?: React.ReactNode;
+  adjacentGaps?: Array<{ start: string; end: string; durationSeconds: number; relation: 'before' | 'after' }>;
+  onFillGapRequest?: (gaps: Array<{ start: Date; end: Date; duration_seconds: number }>) => void;
+  filledGapStarts?: string[];
+  onGapsDone?: () => void;
 }) {
   const visibleActivities = allActivities;
   const [showSegmentEditor, setShowSegmentEditor] = useState(!defaultNotAfk);
@@ -77,6 +85,7 @@ export default function AfkPromptModal({
   const [pickingId, setPickingId] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const minPerSegment = 60;
 
@@ -191,6 +200,7 @@ export default function AfkPromptModal({
     });
     await onConfirm(result);
     setIsSaving(false);
+    setSaved(true);
   }
 
   const totalFormatted = formatElapsed(totalDurationSeconds);
@@ -203,18 +213,16 @@ export default function AfkPromptModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
-      onClick={onDismiss}
     >
       <motion.div
         initial={{ scale: 0.92, opacity: 0, y: 10 }}
         animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.92, opacity: 0, y: 10 }}
-        transition={{ type: 'spring', duration: 0.4, bounce: 0.25 }}
-        className="bg-zinc-900/95 border border-zinc-700/50 rounded-xl w-full max-w-xl max-h-[min(640px,85vh)] overflow-y-auto shadow-2xl"
+        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+        className="bg-zinc-900/80 border border-white/10 rounded-xl w-full max-w-xl max-h-[min(640px,85vh)] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        {/* Decorative gradient bar */}
-        <div className="h-1 bg-gradient-to-r from-amber-500/40 via-emerald-500/40 to-amber-500/40" />
+        {/* Decorative gradient bar removed — single signal hue only */}
 
         <div className="p-5">
           {/* ── Header ── */}
@@ -321,7 +329,6 @@ export default function AfkPromptModal({
                       <div className="flex items-center gap-2 p-3 rounded-xl bg-zinc-800/50 border border-zinc-700/30 hover:border-zinc-600/40 transition-colors">
                         {/* Color indicator */}
                         <div className="w-1 h-8 rounded-full shrink-0" style={{ backgroundColor: act?.color || '#3f3f46' }} />
-
                         {/* Duration controls */}
                         <div className="flex items-center gap-1 shrink-0">
                           <button
@@ -400,7 +407,7 @@ export default function AfkPromptModal({
                                           onClick={() => pickActivity(seg.id, act.id.toString())}
                                           className={`flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all text-xs ${
                                             seg.activityId === act.id.toString()
-                                              ? 'bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/30'
+                                              ? 'bg-amber-500/20 text-amber-200 ring-1 ring-amber-500/30'
                                               : 'hover:bg-zinc-700/60 text-zinc-400 hover:text-zinc-200'
                                           }`}
                                         >
@@ -448,6 +455,66 @@ export default function AfkPromptModal({
 
           {children}
 
+          {/* ── Adjacent Gaps (shown after save) ── */}
+          {saved && adjacentGaps.length > 0 && (
+            <div className="mb-4 p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
+              <div className="flex items-center gap-1.5 text-amber-400/80 text-[10px] mb-2">
+                <Sparkles className="w-3 h-3" />
+                <span>Untracked time around your session</span>
+              </div>
+              <div className="flex flex-col gap-1.5 mb-3">
+                {adjacentGaps.map((g) => {
+                  const isFilled = filledGapStarts.includes(g.start);
+                  const durMin = Math.round(g.durationSeconds / 60);
+                  const h = Math.floor(durMin / 60);
+                  const m = durMin % 60;
+                  const durStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                  const s = new Date(g.start);
+                  const e = new Date(g.end);
+                  const rangeStr = `${s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} – ${e.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`;
+                  return (
+                    <div key={g.start} className={`flex items-center justify-between gap-2 p-2 rounded-lg ${isFilled ? 'bg-emerald-500/5 border border-emerald-500/20' : 'bg-zinc-800/40 border border-zinc-700/30'}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`text-[10px] ${g.relation === 'before' ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {g.relation === 'before' ? <Moon className="w-3 h-3" /> : <Sun className="w-3 h-3" />}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-[11px] text-zinc-300 font-medium">{g.relation === 'before' ? 'Before idle' : 'After return'}</div>
+                          <div className="text-[9px] text-zinc-500 font-mono truncate">{rangeStr}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${g.relation === 'before' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300'}`}>{durStr}</span>
+                        {isFilled ? (
+                          <span className="flex items-center gap-0.5 text-[10px] text-emerald-400"><Check className="w-3 h-3" /> Filled</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {adjacentGaps.some(g => !filledGapStarts.includes(g.start)) && (
+                <button
+                  onClick={() => {
+                    const unfilled = adjacentGaps
+                      .filter(ag => !filledGapStarts.includes(ag.start))
+                      .map(ag => ({ start: new Date(ag.start), end: new Date(ag.end), duration_seconds: ag.durationSeconds }));
+                    onFillGapRequest?.(unfilled);
+                  }}
+                  className="w-full px-3 py-2 rounded-xl text-[11px] font-medium text-amber-200 bg-amber-500/15 border border-amber-500/30 hover:bg-amber-500/25 transition-colors mb-2"
+                >
+                  Fill all {adjacentGaps.filter(g => !filledGapStarts.includes(g.start)).length} gaps
+                </button>
+              )}
+              <button
+                onClick={onGapsDone}
+                className="w-full px-3 py-2 rounded-xl text-[11px] font-medium text-zinc-300 bg-zinc-500/10 border border-zinc-700/50 hover:bg-zinc-500/20 transition-colors"
+              >
+                {adjacentGaps.every(g => filledGapStarts.includes(g.start)) ? 'Done' : 'Skip — fill later'}
+              </button>
+            </div>
+          )}
+
           {/* ── Action Bar ── */}
           <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">
             {/* Dismiss */}
@@ -475,24 +542,35 @@ export default function AfkPromptModal({
             </motion.button>
 
             {/* Save */}
-            <motion.button
-              whileHover={hasAnyActivity && !isSaving ? { scale: 1.02 } : {}}
-              whileTap={hasAnyActivity && !isSaving ? { scale: 0.98 } : {}}
-              onClick={handleSave}
-              disabled={!hasAnyActivity || isSaving}
-              className={`px-5 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-2 ${
-                hasAnyActivity && !isSaving
-                  ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20'
-                  : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
-              }`}
-            >
-              {isSaving ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
+            {saved ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="px-5 py-2 rounded-xl text-xs font-medium bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-2"
+              >
                 <Check className="w-3.5 h-3.5" />
-              )}
-              {isSaving ? 'Saving...' : `Save${filledCount > 0 ? ` (${filledCount})` : ''}`}
-            </motion.button>
+                Saved
+              </motion.div>
+            ) : (
+              <motion.button
+                whileHover={hasAnyActivity && !isSaving ? { scale: 1.02 } : {}}
+                whileTap={hasAnyActivity && !isSaving ? { scale: 0.98 } : {}}
+                onClick={handleSave}
+                disabled={!hasAnyActivity || isSaving}
+                className={`px-5 py-2 rounded-xl text-xs font-medium transition-all flex items-center gap-2 ${
+                  hasAnyActivity && !isSaving
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/20'
+                    : 'bg-zinc-800 text-zinc-600 cursor-not-allowed'
+                }`}
+              >
+                {isSaving ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}
+                {isSaving ? 'Saving...' : `Save${filledCount > 0 ? ` (${filledCount})` : ''}`}
+              </motion.button>
+            )}
           </div>
         </div>
       </motion.div>

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { addKnowledgeEntry } from '../../services/learn/learnerProfile';
 import { KNOWLEDGE_INTAKE_RECIPES } from '../../services/learn/knowledgeIntakePrompts';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 import type { LearnerProfile } from '../../shared/learn/types';
 
 console.log('%c[KnowledgeIntakePanel] v3.0 loaded', 'color: #fbbf24; font-weight: bold');
@@ -324,6 +325,15 @@ export function KnowledgeIntakePanel({ profile, onProfileUpdate }: Props) {
       <div className="px-4 py-2.5 border-b border-zinc-800/30">
         <label className="block text-[11px] text-zinc-400 font-medium uppercase tracking-wide mb-1.5">
           What topic are you learning?
+          <FieldAIButton
+            fieldName="topic"
+            label="Topic"
+            value={topic}
+            onUpdate={setTopic}
+            allFields={{ topic, mode }}
+            category="learn"
+            context="Knowledge intake for a learning session"
+          />
         </label>
         <input
           type="text"
@@ -429,6 +439,15 @@ export function KnowledgeIntakePanel({ profile, onProfileUpdate }: Props) {
             <div>
               <label className="block text-xs text-zinc-400 mb-1.5">
                 Paste a chat transcript to extract knowledge from
+                <FieldAIButton
+                  fieldName="transcript"
+                  label="Chat Transcript"
+                  value={transcript}
+                  onUpdate={setTranscript}
+                  allFields={{ topic, transcript, mode }}
+                  category="learn"
+                  context="Extract knowledge from this AI chat conversation"
+                />
               </label>
               <p className="text-[11px] text-zinc-600 mb-2">
                 Any AI chat, conversation, or discussion works \u2014 the more detailed, the better.
@@ -458,6 +477,15 @@ export function KnowledgeIntakePanel({ profile, onProfileUpdate }: Props) {
             <div>
               <label className="block text-xs text-zinc-400 mb-1.5">
                 Paste a long transcript \u2014 the AI will extract knowledge only for your chosen topic
+                <FieldAIButton
+                  fieldName="transcript"
+                  label="Topic-Focused Transcript"
+                  value={transcript}
+                  onUpdate={setTranscript}
+                  allFields={{ topic, transcript, mode }}
+                  category="learn"
+                  context={`Extract knowledge about "${topic}" from this conversation`}
+                />
               </label>
               <p className="text-[11px] text-zinc-600 mb-2">
                 Works best with multi-turn conversations. The AI will filter everything through your topic.

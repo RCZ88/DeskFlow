@@ -1574,5 +1574,68 @@
     "checks": [],
     "created_at": "2026-08-09T04:17:22.246Z",
     "updated_at": "2026-08-09T04:17:22.247Z"
+  },
+  {
+    "id": "185",
+    "title": "NewSessionDialog Context Systems Show Nothing",
+    "status": "Fixed",
+    "priority": "high",
+    "category": "bug-fix",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "Context systems on the new session popup doesn't show anything. The Advanced Configuration section is completely empty.",
+    "fix_description": "Root cause: NewSessionDialog calls window.deskflowAPI.system.list/status/verify/etc but the preload had NO 'system' namespace — only flat methods like getContextSystems. Every call hit 'if (!window.deskflowAPI?.system?.list) return' and silently bailed. Fix: added 'system' namespace to preload.ts with adapters that map existing IPCs (get-context-systems, list-init-files) and created 3 new IPC handlers (context-system-status, context-system-verify, get-agents-context) in main.ts.",
+    "files": [
+      "src/preload.ts",
+      "src/main.ts",
+      "src/components/NewSessionDialog.tsx"
+    ],
+    "checks": [],
+    "created_at": "2026-08-27T12:00:00.000Z",
+    "updated_at": "2026-08-27T12:00:00.000Z"
+  },
+  {
+    "id": "186",
+    "title": "Architecture Map Was Static Hardcoded Data",
+    "status": "Fixed",
+    "priority": "medium",
+    "category": "bug-fix",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "The architecture map only showed a file tree. No per-feature, per-page view. No lines of code. No connections. No AI involvement.",
+    "fix_description": "Created: (1) src/main/archMap/scanner.ts — Node.js service that parses src/ tree extracting pages, components, features, IPC handlers/calls, imports, exports, child components, line counts, with edge building. (2) 3 IPC handlers: arch-map:generate (cached 30s), arch-map:get-node, arch-map:search. (3) Preload bridge archMap.generate/getNode/search. (4) ArchMapPage.tsx — tree view + detail panel with connections. (5) Wired as Insights → Architecture subtab. (6) PROMPT.md + CONTEXT_BUNDLE.md for external AI to generate ARCHITECTURE.md with file:line references.",
+    "files": [
+      "src/main/archMap/scanner.ts",
+      "src/main.ts",
+      "src/preload.ts",
+      "src/features/arch-map/ArchMapPage.tsx",
+      "src/pages/TerminalPage.tsx"
+    ],
+    "checks": [],
+    "created_at": "2026-08-27T12:00:00.000Z",
+    "updated_at": "2026-08-27T12:00:00.000Z"
+  },
+  {
+    "id": "187",
+    "title": "External AI Has No File Access — Missing Context Bundles",
+    "status": "Fixed",
+    "priority": "high",
+    "category": "bug-fix",
+    "terminal_id": null,
+    "session_id": null,
+    "session_name": null,
+    "skill_used": null,
+    "user_notes": "WHY DOES MY AI SAY THEY HAVE TO ACCESS A FILE??? IT'S AN EXTERNAL AI THAT HAS NO ACCESS TO THE FILES. WHERE'S THE CONTEXT BUNDLE???",
+    "fix_description": "Created CONTEXT_BUNDLE.md for architecture-map prompt package — embeds verbatim source code from App.tsx (routes), DashboardPage.tsx (imports), preload.ts (bridge pattern), main.ts (IPC handler patterns), scanner.ts (full code), file structure, and IPC channel inventory. External AI now has everything it needs without file access.",
+    "files": [
+      "agent/docs/generate-prompt-docs/architecture-map/CONTEXT_BUNDLE.md"
+    ],
+    "checks": [],
+    "created_at": "2026-08-27T12:00:00.000Z",
+    "updated_at": "2026-08-27T12:00:00.000Z"
   }
 ]

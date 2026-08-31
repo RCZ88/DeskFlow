@@ -3,13 +3,18 @@ import type { VisualDigest, DetectedObject, FaceRegion, TextRegion, ShotBoundary
 
 export type StudioStage = 'dashboard' | 'source' | 'transcript' | 'visual-evidence' | 'bridge' | 'cut-plan' | 'scene-plan' | 'visualizer' | 'export'
 
-export type SessionStatus = 'created' | 'transcribing' | 'transcript_ready' | 'cut_plan_pending' | 'cut_plan_ready' | 'cut_plan_approved' | 'scene_plan_pending' | 'scene_plan_ready' | 'export_ready' | 'error'
+export type SessionStatus = 'created' | 'transcribing' | 'transcript_ready' | 'cut_plan_pending' | 'cut_plan_ready' | 'cut_plan_approved' | 'scene_plan_pending' | 'scene_plan_ready' | 'export_ready' | 'error' | 'linked' | 'caption_ready' | 'bridge_waiting' | 'preview_ready'
+
+export interface CaptionLine { id: string; start: number; end: number; text: string; highlight?: string[] }
+export interface CaptionTrack { sessionId: string; source: 'transcript' | 'bridge_styled'; lines: CaptionLine[]; createdAt: string }
 
 export interface StudioSession {
   id: string; name: string; sourceVideoPath: string; sourceVideoName: string
   durationSec?: number; transcriptPath?: string; cutPlanPath?: string; scenePlanPath?: string; exportPlanPath?: string
   transcript?: any; cutPlan?: any; scenePlan?: DirectorCut; status: SessionStatus; missingSource: boolean
   createdAt: string; updatedAt: string
+  episodeId?: number
+  captionTrack?: CaptionTrack
   digest?: VisualDigest; objects?: DetectedObject[]; faces?: FaceRegion[]; textRegions?: TextRegion[]; shots?: ShotBoundary[]
 }
 

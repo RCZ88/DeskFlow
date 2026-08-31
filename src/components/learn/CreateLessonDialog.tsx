@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles,
@@ -22,9 +22,15 @@ import {
   BookMarked,
   Upload,
   ImageIcon,
+  Search,
+  Settings,
+  Database,
+  ExternalLink,
+  Brain,
 } from 'lucide-react';
 import { ResourceInput, type Resource } from './ResourceInput';
 import { BookCard } from './BookCard';
+import { BulkAIFill } from '../../features/content-engine/components/BulkAIFill';
 import type { LessonSummary } from '../../shared/learn/types';
 
 const api = (window as any).deskflowAPI;
@@ -32,6 +38,7 @@ const api = (window as any).deskflowAPI;
 type Step = 'input' | 'prompt' | 'result';
 type GenStatus = 'idle' | 'generating' | 'done' | 'error';
 type InputMode = 'simple' | 'detailed';
+type KnowledgeMode = 'auto' | 'select' | 'intake';
 
 const STEPS = ['Describe', 'Prompt', 'Lesson'] as const;
 
@@ -103,54 +110,237 @@ function GenerationProgress({ phase }: { phase: number }) {
   );
 }
 
-function PriorKnowledgePreview({ topic }: { topic: string }) {
-  const [entries, setEntries] = useState<{ statement: string; level?: string; topic?: string }[]>([]);
-  const api = (window as any).deskflowAPI;
+interface KBEntry {
+  statement: string;
+  level?: string;
+  topic?: string;
+  keywords?: string[];
+}
+
+function KnowledgeBaseSelector({
+  topic,
+  selectedEntries,
+  onSelectionChange,
+  knowledgeMode,
+  onModeChange,
+}: {
+  topic: string;
+  selectedEntries: Set<number>;
+  onSelectionChange: (s: Set<number>) => void;
+  knowledgeMode: KnowledgeMode;
+  onModeChange: (m: KnowledgeMode) => void;
+}) {
+  const [allEntries, setAllEntries] = useState<KBEntry[]>([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
-    if (!topic || topic.length < 10) { setEntries([]); return; }
+    if (!api?.learnGetProfile) return;
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
         const res = await api.learnGetProfile({ key: 'lyceum.learnerProfile.v1' });
         if (res?.ok && res.value) {
           const profile = JSON.parse(res.value);
-          const kb = profile.knowledgeBase ?? [];
-          const tokens = topic.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
-          const matched = kb.filter((e: any) => {
-            const text = `${e.statement} ${e.topic || ''} ${(e.keywords || []).join(' ')}`.toLowerCase();
-            return tokens.some((t: string) => text.includes(t));
-          }).slice(0, 5);
-          if (!cancelled) setEntries(matched);
+          if (!cancelled) setAllEntries(profile.knowledgeBase ?? []);
         }
-      } catch { if (!cancelled) setEntries([]); }
+      } catch { /* ignore */ }
+      if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [topic]);
+  }, []);
 
-  if (topic.length < 10) return null;
+  const matchScores = useMemo(() => {
+    if (!topic || topic.length < 5) return allEntries.map(() => 0);
+    const tokens = topic.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    return allEntries.map(e => {
+      const text = `${e.statement} ${e.topic || ''} ${(e.keywords || []).join(' ')}`.toLowerCase();
+      return tokens.filter(t => text.includes(t)).length;
+    });
+  }, [allEntries, topic]);
+
+  const filtered = useMemo(() => {
+    if (!search) return allEntries.map((e, i) => ({ ...e, idx: i }));
+    const q = search.toLowerCase();
+    return allEntries.map((e, i) => ({ ...e, idx: i })).filter(e =>
+      e.statement.toLowerCase().includes(q) || (e.topic || '').toLowerCase().includes(q)
+    );
+  }, [allEntries, search]);
+
+  const matchedEntries = useMemo(() => {
+    return filtered.filter(e => matchScores[e.idx] > 0).sort((a, b) => matchScores[b.idx] - matchScores[a.idx]);
+  }, [filtered, matchScores]);
+
+  const unmatchedEntries = useMemo(() => {
+    return filtered.filter(e => matchScores[e.idx] === 0);
+  }, [filtered, matchScores]);
+
+  const toggleEntry = (idx: number) => {
+    const next = new Set(selectedEntries);
+    if (next.has(idx)) next.delete(idx);
+    else next.add(idx);
+    onSelectionChange(next);
+  };
+
+  const selectAllMatched = () => {
+    const next = new Set(selectedEntries);
+    matchedEntries.forEach(e => next.add(e.idx));
+    onSelectionChange(next);
+  };
+
+  const clearSelection = () => onSelectionChange(new Set());
+
+  if (allEntries.length === 0 && !loading) return null;
+
+  const modes: { key: KnowledgeMode; label: string; desc: string }[] = [
+    { key: 'auto', label: 'Auto-match', desc: 'AI picks relevant entries' },
+    { key: 'select', label: 'Select entries', desc: 'You choose what to include' },
+  ];
 
   return (
-    <div className="rounded-xl border border-zinc-800/50 bg-zinc-800/20 p-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-[10px] font-medium text-zinc-400 uppercase tracking-wider">Prior Knowledge</span>
-        {entries.length > 0 && (
-          <span className="text-[10px] text-emerald-400/80">{entries.length} related {entries.length === 1 ? 'entry' : 'entries'} in your knowledge base</span>
-        )}
-      </div>
-      {entries.length > 0 ? (
-        <div className="space-y-1.5">
-          {entries.map((e, i) => (
-            <div key={i} className="flex items-start gap-2 text-[11px]">
-              <span className="text-zinc-500 shrink-0">•</span>
-              <span className="text-zinc-300 flex-1">{e.statement}</span>
-              {e.level && <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/40 text-zinc-500 shrink-0">{e.level}</span>}
-            </div>
-          ))}
-          <p className="text-[10px] text-zinc-600 mt-1">These will be used to tailor the lesson to your level.</p>
+    <div className="rounded-xl border border-zinc-800/50 bg-zinc-800/20 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800/50">
+        <div className="flex items-center gap-2">
+          <Database className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-xs font-medium text-zinc-300">Knowledge Base</span>
+          <span className="text-[10px] text-zinc-500">{allEntries.length} entries</span>
+          {selectedEntries.size > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400">{selectedEntries.size} selected</span>
+          )}
         </div>
-      ) : (
-        <p className="text-[11px] text-zinc-500">No related knowledge found. The lesson will be generated from scratch. Add knowledge entries in your Profile to get personalized lessons.</p>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-[10px] text-zinc-500 hover:text-zinc-300 transition"
+        >
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+
+      {/* Mode selector */}
+      <div className="flex gap-1 px-3 py-2 border-b border-zinc-800/30">
+        {modes.map(m => (
+          <button
+            key={m.key}
+            onClick={() => onModeChange(m.key)}
+            className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-medium transition ${
+              knowledgeMode === m.key
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40 border border-transparent'
+            }`}
+          >
+            <div>{m.label}</div>
+            <div className="text-[9px] font-normal opacity-70">{m.desc}</div>
+          </button>
+        ))}
+      </div>
+
+      {expanded && (
+        <div className="p-3 space-y-2">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-500" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search knowledge base..."
+              className="w-full pl-7 pr-3 py-1.5 rounded-lg bg-zinc-800/40 border border-zinc-700/40 text-xs text-zinc-300 focus:outline-none focus:border-emerald-500/40 placeholder:text-zinc-600"
+            />
+          </div>
+
+          {/* Quick actions */}
+          {knowledgeMode === 'select' && (
+            <div className="flex gap-1.5">
+              <button onClick={selectAllMatched} className="text-[10px] px-2 py-1 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition">
+                Select all matched ({matchedEntries.length})
+              </button>
+              <button onClick={clearSelection} className="text-[10px] px-2 py-1 rounded bg-zinc-800/40 text-zinc-500 hover:text-zinc-300 transition">
+                Clear
+              </button>
+            </div>
+          )}
+
+          {/* Matched entries */}
+          {matchedEntries.length > 0 && (
+            <div>
+              <p className="text-[10px] text-emerald-400/80 uppercase tracking-wider mb-1.5">Matched ({matchedEntries.length})</p>
+              <div className="space-y-1">
+                {matchedEntries.map(e => (
+                  <label
+                    key={e.idx}
+                    className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition text-[11px] ${
+                      knowledgeMode === 'select' && selectedEntries.has(e.idx)
+                        ? 'bg-emerald-500/10 border border-emerald-500/30'
+                        : 'hover:bg-zinc-800/40 border border-transparent'
+                    }`}
+                  >
+                    {knowledgeMode === 'select' && (
+                      <input
+                        type="checkbox"
+                        checked={selectedEntries.has(e.idx)}
+                        onChange={() => toggleEntry(e.idx)}
+                        className="mt-0.5 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500/30"
+                      />
+                    )}
+                    <span className="text-zinc-300 flex-1">{e.statement}</span>
+                    {e.level && <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/40 text-zinc-500 shrink-0">{e.level}</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Unmatched entries */}
+          {unmatchedEntries.length > 0 && knowledgeMode === 'select' && (
+            <div>
+              <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1.5">Other entries ({unmatchedEntries.length})</p>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {unmatchedEntries.map(e => (
+                  <label
+                    key={e.idx}
+                    className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer transition text-[11px] ${
+                      selectedEntries.has(e.idx)
+                        ? 'bg-emerald-500/10 border border-emerald-500/30'
+                        : 'hover:bg-zinc-800/40 border border-transparent'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedEntries.has(e.idx)}
+                      onChange={() => toggleEntry(e.idx)}
+                      className="mt-0.5 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500/30"
+                    />
+                    <span className="text-zinc-400 flex-1">{e.statement}</span>
+                    {e.level && <span className="text-[9px] px-1.5 py-0.5 rounded bg-zinc-700/40 text-zinc-500 shrink-0">{e.level}</span>}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {matchedEntries.length === 0 && unmatchedEntries.length === 0 && !loading && (
+            <p className="text-[11px] text-zinc-500 text-center py-2">
+              {search ? 'No entries match your search' : 'No knowledge base entries found. Add entries in your Profile.'}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Compact summary when collapsed */}
+      {!expanded && topic.length >= 10 && (
+        <div className="px-3 py-2">
+          {matchedEntries.length > 0 ? (
+            <p className="text-[10px] text-emerald-400/80">
+              {matchedEntries.length} related {matchedEntries.length === 1 ? 'entry' : 'entries'} found
+              {knowledgeMode === 'select' && selectedEntries.size > 0 && ` — ${selectedEntries.size} selected`}
+            </p>
+          ) : (
+            <p className="text-[10px] text-zinc-500">No related entries. Lesson will be generated from scratch.</p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -163,6 +353,60 @@ export interface LessonSeed {
   topicPrompt: string;
 }
 
+function PromptSectionPreview({ prompt }: { prompt: string }) {
+  const [open, setOpen] = useState(false);
+  if (!prompt) return null;
+
+  // Parse sections from the prompt
+  const sections: { label: string; content: string }[] = [];
+  const lines = prompt.split('\n');
+  let current = { label: 'System Instructions', content: '' };
+  for (const line of lines) {
+    const headerMatch = line.match(/^---\s*$/);
+    const sectionMatch = line.match(/^## (.+)/);
+    const titleMatch = line.match(/^# (.+)/);
+    if (sectionMatch || titleMatch || headerMatch) {
+      if (current.content.trim()) sections.push(current);
+      current = { label: (sectionMatch?.[1] || titleMatch?.[1] || '---').trim(), content: '' };
+    } else {
+      current.content += line + '\n';
+    }
+  }
+  if (current.content.trim()) sections.push(current);
+
+  return (
+    <div className="rounded-xl border border-zinc-800/50 bg-zinc-950/50 overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-zinc-800/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <List className="w-3.5 h-3.5 text-zinc-500" />
+          <span className="text-xs font-medium text-zinc-400">Prompt Sections ({sections.length} found)</span>
+        </div>
+        <ChevronDown className={`w-3.5 h-3.5 text-zinc-500 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="border-t border-zinc-800/50 px-4 py-3 space-y-2 max-h-64 overflow-auto">
+          {sections.map((s, i) => {
+            const preview = s.content.trim().slice(0, 200);
+            const lines = s.content.trim().split('\n').length;
+            return (
+              <div key={i} className="flex items-start gap-2">
+                <span className="text-[10px] font-mono text-clay-400/80 shrink-0 mt-0.5 min-w-[100px]">{s.label}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-zinc-500 leading-relaxed">{preview}{preview.length < s.content.trim().length ? '...' : ''}</p>
+                  <span className="text-[9px] text-zinc-600">{lines} lines</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CreateLessonDialog({
   open,
   onClose,
@@ -170,6 +414,7 @@ export function CreateLessonDialog({
   seed,
   onBrowseSavedIdeas,
   onOpenLesson,
+  savedIntentConfig,
 }: {
   open: boolean;
   onClose: () => void;
@@ -177,6 +422,7 @@ export function CreateLessonDialog({
   seed?: LessonSeed | null;
   onBrowseSavedIdeas?: () => void;
   onOpenLesson?: (id: string) => void;
+  savedIntentConfig?: Record<string, any> | null;
 }) {
   const [step, setStep] = useState<Step>('input');
   const [inputMode, setInputMode] = useState<InputMode>('simple');
@@ -187,6 +433,7 @@ export function CreateLessonDialog({
   const [prompt, setPrompt] = useState('');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [copied, setCopied] = useState(false);
+  const [copiedAssess, setCopiedAssess] = useState(false);
   const [genStatus, setGenStatus] = useState<GenStatus>('idle');
   const [genError, setGenError] = useState('');
   const [genResult, setGenResult] = useState<any>(null);
@@ -206,6 +453,58 @@ export function CreateLessonDialog({
   const [externalImportError, setExternalImportError] = useState('');
   const [externalImportSuccess, setExternalImportSuccess] = useState('');
   const [createdLesson, setCreatedLesson] = useState<LessonSummary | null>(null);
+  const [selectedKBEntries, setSelectedKBEntries] = useState<Set<number>>(new Set());
+  const [knowledgeMode, setKnowledgeMode] = useState<KnowledgeMode>('auto');
+  const [lessonSize, setLessonSize] = useState<'compact' | 'standard' | 'comprehensive' | 'dynamic'>('dynamic');
+  const [knowledgeContext, setKnowledgeContext] = useState('');
+  const [focusArea, setFocusArea] = useState('balanced');
+  const [depthLevel, setDepthLevel] = useState('adaptive');
+  const [lessonStyle, setLessonStyle] = useState('standard');
+  const [learnerContext, setLearnerContext] = useState('');
+
+  // Auto-retrieve learner progress on open — topic-specific knowledge assessment
+  useEffect(() => {
+    if (!open) return;
+    const topic = (inputMode === 'simple' ? userInput : description).trim();
+    if (topic.length < 5) return;
+    (async () => {
+      try {
+        const [profileRes, progressRes] = await Promise.all([
+          api?.learnGetProfile?.({ key: 'lyceum.learnerProfile.v1' }),
+          api?.learnGetProgress?.({}),
+        ]);
+        const parts: string[] = [];
+        if (profileRes?.ok && profileRes.value) {
+          const profile = JSON.parse(profileRes.value);
+          // Find KB entries related to THIS topic
+          const tokens = topic.toLowerCase().split(/\s+/).filter((w: string) => w.length > 2);
+          const relatedKB = (profile.knowledgeBase ?? []).filter((e: any) => {
+            const text = `${e.statement} ${e.topic || ''} ${(e.keywords || []).join(' ')}`.toLowerCase();
+            return tokens.some((t: string) => text.includes(t));
+          });
+          if (relatedKB.length > 0) {
+            parts.push(`KNOWN about "${topic}":`);
+            relatedKB.forEach((e: any) => parts.push(`  - ${e.statement}${e.level ? ` [${e.level}]` : ''}`));
+          } else {
+            parts.push(`KNOWN about "${topic}": Nothing in knowledge base — this is a new topic for the learner.`);
+          }
+          // Find completed nodes related to this topic
+          if (progressRes?.ok && progressRes.data?.length) {
+            const completed = progressRes.data.filter((p: any) => p.level && p.level !== 'L0');
+            if (completed.length > 0) {
+              parts.push(`COMPLETED ${completed.length} nodes total. Mastery: ${completed.slice(0, 8).map((p: any) => `${p.node_id}=${p.level}`).join(', ')}`);
+            } else {
+              parts.push(`COMPLETED: No nodes completed yet — this is the learner's first lesson.`);
+            }
+          }
+          if (profile.currentLevel) parts.push(`Overall level: ${profile.currentLevel}`);
+        }
+        if (parts.length > 0) {
+          setLearnerContext(parts.join('\n'));
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [open, userInput, description, inputMode]);
 
   useEffect(() => {
     if (open) {
@@ -241,6 +540,22 @@ export function CreateLessonDialog({
       setAvailableGroups([]);
     }
   }, [open, seed]);
+
+  // Restore config from saved intent when loading a draft
+  useEffect(() => {
+    if (open && savedIntentConfig && !seed) {
+      const c = savedIntentConfig;
+      if (c.inputMode) setInputMode(c.inputMode);
+      if (c.selectedKBEntries) setSelectedKBEntries(new Set(c.selectedKBEntries));
+      if (c.knowledgeMode) setKnowledgeMode(c.knowledgeMode);
+      if (c.lessonSize) setLessonSize(c.lessonSize);
+      if (c.focusArea) setFocusArea(c.focusArea);
+      if (c.depthLevel) setDepthLevel(c.depthLevel);
+      if (c.lessonStyle) setLessonStyle(c.lessonStyle);
+      if (c.numNodes) setNumNodes(c.numNodes);
+      if (c.chapterChoice) setChapterChoice(c.chapterChoice);
+    }
+  }, [open, savedIntentConfig, seed]);
 
   const canBuildSimple = userInput.trim().length >= 10 && !building;
   const canBuildDetailed = description.trim().length >= 3 && !building;
@@ -291,10 +606,13 @@ export function CreateLessonDialog({
     if (!canBuild) return;
     setBuilding(true);
     try {
-      const contextDoc = resources.map(r => r.content).join('\n\n---\n\n');
+      const selectedIndices = knowledgeMode === 'select' ? Array.from(selectedKBEntries) : undefined;
+      const sizeMap = { compact: 3, standard: 5, comprehensive: 8, dynamic: undefined };
+      const effectiveNumNodes = lessonSize === 'dynamic' ? (numNodes > 0 ? numNodes : undefined) : sizeMap[lessonSize];
+      const contextDoc = [...resources.map(r => r.content), knowledgeContext].filter(Boolean).join('\n\n---\n\n');
       const params = inputMode === 'simple'
-        ? { userInput: userInput.trim(), contextDoc: contextDoc || undefined, chapter: chapterChoice || undefined }
-        : { topic: description.trim(), description: description.trim(), contextDoc: contextDoc || undefined, numNodes: numNodes > 0 ? numNodes : undefined, chapter: chapterChoice || undefined };
+        ? { userInput: userInput.trim(), contextDoc: contextDoc || undefined, chapter: chapterChoice || undefined, selectedKBIndices: selectedIndices, knowledgeMode, lessonSize, numNodes: effectiveNumNodes, focusArea, depthLevel, lessonStyle, learnerContext: learnerContext || undefined }
+        : { topic: description.trim(), description: description.trim(), contextDoc: contextDoc || undefined, numNodes: effectiveNumNodes, chapter: chapterChoice || undefined, selectedKBIndices: selectedIndices, knowledgeMode, lessonSize, focusArea, depthLevel, lessonStyle, learnerContext: learnerContext || undefined };
       const result = await api.learnBuildPrompt(params);
       if (result.ok) {
         setPrompt(result.prompt);
@@ -311,6 +629,21 @@ export function CreateLessonDialog({
       setGenStatus('error');
     } finally {
       setBuilding(false);
+    }
+  };
+
+  const handleAssessKnowledge = async () => {
+    const topic = (inputMode === 'simple' ? userInput : description).trim();
+    if (!topic || topic.length < 3) return;
+    try {
+      const result = await api.learnGetKnowledgeAssessmentPrompt({ topic });
+      if (result.ok && result.data) {
+        await navigator.clipboard.writeText(result.data);
+        setCopiedAssess(true);
+        setTimeout(() => setCopiedAssess(false), 2000);
+      }
+    } catch (e) {
+      console.error('[CreateLessonDialog] Failed to copy assessment prompt:', e);
     }
   };
 
@@ -441,9 +774,20 @@ export function CreateLessonDialog({
         description: inputMode === 'simple' ? userInput.trim() : description.trim(),
         context: context || undefined,
         category: seed ? 'curriculum' : 'idea',
+        knowledgeContext: learnerContext || undefined,
+        config: {
+          inputMode,
+          selectedKBEntries: Array.from(selectedKBEntries),
+          knowledgeMode,
+          lessonSize,
+          focusArea,
+          depthLevel,
+          lessonStyle,
+          numNodes,
+          chapterChoice,
+        },
       });
       setSaved(true);
-      setTimeout(() => { onClose(); }, 1200);
     } catch (e: any) {
       console.error('[CreateLessonDialog] Save failed:', e);
     }
@@ -633,7 +977,27 @@ export function CreateLessonDialog({
                       <label className="text-xs font-medium text-zinc-400">
                         What do you want to learn? <span className="text-clay-400">*</span>
                       </label>
-                      <span className="text-xs text-zinc-600">{userInput.trim().length} chars</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-zinc-600">{userInput.trim().length} chars</span>
+                        <BulkAIFill
+                          fields={[
+                            { id: 'userInput', label: 'Learning Goal', value: userInput, placeholder: 'What to learn' },
+                            { id: 'knowledgeContext', label: 'Existing Knowledge', value: knowledgeContext, placeholder: 'What you already know' },
+                            { id: 'lessonSize', label: 'Lesson Size', value: lessonSize, type: 'select', options: ['compact', 'standard', 'comprehensive', 'dynamic'] },
+                            { id: 'focusArea', label: 'Focus Area', value: focusArea, type: 'select', options: ['balanced', 'theory', 'practice', 'visual'] },
+                            { id: 'depthLevel', label: 'Depth Level', value: depthLevel, type: 'select', options: ['adaptive', 'introductory', 'intermediate', 'advanced'] },
+                          ]}
+                          onFill={(updates) => {
+                            if (updates.userInput) setUserInput(updates.userInput)
+                            if (updates.knowledgeContext) setKnowledgeContext(updates.knowledgeContext)
+                            if (updates.lessonSize) setLessonSize(updates.lessonSize as any)
+                            if (updates.focusArea) setFocusArea(updates.focusArea)
+                            if (updates.depthLevel) setDepthLevel(updates.depthLevel)
+                          }}
+                          category="learn"
+                          context="Help configure a lesson by filling in the learning goal, existing knowledge, and lesson parameters based on the conversation"
+                        />
+                      </div>
                     </div>
                     <textarea
                       value={userInput}
@@ -647,10 +1011,123 @@ export function CreateLessonDialog({
                     )}
                   </div>
 
-                  {/* Prior Knowledge check */}
-                  {userInput.trim().length >= 10 && (
-                    <PriorKnowledgePreview topic={userInput.trim()} />
-                  )}
+                  {/* Knowledge Base Selector */}
+                  <KnowledgeBaseSelector
+                    topic={userInput.trim()}
+                    selectedEntries={selectedKBEntries}
+                    onSelectionChange={setSelectedKBEntries}
+                    knowledgeMode={knowledgeMode}
+                    onModeChange={setKnowledgeMode}
+                  />
+
+                  {/* Lesson Size */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-2">
+                      Lesson Size
+                    </label>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {([
+                        { key: 'compact' as const, label: 'Compact', desc: '3 nodes, concise', icon: '·' },
+                        { key: 'standard' as const, label: 'Standard', desc: '5 nodes, balanced', icon: '··' },
+                        { key: 'comprehensive' as const, label: 'Full', desc: '8 nodes, detailed', icon: '···' },
+                        { key: 'dynamic' as const, label: 'Dynamic', desc: 'AI decides', icon: '⚡' },
+                      ]).map(s => (
+                        <button
+                          key={s.key}
+                          type="button"
+                          onClick={() => setLessonSize(s.key)}
+                          className={`flex flex-col items-center gap-0.5 px-2 py-2.5 rounded-xl border text-[11px] font-medium transition ${
+                            lessonSize === s.key
+                              ? 'border-clay-500/40 bg-clay-500/10 text-clay-300'
+                              : 'border-zinc-700/40 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600/60'
+                          }`}
+                        >
+                          <span className="text-sm leading-none">{s.icon}</span>
+                          <span>{s.label}</span>
+                          <span className="text-[9px] font-normal opacity-60">{s.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Knowledge Context — paste existing knowledge to send to external AI */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-2">
+                      Your Knowledge Context <span className="text-zinc-600 font-normal">(optional — sent to AI for richer lessons)</span>
+                    </label>
+                    <textarea
+                      value={knowledgeContext}
+                      onChange={(e) => setKnowledgeContext(e.target.value)}
+                      placeholder={`Paste what you already know about this topic. Examples:\n\n• Notes from a previous lesson\n• Key concepts you've learned\n• Points you want the AI to focus on\n• Things you already understand (so it skips basics)`}
+                      className="w-full px-3 py-2 rounded-xl bg-zinc-800/50 border border-zinc-700/50 text-zinc-200 text-xs leading-relaxed focus:outline-none focus:border-clay-500/40 focus:ring-2 focus:ring-clay-500/10 resize-y placeholder:text-zinc-600 transition-all duration-150 min-h-[80px]"
+                    />
+                    {learnerContext && (
+                      <div className="mt-2 p-2 rounded-lg bg-emerald-500/8 border border-emerald-500/15">
+                        <p className="text-[10px] text-emerald-400/80 uppercase tracking-wider mb-1">Auto-retrieved learner context</p>
+                        <pre className="text-[10px] text-zinc-400 whitespace-pre-wrap font-mono leading-relaxed">{learnerContext}</pre>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAssessKnowledge}
+                      disabled={!canBuild}
+                      className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-150 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Copy a knowledge check prompt — paste into any AI to find out what you already know"
+                    >
+                      {copiedAssess ? (
+                        <><CheckCircle2 className="w-3 h-3" />Copied!</>
+                      ) : (
+                        <><Brain className="w-3 h-3" />Assess My Knowledge</>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Tunability controls */}
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-400 mb-2">
+                      Tuning <span className="text-zinc-600 font-normal">(optional)</span>
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="block text-[10px] text-zinc-500 mb-1">Focus</label>
+                        <select
+                          value={focusArea}
+                          onChange={(e) => setFocusArea(e.target.value)}
+                          className="w-full px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-xs text-zinc-300 focus:outline-none focus:border-clay-500/40"
+                        >
+                          <option value="balanced">Balanced</option>
+                          <option value="theory">Theory-heavy</option>
+                          <option value="practice">Practice-heavy</option>
+                          <option value="visual">Visual-first</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-500 mb-1">Depth</label>
+                        <select
+                          value={depthLevel}
+                          onChange={(e) => setDepthLevel(e.target.value)}
+                          className="w-full px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-xs text-zinc-300 focus:outline-none focus:border-clay-500/40"
+                        >
+                          <option value="adaptive">Adaptive</option>
+                          <option value="introductory">Introductory</option>
+                          <option value="intermediate">Intermediate</option>
+                          <option value="advanced">Advanced</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-zinc-500 mb-1">Style</label>
+                        <select
+                          value={lessonStyle}
+                          onChange={(e) => setLessonStyle(e.target.value)}
+                          className="w-full px-2 py-1.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-xs text-zinc-300 focus:outline-none focus:border-clay-500/40"
+                        >
+                          <option value="standard">Standard</option>
+                          <option value="socratic">Socratic (question-led)</option>
+                          <option value="narrative">Narrative (story-driven)</option>
+                          <option value="reference">Reference (concise)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
 
                   {/* Reference material */}
                   <div>
@@ -967,6 +1444,9 @@ export function CreateLessonDialog({
                     </div>
                   )}
 
+                  {/* Prompt section preview — shows what's inside the prompt */}
+                  <PromptSectionPreview prompt={prompt} />
+
                     {/* Prompt block */}
                     <div className="relative rounded-xl border border-zinc-800/50 bg-zinc-950/80 backdrop-blur-xl overflow-hidden">
                       <div className="flex items-center justify-between border-b border-zinc-800/50 px-4 py-2.5">
@@ -989,6 +1469,17 @@ export function CreateLessonDialog({
                           >
                             <FileText className="w-3 h-3" />
                             Save
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await navigator.clipboard.writeText(prompt);
+                              window.open('https://chatgpt.com', '_blank');
+                            }}
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-clay-500/15 text-clay-300 border border-clay-500/30 hover:bg-clay-500/25 transition-all duration-150"
+                            title="Copy prompt and open ChatGPT"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            Send to External AI
                           </button>
                         </div>
                       </div>
@@ -1233,7 +1724,7 @@ export function CreateLessonDialog({
                   <button
                     onClick={handleBuildPrompt}
                     disabled={!canBuild}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-clay-500/20 hover:bg-clay-500/30 text-clay-300 text-sm font-medium transition-all duration-150 border border-clay-500/30 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-clay-500/20 hover:bg-clay-500/30 text-clay-300 text-sm font-medium transition-all duration-150 border border-clay-500/30 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
                     {building ? (
                       <><Loader2 className="w-4 h-4 animate-spin" />Building...</>
@@ -1241,6 +1732,11 @@ export function CreateLessonDialog({
                       <><Sparkles className="w-4 h-4" />Generate Prompt</>
                     )}
                   </button>
+                  {!canBuild && (
+                    <span className="text-[10px] text-zinc-600">
+                      {inputMode === 'simple' ? 'Type at least 10 characters' : 'Type at least 3 characters'}
+                    </span>
+                  )}
                 </div>
               )}
 

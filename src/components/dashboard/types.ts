@@ -1,80 +1,20 @@
 // ============================================================
 // DeskFlow Dashboard — Shared Types
-// Frontend Skills Applied: Type Safety, Progressive Disclosure,
-// Impeccable Design (Modular interfaces), Human-Centric UX
+// Goal-related types re-exported from src/types/goals.ts (canonical)
 // ============================================================
 
-export type GoalCategory = 'work' | 'personal' | 'health' | 'learning' | 'finance' | 'relationships';
-export type GoalPeriod = 'daily' | 'weekly' | 'monthly';
-export type GoalStatus = 'active' | 'done' | 'archived' | 'failed';
-export type GoalSource = 'manual' | 'ai';
-export type TargetType = 'time' | 'completion' | 'external';
+export type {
+  GoalCategory, GoalPeriod, GoalStatus, GoalSource, TargetType,
+  GoalLink, GoalTarget, Goal, LongTermGoal,
+  TrackingMode, CompletionLogic, CadenceConfig, CrossFeatureLink,
+} from '../../types/goals';
+export { mapLegacyStatus, goalDefaults, goalToRow, rowToGoal } from '../../types/goals';
 
+// Dashboard-only types (not goal-related)
 export type Priority = 'critical' | 'high' | 'medium' | 'low';
 export type DeadlineStatus = 'pending' | 'completed' | 'overdue';
 export type DeadlineCategory = 'academic' | 'work' | 'personal' | 'health';
-
 export type ScheduleCategory = 'class' | 'lab' | 'study' | 'exam' | 'meeting' | 'other';
-
-export interface GoalLink {
-  label: string;
-  url: string;
-}
-
-export interface GoalTarget {
-  type: TargetType;
-  targetSeconds?: number;
-  maxExternalSeconds?: number;
-  matchCategory?: string;
-  done?: boolean;
-}
-
-export interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  category: GoalCategory;
-  target: GoalTarget;
-  period: GoalPeriod;
-  status: GoalStatus;
-  date: string; // YYYY-MM-DD
-  source: GoalSource;
-  links: GoalLink[];
-  progressSeconds?: number;
-  completedAt?: string;
-  parentId?: string;
-  parentIds?: string[];
-  streak?: number;
-  createdAt: string;
-  // Habit/Covenant features
-  isHabit?: boolean;
-  cadence?: 'daily' | 'weekly';
-  weeklyTargetDays?: number[];
-  detection?: {
-    enabled: boolean;
-    mode: 'positive' | 'avoidance';
-    keywords: string[];
-    minMinutes: number;
-  };
-  // Schedule integration
-  linkedScheduleId?: string;
-  // Journal
-  journalText?: string;
-  slippedCount?: number;
-}
-
-export interface LongTermGoal {
-  id: string;
-  title: string;
-  category: GoalCategory;
-  description?: string;
-  deadline?: string;
-  progress?: number;
-  priority?: number;
-  status?: string;
-  source?: string;
-  links?: GoalLink[];
-}
 
 export interface Deadline {
   id: string;
@@ -108,6 +48,7 @@ export interface ScheduleEntry {
   end_time: string; // HH:mm
   category?: ScheduleCategory;
   color?: string;
+  goal_id?: string; // linked goal
   createdAt: string;
 }
 

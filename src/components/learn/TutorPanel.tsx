@@ -1,10 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, X, Sparkles, AlertTriangle, RefreshCw, Maximize2, MessageSquare, StopCircle, Loader2 } from 'lucide-react';
+import { Brain, X, Sparkles, AlertTriangle, RefreshCw, Maximize2, MessageSquare, StopCircle, Loader2, Bookmark } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import type { TutorAnswer } from '../../shared/learn/types';
 
 type TutorState = 'idle' | 'streaming' | 'grounded' | 'out-of-scope' | 'error';
+
+interface QAPair {
+  question: string;
+  answer: string;
+  ts: string;
+}
 
 interface Props {
   open: boolean;
@@ -16,6 +22,7 @@ interface Props {
   loading?: boolean;
   onAsk?: (nodeId: string, question: string) => void;
   tutorConfig?: { provider: string; model: string } | null;
+  onAddNote?: (blockId: string, text: string) => void;
 }
 
 const SUGGESTIONS = [
@@ -42,7 +49,7 @@ function renderAnswerHtml(md: string): string {
     .join('\n');
 }
 
-export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange, answer: v1Answer, loading: v1Loading, onAsk, tutorConfig }: Props) {
+export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange, answer: v1Answer, loading: v1Loading, onAsk, tutorConfig, onAddNote }: Props) {
   const [v2Streaming, setV2Streaming] = useState(false);
   const [v2Answer, setV2Answer] = useState('');
   const [v2State, setV2State] = useState<TutorState>('idle');
@@ -50,9 +57,11 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
   const [expanded, setExpanded] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [lastQuestion, setLastQuestion] = useState('');
+  const [qaHistory, setQaHistory] = useState<QAPair[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const blockIdRef = useRef(`tutor-${nodeId}-${Date.now()}`);
   const supportsV2 = !!(api?.learnTutorStream && api?.onTutorToken);
 
   const actualState: TutorState = v2Streaming ? 'streaming' : v2State;
@@ -60,6 +69,33 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
   }, [open]);
+
+  // Load conversation history when panel opens
+  useEffect(() => {
+    if (!open || !nodeId || !api?.learnGetConversation) return;
+    const loadHistory = async () => {
+      try {
+        const result = await api.learnGetConversation({ blockId: `tutor-${nodeId}` });
+        if (result?.ok && result.messages?.length) {
+          const pairs: QAPair[] = [];
+          const msgs = result.messages;
+          for (let i = 0; i < msgs.length; i++) {
+            if (msgs[i].role === 'user') {
+              const answerMsg = msgs[i + 1];
+              pairs.push({
+                question: msgs[i].text,
+                answer: answerMsg?.text || '',
+                ts: msgs[i].ts,
+              });
+              if (answerMsg) i++;
+            }
+          }
+          setQaHistory(pairs);
+        }
+      } catch { /* ignore */ }
+    };
+    loadHistory();
+  }, [open, nodeId]);
 
   useEffect(() => {
     if (actualState === 'grounded' || actualState === 'out-of-scope' || actualState === 'error') {
@@ -80,7 +116,12 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
     setLastQuestion(q);
     setShowSuggestions(false);
 
-    const blockId = `tutor-chat-${Date.now()}`;
+    const blockId = blockIdRef.current;
+
+    // Save user question to DB
+    if (api?.learnAddMessage) {
+      api.learnAddMessage({ nodeId, blockId: `tutor-${nodeId}`, role: 'user', text: q }).catch(() => {});
+    }
 
     const unsub = api.onTutorToken((data: { blockId: string; token: string; done: boolean }) => {
       if (data.blockId !== blockId) return;
@@ -88,7 +129,16 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
         setV2Streaming(false);
         setV2Answer(prev => {
           setV2State(prev.length > 0 ? 'grounded' : 'error');
-          if (prev.length === 0) setV2Error('Empty response');
+          if (prev.length === 0) {
+            setV2Error('Empty response');
+          } else {
+            // Save AI answer to DB
+            if (api?.learnAddMessage) {
+              api.learnAddMessage({ nodeId, blockId: `tutor-${nodeId}`, role: 'ai', text: prev }).catch(() => {});
+            }
+            // Add to local history
+            setQaHistory(h => [...h, { question: q, answer: prev, ts: new Date().toISOString() }]);
+          }
           return prev;
         });
         return;
@@ -253,7 +303,7 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
                 )}
               </div>
               {displayAnswer && (
-                <div className="text-sm text-zinc-200 leading-relaxed" dangerouslySetInnerHTML={{
+                <div className="text-sm text-zinc-200 leading-relaxed" aria-live="polite" dangerouslySetInnerHTML={{
                   __html: DOMPurify.sanitize(renderAnswerHtml(displayAnswer))
                 }} />
               )}
@@ -404,22 +454,45 @@ export function TutorPanel({ open, onToggle, nodeId, question, onQuestionChange,
           )}
         </AnimatePresence>
 
-        {/* Previous messages history toggle */}
+        {/* Q&A History */}
         {!isStreaming && displayAnswer && displayState === 'grounded' && (
           <div className="border-t border-zinc-800">
             <button
               onClick={() => setExpanded(!expanded)}
               className="w-full flex items-center justify-between px-4 py-2 text-[10px] text-zinc-600 hover:text-zinc-400 transition"
             >
-              {expanded ? 'Hide' : 'Show'} conversation context
+              {expanded ? 'Hide' : 'Show'} Q&A history ({qaHistory.length})
               <span className="text-zinc-600">{expanded ? '▲' : '▼'}</span>
             </button>
-            {expanded && lastQuestion && (
-              <div className="px-4 pb-3">
-                <div className="p-2 rounded-lg bg-zinc-800/30">
-                  <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-1">Your question</p>
-                  <p className="text-xs text-zinc-400">{lastQuestion}</p>
-                </div>
+            {expanded && (
+              <div className="px-4 pb-3 space-y-2 max-h-60 overflow-y-auto">
+                {qaHistory.map((qa, i) => (
+                  <div key={i} className="p-2 rounded-lg bg-zinc-800/30 border border-zinc-700/30">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] text-amber-400/80 uppercase tracking-wider mb-1">Q</p>
+                        <p className="text-xs text-zinc-300 break-words">{qa.question}</p>
+                      </div>
+                      {onAddNote && (
+                        <button
+                          onClick={() => onAddNote(`qa-${i}`, `Q: ${qa.question}\n\nA: ${qa.answer}`)}
+                          className="shrink-0 p-1 rounded hover:bg-zinc-700/50 text-zinc-600 hover:text-zinc-400 transition"
+                          title="Save as note"
+                        >
+                          <Bookmark className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                    {qa.answer && (
+                      <>
+                        <p className="text-[10px] text-emerald-400/80 uppercase tracking-wider mt-2 mb-1">A</p>
+                        <div className="text-xs text-zinc-400 leading-relaxed break-words" dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(renderAnswerHtml(qa.answer))
+                        }} />
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

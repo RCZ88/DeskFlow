@@ -76,26 +76,33 @@ export class CompositionEventBus {
   }
 
   flushOutbox() {
-    if (!this.db) return;
-    const rows = this.db.prepare(`
-      SELECT * FROM composition_event_outbox WHERE status = 'pending' ORDER BY id ASC LIMIT 50
-    `).all() as any[];
+    if (!this.db || !this.db.open) {
+      this.stopFlushTimer();
+      return;
+    }
+    try {
+      const rows = this.db.prepare(`
+        SELECT * FROM composition_event_outbox WHERE status = 'pending' ORDER BY id ASC LIMIT 50
+      `).all() as any[];
 
-    for (const row of rows) {
-      try {
-        const event: EventBusEvent = {
-          topic: row.topic,
-          source: row.source,
-          payload: JSON.parse(row.payload_json),
-          timestamp: row.created_at,
-          dedupeKey: row.dedupe_key,
-          ttlMs: row.ttl_ms,
-        };
-        this.emitSync(event);
-        this.db!.prepare(`UPDATE composition_event_outbox SET status = 'delivered' WHERE id = ?`).run(row.id);
-      } catch (err) {
-        this.db!.prepare(`UPDATE composition_event_outbox SET status = 'failed' WHERE id = ?`).run(row.id);
+      for (const row of rows) {
+        try {
+          const event: EventBusEvent = {
+            topic: row.topic,
+            source: row.source,
+            payload: JSON.parse(row.payload_json),
+            timestamp: row.created_at,
+            dedupeKey: row.dedupe_key,
+            ttlMs: row.ttl_ms,
+          };
+          this.emitSync(event);
+          this.db.prepare(`UPDATE composition_event_outbox SET status = 'delivered' WHERE id = ?`).run(row.id);
+        } catch (err) {
+          try { this.db.prepare(`UPDATE composition_event_outbox SET status = 'failed' WHERE id = ?`).run(row.id); } catch {}
+        }
       }
+    } catch {
+      this.stopFlushTimer();
     }
   }
 

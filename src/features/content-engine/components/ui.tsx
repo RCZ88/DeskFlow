@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
-import { LoaderCircle, TriangleAlert, Check, X } from 'lucide-react'
+import { LoaderCircle, TriangleAlert, Check, X, ClipboardCopy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 type ToastKind = 'success' | 'error' | 'info'
@@ -240,4 +240,139 @@ export function SelectInput({ className, children, ...rest }: SelectHTMLAttribut
 
 export function FieldLabel({ children }: { children: ReactNode }) {
   return <label className="mb-1 block text-[9px] font-medium tracking-wider text-zinc-500 uppercase">{children}</label>
+}
+
+// ═══════════════════════════════════════════════
+// Field Prompt System — static prompts for external AI
+// ═══════════════════════════════════════════════
+
+export const FIELD_PROMPTS: Record<string, string> = {
+  // Brainstorm
+  'brainstorm-idea': `You are a content strategist. Generate 5 specific video/content ideas about the topic below. Each idea must be: (1) a concrete, filmable concept (not abstract), (2) have a clear hook in the title, (3) be suitable for a 5-15 minute video.
+
+Output as a numbered list, one idea per line. Each line: "Title — one-sentence concept"
+
+Topic:`,
+
+  // Themes
+  'theme-name': `You are a content brand strategist. Given a topic or niche, output EXACTLY ONE theme/series name (2-5 words) that is catchy, memorable, and describes a content series.
+
+Rules: Output ONLY the name. No quotes, no explanation. Must work as a series title.
+
+Topic:`,
+
+  'theme-description': `You are a content strategist. Write a 1-2 sentence description for a content series about the topic below. The description should explain what the series covers and who it's for.
+
+Rules: 20-40 words max. Be specific, not generic. No "welcome to" or "this series is about" filler.
+
+Topic:`,
+
+  // Episodes
+  'episode-title': `You are a YouTube content planner. Given a topic, output EXACTLY ONE episode title (5-10 words) that creates curiosity and promises value. Use patterns like "How X does Y", "Why X fails at Y", "X vs Y: the real difference".
+
+Rules: Output ONLY the title. No quotes, no numbering. Must make someone want to click.
+
+Topic:`,
+
+  'episode-hook': `You are a script writer. Write a 2-3 sentence opening hook for a video about the topic below. The hook must: (1) state a surprising fact or bold claim, (2) create a curiosity gap, (3) make the viewer want to keep watching.
+
+Rules: 30-50 words max. Start with the most attention-grabbing part. No "Hey guys" or "In today's video" openers.
+
+Topic:`,
+
+  'episode-frame': `You are a video script writer. Write ONE script frame (bullet point) for a video about the topic below. Each frame is 1-2 sentences that the narrator would say. Be specific, use examples, avoid vague statements.
+
+Rules: Output ONLY the frame text. No numbering, no labels. 15-25 words.
+
+Topic:`,
+
+  // Series
+  'series-name': `You are a content brand strategist. Generate a content series name (2-5 words) that is: memorable, describes the niche, and works as a hashtag.
+
+Rules: Output ONLY the name. No quotes. Must be unique and brandable.
+
+Niche:`,
+
+  'series-description': `You are a content strategist. Write a 2-sentence description for a content series. First sentence: what the series covers. Second sentence: who it's for and what they'll gain.
+
+Rules: 30-50 words max. Be specific about the value proposition.
+
+Niche:`,
+
+  'series-niche': `You are a content strategist. Given a broad topic, output 3-5 specific niche keywords (comma-separated) that define the content focus area. Be specific — not "technology" but "AI coding tools for solo developers".
+
+Rules: Output ONLY the comma-separated keywords. 3-5 words each.
+
+Topic:`,
+
+  'series-tone': `You are a content strategist. Suggest a content tone/voice (2-4 adjectives) for a series about the topic below. Consider: audience age, platform, competition, and what tone would stand out.
+
+Rules: Output ONLY the tone adjectives, comma-separated. e.g. "conversational, witty, fast-paced"
+
+Topic:`,
+
+  'series-visual-style': `You are a video producer. Suggest a visual style (2-4 descriptors) for a content series about the topic below. Consider: brand identity, thumbnail appeal, visual consistency.
+
+Rules: Output ONLY the style descriptors, comma-separated. e.g. "clean, minimal, bold text overlays"
+
+Topic:`,
+
+  'series-pacing': `You are a video editor. Suggest a pacing style for a content series about the topic below. Consider: content density, audience retention patterns, platform norms.
+
+Rules: Output ONLY the pacing description, 3-6 words. e.g. "fast cuts, 2s per beat"
+
+Topic:`,
+
+  // Reflection
+  'reflection': `You are a content creator reflecting on a video/project. Write a reflection covering: (1) What went well, (2) What surprised you, (3) What the data says vs your gut feeling, (4) One thing you'd do differently.
+
+Rules: 100-200 words. Be honest and specific. Use "I" statements. Reference concrete moments, not generalizations.
+
+Project:`,
+
+  // Framework rules
+  'framework-rules': `You are a content strategy consultant. Write 5-8 production rules/guidelines for a content creator. Each rule should be: (1) specific and actionable, (2) based on best practices, (3) enforceable (not vague "do your best").
+
+Format: One rule per line. Start each with a verb. Be direct.
+
+Content type:`,
+
+  // Analytics
+  'retention-csv': `You are a YouTube analytics expert. Given a video topic and description, predict a realistic retention curve as comma-separated percentages (10 values, representing 10% intervals from 0% to 90% of the video).
+
+Rules: Start at 100%, end between 30-60%. Include a dip in the first 10% (hook test), a plateau in the middle, and a possible uptick near the end. Be realistic, not optimistic.
+
+Video description:`,
+
+  // Regeneration instruction
+  'regen-instruction': `You are a script editor. Given the current script frame text below, output a specific editing instruction to improve it. The instruction should be: (1) one clear action, (2) concrete ("cut 3 words" not "make it better"), (3) focused on one improvement.
+
+Rules: Output ONLY the instruction. 5-15 words. Start with a verb.
+
+Current text:`,
+}
+
+export function CopyPromptButton({ fieldKey, label, className }: { fieldKey: string; label?: string; className?: string }) {
+  const handleCopy = async () => {
+    const prompt = FIELD_PROMPTS[fieldKey]
+    if (!prompt) return
+    try {
+      await navigator.clipboard.writeText(prompt)
+      toast(`Prompt copied — paste into your AI`, 'success')
+    } catch {
+      toast('Failed to copy', 'error')
+    }
+  }
+  const prompt = FIELD_PROMPTS[fieldKey]
+  if (!prompt) return null
+  return (
+    <button
+      onClick={handleCopy}
+      title={label || `Copy prompt for this field`}
+      className={cn('inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[8px] font-medium text-[#a855f7] bg-[#a855f7]/10 border border-[#a855f7]/20 hover:bg-[#a855f7]/20 transition-colors shrink-0', className)}
+    >
+      <ClipboardCopy size={9} />
+      {label || 'AI prompt'}
+    </button>
+  )
 }

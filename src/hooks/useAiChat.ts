@@ -334,7 +334,7 @@ export function useAiChat(): UseAiChat {
   }, [loadMemories])
 
   const send = useCallback(
-    async (textArg?: string) => {
+    async (textArg?: string, images?: string[]) => {
       const text = (textArg ?? input).trim()
       if (!text || streamingRef.current) return
       const b = bridge()
@@ -356,9 +356,10 @@ export function useAiChat(): UseAiChat {
       setThinking(false)
 
       let target: { provider: unknown; model: string } | null = null
+      let providerState: ProviderState | null = null
       try {
-        const st = (await (b.getAiProviders as () => Promise<unknown>)()) as ProviderState
-        target = pickTarget(st)
+        providerState = (await (b.getAiProviders as () => Promise<unknown>)()) as ProviderState
+        target = pickTarget(providerState)
       } catch (e) {
         console.error('[useAiChat] pickTarget:', e)
         target = null
@@ -378,6 +379,14 @@ export function useAiChat(): UseAiChat {
         return
       }
       setHasProvider(true)
+
+      // Vision routing: if images are attached and a dedicated vision provider is configured, use it.
+      if (images?.length && providerState?.routing?.vision) {
+        const vp = providerState.providers.find(pr => pr.id === providerState!.routing.vision!.providerId)
+        if (vp) target = { provider: vp, model: providerState.routing.vision.model }
+      }
+
+
 
       let systemPrompt = ""
       try {
@@ -399,10 +408,18 @@ export function useAiChat(): UseAiChat {
         ? `\n\n[Relevant memories from past conversations]:\n${relevantMemories.map((m, i) => `${i + 1}. ${m}`).join("\n")}`
         : ""
 
+      const userContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }> =
+        images?.length
+          ? [
+              { type: "text", text },
+              ...images.map((d) => ({ type: "image_url", image_url: { url: d } })),
+            ]
+          : text
+
       const payloadMessages = [
         { role: "system", content: systemPrompt + memorySuffix },
         ...history,
-        { role: "user", content: text },
+        { role: "user", content: userContent },
       ]
 
       let full = ""

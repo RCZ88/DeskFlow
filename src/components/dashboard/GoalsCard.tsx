@@ -9,7 +9,7 @@
 
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Target, Check, Plus, X, Edit3, Trash2,
   ChevronDown, ChevronUp, RefreshCw, Zap,
@@ -33,6 +33,7 @@ const CATEGORIES: { value: GoalCategory; label: string; color: string }[] = [
   { value: 'learning', label: 'Learning', color: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20' },
   { value: 'finance', label: 'Finance', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
   { value: 'relationships', label: 'Relationships', color: 'bg-rose-500/10 text-rose-400 border-rose-500/20' },
+  { value: 'reflection', label: 'Reflection', color: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' },
 ];
 
 const PERIODS: { value: GoalPeriod; label: string }[] = [
@@ -44,6 +45,7 @@ const PERIODS: { value: GoalPeriod; label: string }[] = [
 const TARGET_TYPES: { value: TargetType; label: string }[] = [
   { value: 'completion', label: 'Complete it' },
   { value: 'time', label: 'Spend time' },
+  { value: 'external', label: 'External activity' },
 ];
 
 const itemVariants = {
@@ -124,8 +126,14 @@ export function GoalsCard({
   const [showCompleted, setShowCompleted] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const activeGoals = useMemo(() => goals.filter(g => g.status !== 'done'), [goals]);
-  const completedGoals = useMemo(() => goals.filter(g => g.status === 'done'), [goals]);
+  const activeGoals = useMemo(
+    () => goals.filter(g => g.status !== 'done' && g.period !== 'longterm' && !g.isHabit),
+    [goals]
+  );
+  const completedGoals = useMemo(
+    () => goals.filter(g => g.status === 'done' && g.period !== 'longterm' && !g.isHabit),
+    [goals]
+  );
 
   const handleAdd = () => {
     if (!newGoal.title.trim()) return;
@@ -231,15 +239,15 @@ export function GoalsCard({
         <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="flex items-center gap-2.5">
             <button
-              onClick={() => navigate('/goals')}
+              onClick={() => navigate('/life')}
               className="w-8 h-8 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center hover:bg-violet-500/20 transition-colors"
               title="View all goals"
             >
               <Target size={15} className="text-violet-400" />
             </button>
             <div>
-              <button onClick={() => navigate('/goals')} className="hover:opacity-80 transition-opacity text-left">
-                <h2 className="text-[15px] font-semibold text-white">Today&apos;s Goals</h2>
+              <button onClick={() => navigate('/life')} className="hover:opacity-80 transition-opacity text-left">
+                <h2 className="text-[15px] font-semibold text-white">Routines</h2>
                 <p className="text-[11px] text-white/50">
                   {activeGoals.length} active · {completedGoals.length} done
                 </p>
@@ -582,9 +590,9 @@ export function GoalsCard({
               <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
                 <Target size={24} className="text-white/40" />
               </div>
-              <p className="text-[14px] font-medium text-white/60">No goals yet today</p>
+              <p className="text-[14px] font-medium text-white/60">No routines yet</p>
               <p className="text-[12px] text-white/40 mt-1 max-w-[200px]">
-                Add one manually or let AI suggest goals from your long-term plans
+                Add a daily or weekly routine, or let AI suggest one from your long-term plans
               </p>
               <div className="flex items-center gap-2 mt-3">
                 <motion.button

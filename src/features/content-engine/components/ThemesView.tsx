@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Palette, Plus, Trash2, Wand2, X } from 'lucide-react'
-import { AmberButton, Card, Chip, ConfirmIconButton, EmptyState, ErrorState, FieldLabel, GhostButton, LoadingBlock, SectionHeader, TextInput, toast } from './ui'
+import { AmberButton, Card, Chip, ConfirmIconButton, CopyPromptButton, EmptyState, ErrorState, FieldLabel, GhostButton, LoadingBlock, SectionHeader, TextInput, toast } from './ui'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
@@ -107,11 +107,17 @@ export function ThemesView() {
           <div className="mb-3 text-[10px] font-semibold tracking-wider text-[#f5c518] uppercase">New Theme</div>
           <div className="grid grid-cols-[1fr_1fr_auto] gap-3">
             <div>
-              <FieldLabel>Name</FieldLabel>
+              <div className="flex items-center gap-2">
+                <FieldLabel>Name</FieldLabel>
+                <CopyPromptButton fieldKey="theme-name" />
+              </div>
               <TextInput value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Solo dev journey" />
             </div>
             <div>
-              <FieldLabel>Description</FieldLabel>
+              <div className="flex items-center gap-2">
+                <FieldLabel>Description</FieldLabel>
+                <CopyPromptButton fieldKey="theme-description" />
+              </div>
               <TextInput value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What is this series about?" />
             </div>
             <div>

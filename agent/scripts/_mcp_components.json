@@ -1,0 +1,7 @@
+INIT: {"name":"shadcn-ui-mcp-server","version":"2.0.0"}
+CALL list_components: [
+  {
+    "type": "text",
+    "text": "{\n  \"components\": [\n    \"accordion\",\n    \"alert\",\n    \"alert-dialog\",\n    \"aspect-ratio\",\n    \"attachment\",\n    \"avatar\",\n    \"badge\",\n    \"breadcrumb\",\n    \"bubble\",\n    \"button\",\n    \"button-group\",\n    \"calendar\",\n    \"card\",\n    \"carousel\",\n    \"chart\",\n    \"checkbox\",\n    \"collapsible\",\n    \"combobox\",\n    \"command\",\n    \"context-menu\",\n    \"dialog\",\n    \"direction\",\n    \"drawer\",\n    \"dropdown-menu\",\n    \"empty\",\n    \"field\",\n    \"form\",\n    \"hover-card\",\n    \"input\",\n    \"input-group\",\n    \"input-otp\",\n    \"item\",\n    \"kbd\",\n    \"label\",\n    \"marker\",\n    \"menubar\",\n    \"message\",\n    \"message-scroller\",\n    \"native-select\",\n    \"navigation-menu\",\n    \"pagination\",\n    \"popover\",\n    \"progress\",\n    \"radio-group\",\n    \"resizable\",\n    \"scroll-area\",\n    \"select\",\n    \"separator\",\n    \"sheet\",\n    \"sidebar\",\n    \"skeleton\",\n    \"slider\",\n    \"sonner\",\n    \"spinner\",\n    \"switch\",\n    \"table\",\n    \"tabs\",\n    \"textarea\",\n    \"toggle\",\n    \"toggle-group\",\n    \"tooltip\"\n  ],\n  \"total\": 61\n}"
+  }
+]

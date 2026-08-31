@@ -3,6 +3,7 @@ import { FileVideo, FileAudio, PlayCircle, Trash2, Upload, Wand2, Clock, Chevron
 import { cn } from '@/lib/utils'
 import { Card, AmberButton, GhostButton, ConfirmIconButton, EmptyState, ErrorState, LoadingBlock, StatusChip, TextInput, FieldLabel, Spinner, toast } from './ui'
 import { SegmentTimeline } from './SegmentTimeline'
+import { BulkAIFill } from './BulkAIFill'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
@@ -186,6 +187,15 @@ export function CaptureView({ episodeId, onPhaseChange }: CaptureViewProps) {
         <div className="mb-3 flex items-center gap-2">
           <Upload size={14} className="text-[#f5c518]" />
           <span className="text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Import Take</span>
+          <BulkAIFill
+            fields={[
+              { id: 'filePath', label: 'File Path', value: filePath, placeholder: 'C:\\Videos\\episode.mp4' },
+              { id: 'duration', label: 'Duration (seconds)', value: duration, placeholder: '120' },
+            ]}
+            onFill={(updates) => { if (updates.filePath) setFilePath(updates.filePath); if (updates.duration) setDuration(updates.duration); }}
+            category="content-engine"
+            context="Help fill in video take metadata"
+          />
         </div>
         <div className="grid grid-cols-[1fr_100px_auto] items-end gap-3">
           <div>

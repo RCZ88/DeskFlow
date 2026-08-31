@@ -61,6 +61,23 @@ export function isExpenseRepaid(txId: number, allTxns: FinanceTransaction[]): bo
   return getRepaymentStatus(tx, allTxns).repaid;
 }
 
+/** Given a repayment transaction, return the expense IDs it covers via ft_repaid:{id} tags */
+export function getCoveredExpenseIds(repaymentTx: FinanceTransaction): number[] {
+  const tags = (repaymentTx.tags ?? '').split(',').map(s => s.trim());
+  const ids: number[] = [];
+  for (const tag of tags) {
+    const match = tag.match(/^ft_repaid:(\d+)$/);
+    if (match) ids.push(Number(match[1]));
+  }
+  return ids;
+}
+
+/** Given a repayment transaction, return the expense transactions it covers */
+export function getCoveredExpenses(repaymentTx: FinanceTransaction, allTxns: FinanceTransaction[]): FinanceTransaction[] {
+  const ids = getCoveredExpenseIds(repaymentTx);
+  return allTxns.filter(t => ids.includes(t.id));
+}
+
 /** Group unpaid FT expenses by person, accounting for partial repayments */
 export function groupByPerson(
   txns: FinanceTransaction[],

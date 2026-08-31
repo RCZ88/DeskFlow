@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Layers, Lock, RotateCcw, Save, FileCode2 } from 'lucide-react'
-import { AmberButton, Card, Chip, EmptyState, ErrorState, GhostButton, LoadingBlock, SectionHeader, SelectInput, TextArea, toast } from './ui'
+import { AmberButton, Card, Chip, CopyPromptButton, EmptyState, ErrorState, FieldLabel, GhostButton, LoadingBlock, SectionHeader, SelectInput, TextArea, toast } from './ui'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
@@ -8,6 +8,12 @@ function ruleText(r: any) {
   if (typeof r === 'string') return r
   if (r && typeof r === 'object' && 'rule' in r) return String(r.rule)
   return String(r ?? '')
+}
+
+function ruleReasoning(r: any): string | null {
+  if (typeof r === 'string') return null
+  if (r && typeof r === 'object' && 'reasoning' in r && r.reasoning) return String(r.reasoning)
+  return null
 }
 
 function FrameworkCard({ fw, onChanged }: { fw: any; onChanged: () => void }) {
@@ -77,11 +83,16 @@ function FrameworkCard({ fw, onChanged }: { fw: any; onChanged: () => void }) {
       <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
         <div className="mb-1.5 text-[9px] tracking-wider text-zinc-500 uppercase">Rules</div>
         {Array.isArray(fw.rules) && fw.rules.length > 0 ? (
-          <ol className="space-y-1">
+          <ol className="space-y-2">
             {fw.rules.map((r: any, i: number) => (
-              <li key={i} className="flex items-start gap-2 text-[11px] text-zinc-300">
-                <span className="mt-px font-mono text-[10px] text-zinc-600">{i + 1}.</span>
-                <span className="break-words">{ruleText(r)}</span>
+              <li key={i} className="text-[11px] text-zinc-300">
+                <div className="flex items-start gap-2">
+                  <span className="mt-px font-mono text-[10px] text-zinc-600">{i + 1}.</span>
+                  <span className="break-words">{ruleText(r)}</span>
+                </div>
+                {ruleReasoning(r) && (
+                  <div className="ml-5 mt-0.5 text-[10px] italic text-zinc-500">{ruleReasoning(r)}</div>
+                )}
               </li>
             ))}
           </ol>
@@ -97,7 +108,10 @@ function FrameworkCard({ fw, onChanged }: { fw: any; onChanged: () => void }) {
       ) : (
         <>
           <div>
-            <div className="mb-1 text-[9px] tracking-wider text-zinc-500 uppercase">Edit rules — one per line</div>
+            <div className="flex items-center gap-2">
+              <FieldLabel>Edit rules — one per line</FieldLabel>
+              <CopyPromptButton fieldKey="framework-rules" />
+            </div>
             <TextArea
               rows={4}
               value={draft}

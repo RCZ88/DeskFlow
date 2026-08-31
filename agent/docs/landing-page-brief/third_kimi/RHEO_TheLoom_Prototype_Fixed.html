@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>RHEO — The Loom (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#09090b;
+    --card:#18181b;
+    --amber:#fbbf24;
+    --terracotta:#c2703d;
+    --text:#fafafa;
+    --text-secondary:#a1a1aa;
+  }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ background:var(--bg); color:var(--text); font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; overflow-x:hidden; }
+  .mono{ font-family:'JetBrains Mono','SF Mono',Consolas,monospace; }
+
+  /* ---- prototype label, not part of the real page ---- */
+  .proto-tag{
+    position:fixed; top:16px; left:16px; z-index:40;
+    font-size:0.68rem; letter-spacing:0.14em; text-transform:uppercase;
+    color:var(--text-secondary); opacity:0.55; font-family:'JetBrains Mono',monospace;
+  }
+
+  /* ---- pinned hero + shuttle stage ---- */
+  .scroll-space{ position:relative; height:420vh; }
+  .pinned-stage{
+    position:relative; width:100%; height:100vh;
+    display:flex; align-items:center; justify-content:flex-start;
+    padding-left:7vw; overflow:hidden;
+  }
+
+  .loom-svg{ position:absolute; inset:0; width:100%; height:100%; }
+  .loom-svg .warp{ stroke:var(--amber); stroke-width:1.5; opacity:0.9; transition:opacity .2s; }
+  .loom-svg .weft{ stroke:var(--terracotta); stroke-width:2.5; fill:none; stroke-linecap:round; }
+  .loom-svg .dot{ fill:var(--amber); opacity:0; }
+  .loom-svg .warp-label{ fill:var(--text-secondary); font-size:13px; letter-spacing:2.5px; text-anchor:middle; }
+
+  .hero-copy{ position:relative; z-index:5; max-width:600px; text-align:left; opacity:0; transform:translateY(16px); }
+  .hero-copy h1{ font-size:clamp(2.1rem,4.6vw,3.4rem); font-weight:800; letter-spacing:-0.02em; line-height:1.06; margin-bottom:1.1rem; }
+  .hero-copy p{ font-size:1.05rem; color:var(--text-secondary); max-width:36ch; }
+  .hero-copy .scroll-cue{ display:block; margin-top:2.4rem; font-size:0.72rem; letter-spacing:0.18em; color:var(--text-secondary); text-transform:uppercase; }
+
+  .caption-box{
+    position:absolute; z-index:6; width:210px;
+    background:rgba(24,24,27,0.72); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+    border:1px solid rgba(251,191,36,0.22); border-radius:12px; padding:0.85rem 1rem;
+    font-size:0.9rem; line-height:1.35; color:var(--text); opacity:0; pointer-events:none;
+  }
+  .caption-box .tag{ display:block; font-size:0.66rem; letter-spacing:0.13em; color:var(--terracotta); text-transform:uppercase; margin-bottom:0.35rem; }
+
+  /* ---- closing section ---- */
+  .closing{
+    position:relative; min-height:78vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; gap:1.5rem;
+    padding:4rem 6vw; overflow:hidden;
+  }
+  .closing::before{
+    content:''; position:absolute; inset:0; opacity:0.5; pointer-events:none;
+    background-image:
+      repeating-linear-gradient(90deg, rgba(251,191,36,0.09) 0 1.5px, transparent 1.5px 26px),
+      repeating-linear-gradient(0deg, rgba(194,112,61,0.09) 0 1.5px, transparent 1.5px 26px);
+  }
+  .closing h2{ position:relative; font-size:clamp(1.7rem,3.6vw,2.5rem); font-weight:800; max-width:16ch; }
+  .closing p{ position:relative; color:var(--text-secondary); max-width:44ch; }
+  .closing .cta{
+    position:relative; margin-top:0.6rem; padding:0.85rem 1.7rem; border-radius:10px;
+    background:var(--amber); color:#1a1300; font-weight:700; font-size:0.95rem; border:none; cursor:pointer;
+  }
+  .closing .cta:focus-visible{ outline:2px solid var(--amber); outline-offset:3px; }
+
+  .reduced-note{
+    position:fixed; bottom:16px; left:16px; z-index:40; display:none;
+    font-size:0.7rem; color:var(--text-secondary); opacity:0.6; font-family:'JetBrains Mono',monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-tag">RHEO — The Loom — prototype</div>
+
+<div class="scroll-space">
+  <div class="pinned-stage" id="stage">
+    <svg class="loom-svg" id="loomSvg" viewBox="0 0 1400 800" preserveAspectRatio="xMidYMid slice"
+         role="img" aria-label="Seven vertical threads representing RHEO's subsystems, woven together by a single moving thread representing AI.">
+      <defs>
+        <clipPath id="clipOver"></clipPath>
+        <clipPath id="clipUnder"></clipPath>
+      </defs>
+      <!-- paint order matters here: base weft (behind) -> warps -> top weft (in front) -->
+      <path id="weftBase" class="weft" clip-path="url(#clipUnder)"></path>
+      <g id="warpGroup"></g>
+      <path id="weftTop" class="weft" clip-path="url(#clipOver)"></path>
+      <g id="dotGroup"></g>
+    </svg>
+
+    <div class="hero-copy" id="heroCopy">
+      <h1>One shuttle.<br>Every thread.</h1>
+      <p>AI doesn't sit in a chat window. It runs through everything you track.</p>
+      <span class="scroll-cue">Scroll ↓</span>
+    </div>
+
+    <div class="caption-box" id="cap1"><span class="tag mono">Finance</span>Flags a subscription you forgot.</div>
+    <div class="caption-box" id="cap2"><span class="tag mono">Learning</span>Drafts your next lesson.</div>
+    <div class="caption-box" id="cap3"><span class="tag mono">Terminal</span>Reads your terminal output.</div>
+  </div>
+</div>
+
+<section class="closing">
+  <h2>Fifteen tools. One thread.</h2>
+  <p>Everything above ran locally, in one SQLite file, on this machine. Nothing you just watched ever left this screen.</p>
+  <button class="cta">Download RHEO</button>
+</section>
+
+<div class="reduced-note" id="reducedNote">Reduced-motion view — animation skipped, end state shown directly.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" crossorigin="anonymous"></script>
+  <script>window.gsap || document.write('<script src="https://unpkg.com/gsap@3.12.5/dist/gsap.min.js"><\/script>')</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" crossorigin="anonymous"></script>
+  <script>window.ScrollTrigger || document.write('<script src="https://unpkg.com/gsap@3.12.5/dist/ScrollTrigger.min.js"><\/script>')</script>
+<script>
+
+<script>
+// Check if GSAP loaded correctly
+if (typeof gsap === 'undefined' || typeof ScrollTrigger === 'undefined') {
+  document.body.innerHTML = '<div style="padding:40px;font-family:monospace;color:#fafafa;background:#09090b;">' +
+    '<h1>GSAP failed to load</h1>' +
+    '<p>This prototype requires GSAP and ScrollTrigger.</p>' +
+    '<p>Please open this file with an internet connection, or run it through a local server:</p>' +
+    '<code style="background:#18181b;padding:8px 12px;border-radius:6px;display:inline-block;margin-top:10px;">npx serve .</code>' +
+    '<p style="margin-top:20px;color:#a1a1aa;">If you see this, the HTML file itself is fine — it just needs GSAP to animate.</p>' +
+    '</div>';
+}
+</script>
+
+(function(){
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const W = 1400, H = 800;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Seven warp threads = seven subsystems. "over" alternates with "under" so the
+  // weft reads as an actual weave, not just a line crossing other lines.
+  const warps = [
+    { x:100,  label:'TIME',     over:true  },
+    { x:300,  label:'MONEY',    over:false },
+    { x:500,  label:'FOCUS',    over:true  },
+    { x:700,  label:'LEARNING', over:false },
+    { x:900,  label:'CHAT',     over:true  },
+    { x:1100, label:'TERMINAL', over:false },
+    { x:1300, label:'TIMELINE', over:true  },
+  ];
+
+  const warpGroup = document.getElementById('warpGroup');
+  warps.forEach(w=>{
+    const line = document.createElementNS(svgNS,'line');
+    line.setAttribute('x1', w.x); line.setAttribute('x2', w.x);
+    line.setAttribute('y1', 40);  line.setAttribute('y2', 720);
+    line.classList.add('warp');
+    line.dataset.label = w.label;
+    warpGroup.appendChild(line);
+
+    const label = document.createElementNS(svgNS,'text');
+    label.setAttribute('x', w.x); label.setAttribute('y', 752);
+    label.classList.add('warp-label','mono');
+    label.textContent = w.label;
+    warpGroup.appendChild(label);
+  });
+
+  // The weft (AI thread) is one gentle wave across the whole width, not a rigid
+  // straight line — closer to how an actual thread sits under slight tension.
+  function wavePath(y0, amp, freq, steps){
+    let d = `M 0 ${y0.toFixed(1)}`;
+    for(let i=1;i<=steps;i++){
+      const x = (W/steps)*i;
+      const y = y0 + amp*Math.sin((x/W)*Math.PI*freq);
+      d += ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+    }
+    return d;
+  }
+  const weftY = 380, amp = 26, freq = 2.6;
+  const dAttr = wavePath(weftY, amp, freq, 140);
+  const weftBase = document.getElementById('weftBase');
+  const weftTop  = document.getElementById('weftTop');
+  weftBase.setAttribute('d', dAttr);
+  weftTop.setAttribute('d', dAttr);
+  const totalLen = weftBase.getTotalLength();
+  [weftBase, weftTop].forEach(p=>{
+    p.style.strokeDasharray = totalLen;
+    p.style.strokeDashoffset = totalLen; // fully hidden until revealed
+  });
+
+  // --- the actual "weave" trick ---
+  // weftBase and weftTop carry the IDENTICAL path. Which one is visible at a
+  // given x is decided by two complementary clip-paths built from the warps'
+  // over/under flags — that's what makes the same thread appear to duck behind
+  // one warp and pop in front of the next, using only two static clip regions
+  // instead of per-frame z-index juggling.
+  const bandHalf = 24;
+  const overRects = warps.filter(w=>w.over).map(w=>({ x:w.x-bandHalf, w:bandHalf*2 }));
+  const sorted = overRects.slice().sort((a,b)=>a.x-b.x);
+  let cursor = 0; const underRects = [];
+  sorted.forEach(r=>{
+    if(r.x > cursor) underRects.push({ x:cursor, w:r.x-cursor });
+    cursor = r.x + r.w;
+  });
+  if(cursor < W) underRects.push({ x:cursor, w:W-cursor });
+
+  function fillClip(id, rects){
+    const clip = document.getElementById(id);
+    rects.forEach(r=>{
+      const rect = document.createElementNS(svgNS,'rect');
+      rect.setAttribute('x', r.x); rect.setAttribute('y', 0);
+      rect.setAttribute('width', r.w); rect.setAttribute('height', H);
+      clip.appendChild(rect);
+    });
+  }
+  fillClip('clipOver', overRects);
+  fillClip('clipUnder', underRects);
+
+  // small glow dots at every crossing, fading in as the weft's reveal passes them
+  const dotGroup = document.getElementById('dotGroup');
+  const dots = warps.map(w=>{
+    const y = weftY + amp*Math.sin((w.x/W)*Math.PI*freq);
+    const c = document.createElementNS(svgNS,'circle');
+    c.setAttribute('cx', w.x); c.setAttribute('cy', y); c.setAttribute('r', 5);
+    c.classList.add('dot');
+    dotGroup.appendChild(c);
+    return { el:c, progress: w.x / W };
+  });
+
+  // caption boxes sit roughly under their matching warp thread
+  const capMap = { MONEY:'cap1', LEARNING:'cap2', TERMINAL:'cap3' };
+  function positionCaptions(){
+    warps.forEach(w=>{
+      const id = capMap[w.label];
+      if(!id) return;
+      const el = document.getElementById(id);
+      const pct = (w.x / W) * 100;
+      el.style.left = `calc(${pct}% - 70px)`;
+      el.style.top = '64%';
+    });
+  }
+  positionCaptions();
+  window.addEventListener('resize', positionCaptions);
+  // Note: precise alignment assumes a roughly widescreen viewport, since the SVG
+  // uses preserveAspectRatio="slice" for full-bleed cover. Good enough for a
+  // desktop prototype; a production build would tie caption position to the
+  // SVG's actual rendered warp coordinates via getBoundingClientRect().
+
+  // ---- reduced motion: skip all animation, show the finished state directly ----
+  if(reduceMotion){
+    document.getElementById('reducedNote').style.display = 'block';
+    [weftBase, weftTop].forEach(p=> p.style.strokeDashoffset = 0);
+    dots.forEach(d=> d.el.style.opacity = 0.9);
+    const hero = document.getElementById('heroCopy');
+    hero.style.opacity = 1; hero.style.transform = 'none';
+    ['cap1','cap2','cap3'].forEach(id=> document.getElementById(id).style.opacity = 0.95);
+    return;
+  }
+
+  gsap.registerPlugin(ScrollTrigger);
+
+  // hero text fades in on load, independent of scroll
+  gsap.to('#heroCopy', { opacity:1, y:0, duration:1, delay:0.3, ease:'power2.out' });
+
+  function applyReveal(v){
+    const offset = totalLen * (1 - v);
+    weftBase.style.strokeDashoffset = offset;
+    weftTop.style.strokeDashoffset = offset;
+    dots.forEach(d=>{
+      d.el.style.opacity = gsap.utils.clamp(0, 1, (v - d.progress + 0.05) * 12);
+    });
+  }
+
+  const state = { reveal: 0 };
+  const tl = gsap.timeline({
+    scrollTrigger: {
+      trigger: '.scroll-space',
+      start: 'top top',
+      end: 'bottom bottom',
+      scrub: 1,
+      pin: '#stage',
+    }
+  });
+
+  // beat 1: the weave draws itself in as you scroll
+  tl.to(state, { reveal:1, duration:0.34, onUpdate:()=>applyReveal(state.reveal) });
+  tl.to('#heroCopy', { opacity:0, y:-16, duration:0.06 }, '<90%');
+  tl.to('#warpGroup', { opacity:0.4, duration:0.08 });
+
+  // beats 2–4: the shuttle "visits" three threads in turn, each with its caption
+  const beats = [
+    { warp:'MONEY',    cap:'cap1' },
+    { warp:'LEARNING', cap:'cap2' },
+    { warp:'TERMINAL', cap:'cap3' },
+  ];
+  beats.forEach(b=>{
+    const lineEl = [...warpGroup.querySelectorAll('.warp')].find(l => l.dataset.label === b.warp);
+    tl.to(lineEl, { attr:{ stroke:'#fbbf24' }, opacity:1, strokeWidth:3, duration:0.14 }, '>')
+      .to(`#${b.cap}`, { opacity:1, duration:0.1 }, '<')
+      .to(lineEl, { opacity:0.4, strokeWidth:1.5, duration:0.1 }, '+=0.06')
+      .to(`#${b.cap}`, { opacity:0, duration:0.08 }, '<');
+  });
+
+  tl.to('#warpGroup', { opacity:0.9, duration:0.1 });
+})();
+</script>
+</body>
+</html>

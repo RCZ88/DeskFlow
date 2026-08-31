@@ -1,7 +1,34 @@
 import { build as viteBuild } from 'vite';
 import { execSync } from 'child_process';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, unlinkSync } from 'fs';
 import { resolve, dirname, relative } from 'path';
+
+// ── Build Mutex (prevent parallel builds) ──────────────────────
+const LOCK_FILE = resolve(import.meta.dirname, '..', '.build-lock');
+function acquireBuildLock() {
+  try {
+    const existing = readFileSync(LOCK_FILE, 'utf-8').trim();
+    const pid = parseInt(existing);
+    if (pid && !isNaN(pid)) {
+      try {
+        process.kill(pid, 0);
+        const stats = statSync(LOCK_FILE);
+        if (Date.now() - stats.mtimeMs < 5 * 60 * 1000) {
+          console.error(`Build already in progress (PID ${pid}). Wait or kill it.`);
+          process.exit(1);
+        }
+        console.warn(`Stale build lock (PID ${pid}). Removing.`);
+        unlinkSync(LOCK_FILE);
+      } catch { unlinkSync(LOCK_FILE); }
+    }
+  } catch {}
+  writeFileSync(LOCK_FILE, String(process.pid));
+  const cleanup = () => { try { unlinkSync(LOCK_FILE); } catch {} };
+  process.on('exit', cleanup);
+  process.on('SIGINT', () => { cleanup(); process.exit(1); });
+  process.on('SIGTERM', () => { cleanup(); process.exit(1); });
+}
+acquireBuildLock();
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SRC = resolve(ROOT, 'src');

@@ -1,10 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon, FileCode2, Loader2, Link } from 'lucide-react';
+import { Grid3X3, Network, Keyboard, BookOpen, Brain, RotateCcw, ImageIcon, FileCode2, Loader2, Link, StickyNote } from 'lucide-react';
 import { BlockRenderer } from './blocks/BlockRenderer';
 import { PendingIllustrationsPanel } from './blocks/PendingIllustrationsPanel';
 import { FlashcardBlock } from './blocks/FlashcardBlock';
 import { TutorPanel } from './TutorPanel';
+import { NotesPanel } from './NotesPanel';
 import { MasteryRing } from './MasteryRing';
 import { CurriculumGraph } from './CurriculumGraph';
 import { ChecklistProgress } from './ChecklistProgress';
@@ -118,6 +119,8 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
 
   // Grounding sources panel
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  // Notes panel
+  const [notesOpen, setNotesOpen] = useState(false);
 
   const lessonId = lesson.lesson.id != null ? String(lesson.lesson.id) : `lesson-${lesson.lesson.part}`;
 
@@ -274,36 +277,26 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
           </div>
         </div>
 
-        {/* Center: Node content OR Graph view */}
+        {/* Center: Always show tab bar + toggle, content switches */}
         <div className="flex-1 min-w-0 flex flex-col">
-          {graphView === 'graph' ? (
-            <CurriculumGraph
-              nodes={lesson.nodes}
-              progress={progress}
-              selectedNode={selectedNode}
-              onSelectNode={onSelectNode}
-              onExit={() => onSetGraphView('grid')}
-            />
-          ) : (
-            <>
-              {/* Tab bar: Content | Recall */}
-              <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800/60 shrink-0">
-                {([
-                  { key: 'content' as const, icon: BookOpen, label: 'Content' },
-                  { key: 'recall' as const, icon: RotateCcw, label: 'Recall' },
-                ]).map(({ key, icon: Icon, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => {
-                      setReaderTab(key);
-                      if (key === 'recall') loadDueCards();
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                      readerTab === key
-                        ? 'bg-zinc-800 text-zinc-100'
-                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
-                    }`}
-                  >
+          {/* Tab bar: Content | Recall + graph toggle — always visible */}
+          <div className="flex items-center gap-1 px-4 py-2 border-b border-zinc-800/60 shrink-0">
+            {([
+              { key: 'content' as const, icon: BookOpen, label: 'Content' },
+              { key: 'recall' as const, icon: RotateCcw, label: 'Recall' },
+            ]).map(({ key, icon: Icon, label }) => (
+              <button
+                key={key}
+                onClick={() => {
+                  setReaderTab(key);
+                  if (key === 'recall') loadDueCards();
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  readerTab === key
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
+                }`}
+              >
                     <Icon className="w-3 h-3" />
                     {label}
                   </button>
@@ -338,6 +331,23 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                   >
                     <Link className="w-3 h-3" />
                     Sources
+                  </button>
+                )}
+
+                {/* Notes */}
+                {currentNode && (
+                  <button
+                    onClick={() => setNotesOpen(!notesOpen)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                      notesOpen
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+                        : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
+                    }`}
+                    title="View and add notes"
+                    aria-label="Toggle notes panel"
+                  >
+                    <StickyNote className="w-3 h-3" />
+                    Notes
                   </button>
                 )}
 
@@ -401,8 +411,8 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                 </div>
               </div>
 
-              {/* Content area */}
-              {readerTab === 'content' && sourceOpen ? (
+              {/* Content area — hidden when graph view is active */}
+              {graphView !== 'graph' && readerTab === 'content' && sourceOpen ? (
                 <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 ws-scroll">
                   <div className="max-w-[88ch] mx-auto">
                     <div className="flex items-center justify-between mb-3">
@@ -433,7 +443,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                     )}
                   </div>
                 </div>
-              ) : readerTab === 'content' ? (
+              ) : graphView !== 'graph' && readerTab === 'content' ? (
                 <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 ws-scroll" ref={containerRef} style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
                   {currentNode ? (
                     <AnimatePresence mode="wait">
@@ -467,6 +477,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                               block={block}
                               onAsk={handleBlockAsk}
                               onQuizSubmit={handleQuizSubmit}
+                              onQuizSkip={(nid, bid) => { if (handleQuizSubmit) handleQuizSubmit(nid, bid, '__skip__'); }}
                               currentLevel={currentLevel}
                               nodeId={currentNode.id}
                               onApproveProposal={onApproveProposal}
@@ -526,7 +537,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                     </motion.div>
                   )}
                 </div>
-              ) : readerTab === 'recall' ? (
+              ) : graphView !== 'graph' && readerTab === 'recall' ? (
                 /* Recall Tab — Flashcard review */
                 <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 ws-scroll">
                   <div className="max-w-[480px] mx-auto">
@@ -559,7 +570,22 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                           <RotateCcw className="w-6 h-6 text-sage-400" />
                         </div>
                         <p className="text-sm text-zinc-400">No cards due for review</p>
-                        <p className="text-xs text-zinc-600 mt-1">Complete lessons to generate flashcards</p>
+                        <p className="text-xs text-zinc-600 mt-1 mb-4">Generate flashcards from this lesson's content</p>
+                        <button
+                          onClick={async () => {
+                            if (!currentNode) return;
+                            try {
+                              const res = await (window as any).deskflowAPI?.learnGenerateCards?.({
+                                deckId: `deck-${currentNode.id}`,
+                                nodeContent: currentNode.blocks?.map((b: any) => b.text || b.src || b.q || '').join('\n') || '',
+                              });
+                              if (res?.ok) loadDueCards();
+                            } catch { /* ignore */ }
+                          }}
+                          className="px-4 py-2 rounded-lg bg-sage-500/20 hover:bg-sage-500/30 text-sage-300 text-xs font-medium transition border border-sage-500/30"
+                        >
+                          Generate Cards
+                        </button>
                       </div>
                     )}
                   </div>
@@ -567,7 +593,7 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
               ) : null}
 
               {/* Selection toolbar — OUTSIDE the motion.div, rendered via portal to document.body */}
-              {readerTab === 'content' && !sourceOpen && (
+              {readerTab === 'content' && !sourceOpen && graphView !== 'graph' && (
                 <SelectionActions
                   containerRef={containerRef as React.RefObject<HTMLDivElement>}
                   onCreateHighlight={handleCreateHighlight}
@@ -578,8 +604,19 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
                   selectedHighlightId={null}
                 />
               )}
-            </>
-          )}
+
+              {/* Graph view content */}
+              {graphView === 'graph' && (
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <CurriculumGraph
+                    nodes={lesson.nodes}
+                    progress={progress}
+                    selectedNode={selectedNode}
+                    onSelectNode={onSelectNode}
+                    onExit={() => onSetGraphView('grid')}
+                  />
+                </div>
+              )}
         </div>
 
         {/* Right: TutorPanel — only show when tutorOpen is true (toggled from tab bar) */}
@@ -594,7 +631,43 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
             loading={tutorLoading}
             onAsk={onAsk}
             tutorConfig={tutorConfig}
+            onAddNote={onAddNote}
           />
+        )}
+
+        {/* Right: NotesPanel — show when notesOpen is true */}
+        {notesOpen && selectedNode && (
+          <motion.div
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 320, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800 shrink-0">
+              <span className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                <StickyNote className="w-4 h-4 text-emerald-400" />
+                Notes
+              </span>
+              <button
+                onClick={() => setNotesOpen(false)}
+                className="w-6 h-6 flex items-center justify-center rounded text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition"
+                aria-label="Close notes panel"
+              >
+                <span className="text-xs">✕</span>
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <NotesPanel
+                getNotes={async () => {
+                  const res = await api?.learnGetAllNotes?.({ limit: 50 });
+                  return res?.ok ? (res.data || []) : [];
+                }}
+                deleteNote={async (id: string) => { await api?.learnDeleteNote?.({ noteId: id }); }}
+                togglePin={async (id: string) => { await api?.learnToggleNotePin?.({ noteId: id, pinned: true }); }}
+              />
+            </div>
+          </motion.div>
         )}
 
         {/* Explain with Image Modal */}
@@ -674,13 +747,21 @@ export function ReaderView({ lesson, selectedNode, onSelectNode, currentNode, cu
         onImageUploaded={onPersistIllustration}
       />
 
-      {/* Grounding Sources panel */}
-      {currentNode && (
-        <NodeSourcesPanel
-          nodeId={currentNode.id}
-          open={sourcesOpen}
-          onClose={() => setSourcesOpen(false)}
-        />
+      {/* Grounding Sources panel — side panel */}
+      {currentNode && sourcesOpen && (
+        <motion.div
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 320, opacity: 1 }}
+          exit={{ width: 0, opacity: 0 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className="shrink-0 border-l border-zinc-800 bg-zinc-900/30 flex flex-col overflow-hidden"
+        >
+          <NodeSourcesPanel
+            nodeId={currentNode.id}
+            open={sourcesOpen}
+            onClose={() => setSourcesOpen(false)}
+          />
+        </motion.div>
       )}
     </>
   );

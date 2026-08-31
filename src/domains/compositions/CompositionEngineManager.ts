@@ -17,20 +17,76 @@ import { scopeCheck } from './compositionScopeChecker';
 import { CompositionEngineService } from './CompositionEngineService';
 import { querySource, listRegisteredSources, listAdapterEvents } from './dataSourceRegistry';
 
+export type AiCallFn = (prompt: string, systemPrompt: string, maxTokens?: number) => Promise<string>;
+
+const SUGGEST_SYSTEM_PROMPT = `You are the DeskFlow Composition Builder. You translate a natural-language request into ONE automation rule written in the DeskFlow Composition DSL.
+
+DSL GRAMMAR (exactly this shape):
+  ON <source>.<event> [WHEN <condition> AND <condition> ...] DO <action> [USING <key> = <value>, <key> = <value>, ...]
+
+Rules:
+- Start with "ON" then a trigger source.event.
+- Optional "WHEN" introduces conditions joined by AND. Each condition is <field> <operator> <value>.
+  Operators: ==, !=, >, >=, <, <=, contains, matches, exists, not_exists
+  String values may be quoted. Numeric values are bare.
+- "DO" is followed by an action source.action.
+- Optional "USING" supplies action parameters as key = value pairs separated by commas.
+
+AVAILABLE SOURCES + EVENTS:
+- finance: finance.transaction.created, finance.transaction.updated, finance.budget.exceeded, finance.subscription.due
+- focus: focus.session.started, focus.session.completed, focus.goal.reached
+- system: system.boot, system.idle, system.tick
+- app: app.active, app.idle
+
+AVAILABLE ACTIONS:
+- system.notify, system.launch, system.log, system.script
+- app.track, app.open, app.focus
+- finance.add, finance.summary, finance.categorize, finance.notify
+
+EXAMPLE:
+  ON finance.transaction.created WHEN amount > 500 DO system.notify USING message = "Large expense logged"
+
+Constraints:
+- Only use sources/events/actions listed above.
+- Emit exactly ONE "ON ... DO ..." rule.
+- Keep field names simple and lowercase (e.g. amount, category, merchant).
+
+Return ONLY a JSON object (no markdown fences, no prose):
+{"name": "<short title>", "description": "<one sentence>", "dsl": "<the ON ... DO ... rule>"}
+
+If the request cannot be expressed with the available sources/events/actions, still return JSON with "dsl": "" and explain in "description".`;
+
+function extractJson(raw: string): any | null {
+  if (!raw) return null;
+  let text = raw.trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) text = fence[1].trim();
+  try { return JSON.parse(text); } catch { /* fall through */ }
+  const first = text.indexOf('{');
+  const last = text.lastIndexOf('}');
+  if (first >= 0 && last > first) {
+    try { return JSON.parse(text.slice(first, last + 1)); } catch { /* ignore */ }
+  }
+  return null;
+}
+
 export class CompositionEngineManager {
   private engine: CompositionEngine;
   private eventBus: CompositionEventBus;
   private service: CompositionEngineService;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private aiCall?: AiCallFn;
 
   constructor(
     private db: Database.Database,
     private getMainWindow: () => BrowserWindow | null,
+    aiCall?: AiCallFn,
   ) {
     ensureCompositionsSchema(db);
     this.eventBus = new CompositionEventBus();
     this.eventBus.setDb(db);
     this.engine = new CompositionEngine(db, this.eventBus);
+    this.wireEventForwarding();
     this.service = new CompositionEngineService(db, this.engine, this.eventBus);
     this.registerAdapters(db);
     this.registerIpc();
@@ -38,6 +94,91 @@ export class CompositionEngineManager {
 
     const count = this.engine.loadRules();
     console.log(`[Compositions] Loaded ${count} active rules`);
+  }
+
+  /** Activate the event→rule firing pipeline (subscribe the engine to the bus). */
+  activate() {
+    try { this.service.start(); } catch (err) { console.error('[CompositionEngine] activate failed', err); }
+  }
+
+  /** Publish an event onto the composition bus so matching rules fire. */
+  emitEvent(topic: string, payload?: any) {
+    try {
+      this.eventBus.enqueue(topic, topic.split('.')[0], payload);
+    } catch (err) { console.error('[CompositionEngine] emitEvent failed', err); }
+  }
+
+  /**
+   * Forward notable composition/domain events to the renderer so the UI
+   * (history panel, toasts) can reflect real executions. The engine already
+   * raises desktop Notifications directly for `compositions.notification`.
+   */
+  private wireEventForwarding() {
+    const FORWARD = new Set([
+      'compositions.notification', 'compositions.log', 'compositions.query',
+      'compositions.trigger', 'goals.goal.created', 'goals.goal.completed',
+    ]);
+    this.eventBus.subscribeAll((event) => {
+      if (!FORWARD.has(event.topic)) return;
+      const win = this.getMainWindow();
+      if (win && !win.isDestroyed()) {
+        try {
+          win.webContents.send('composition-events', {
+            topic: event.topic,
+            payload: event.payload,
+            timestamp: event.timestamp,
+          });
+        } catch { /* renderer may be unavailable */ }
+      }
+    });
+  }
+
+  /**
+   * Turn a natural-language request into a validated Composition DSL rule via the
+   * configured AI provider. Returns the generated name/description/dsl plus a
+   * validation report so the UI can preview before creating.
+   */
+  async suggest(request: string): Promise<any> {
+    if (!this.aiCall) return { ok: false, error: 'No AI provider configured' };
+    if (!request || !request.trim()) return { ok: false, error: 'Empty request' };
+    let raw: string;
+    try {
+      raw = await this.aiCall(
+        `User request: ${request}\n\nReturn ONLY the JSON object described.`,
+        SUGGEST_SYSTEM_PROMPT,
+        1200,
+      );
+    } catch (err: any) {
+      return { ok: false, error: 'AI call failed: ' + (err?.message ?? String(err)) };
+    }
+
+    const parsed = extractJson(raw);
+    const dsl = String(parsed?.dsl ?? raw).trim();
+    const name = String(parsed?.name ?? 'AI Automation').trim().slice(0, 80) || 'AI Automation';
+    const description = String(parsed?.description ?? request).trim();
+
+    if (!dsl) {
+      return { ok: false, name, description, dsl_source: '', validation: { valid: false, errors: [{ line: 0, col: 0, message: 'AI returned no DSL rule', code: 'no-dsl' }], warnings: [] }, raw };
+    }
+
+    const compiled = this.engine.compileRule(dsl);
+    const validation = this.engine.validateRule(dsl, 'ai-suggested');
+    return { ok: !!compiled.ok, name, description, dsl_source: dsl, validation, raw };
+  }
+
+  /** Validate then persist an AI-suggested (or hand-edited) composition. */
+  async acceptSuggestion(data: { name: string; description: string; dsl_source: string; category?: string; enabled?: boolean }): Promise<any> {
+    const result = this.create({
+      name: data.name,
+      description: data.description,
+      dsl_source: data.dsl_source,
+      enabled: data.enabled ? 1 : 0,
+      priority: 500,
+      category: data.category ?? 'general',
+      lifecycle: 'forever',
+    });
+    if ((result as any)?.error) return { ok: false, error: (result as any).error };
+    return { ok: true, id: (result as any)?.id };
   }
 
   private registerAdapters(db: Database.Database) {
@@ -153,6 +294,14 @@ export class CompositionEngineManager {
     ipcMain.handle('compositions:enqueue-event', (_e, topic: string, source: string, payload: any) => {
       this.eventBus.enqueue(topic, source, payload);
       return { enqueued: true };
+    });
+
+    ipcMain.handle('compositions:suggest', async (_e, request: string) => {
+      return await this.suggest(request);
+    });
+
+    ipcMain.handle('compositions:accept-suggestion', async (_e, data: any) => {
+      return await this.acceptSuggestion(data);
     });
   }
 

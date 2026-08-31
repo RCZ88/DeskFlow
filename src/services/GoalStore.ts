@@ -1,6 +1,10 @@
-export type GoalCategory = 'work' | 'personal' | 'health' | 'learning';
-export type GoalPeriod = 'daily' | 'weekly' | 'monthly';
-export type GoalStatus = 'suggested' | 'pending' | 'in-progress' | 'completed' | 'overdue' | 'slipped' | 'dismissed';
+import type { Goal as CanonicalGoal, GoalCategory, GoalPeriod, GoalLink } from '../types/goals';
+
+// Legacy GoalStatus values used only by GoalStore (localStorage)
+export type LegacyGoalStatus = 'suggested' | 'pending' | 'in-progress' | 'completed' | 'overdue' | 'slipped' | 'dismissed';
+
+// Re-export canonical types for backward compatibility
+export type { GoalCategory, GoalPeriod, GoalLink };
 
 export interface GoalTarget {
   type: 'time' | 'completion';
@@ -10,25 +14,12 @@ export interface GoalTarget {
   done?: boolean;
 }
 
-export interface GoalLink {
-  label: string;
-  url: string;
-}
-
-export interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  category: GoalCategory;
-  target: GoalTarget;
-  period: GoalPeriod;
-  status: GoalStatus;
-  date: string;
-  source: 'ai' | 'manual';
-  links: GoalLink[];
-  progressSeconds?: number;
-  createdAt: string;
-  completedAt?: string;
+// GoalStore-compatible Goal (uses legacy statuses internally)
+export interface Goal extends Omit<CanonicalGoal, 'status' | 'trackingMode' | 'completionLogic' | 'cadenceConfig'> {
+  status: LegacyGoalStatus;
+  trackingMode?: 'system' | 'manual' | 'hybrid';
+  completionLogic?: { lateAllowed: boolean; gracePeriodMinutes: number; partialCredit: boolean; streakOnMiss: 'reset' | 'continue' | 'pause' };
+  cadenceConfig?: { type: 'fixed' | 'rolling' | 'flexible'; fixedDays: number[]; rollingTarget: number; flexibleWindowDays: number };
 }
 
 export interface GoalDayContext {

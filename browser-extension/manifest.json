@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "DeskFlow Browser Tracker",
-  "version": "1.2.0",
-  "description": "Tracks active tab browsing activity and captures AI assistant conversations for DeskFlow. Includes Deep Focus overlay, status popup, and AI context capture.",
+  "name": "DeskFlow Browser Bridge",
+  "version": "1.3.0",
+  "description": "Bridge between DeskFlow and AI chat websites. Captures conversations, injects context, shows capture status and content creation tools directly on ChatGPT, Claude, Gemini, Perplexity, and You.com.",
   "permissions": [
     "tabs",
     "webNavigation",
@@ -11,9 +11,18 @@
     "storage",
     "scripting"
   ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "DeskFlow Browser Tracker"
+    "default_title": "DeskFlow Browser Bridge",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
@@ -35,11 +44,37 @@
         "https://claude.ai/*",
         "https://perplexity.ai/*",
         "https://you.com/*",
-        "https://gemini.google.com/*"
+        "https://gemini.google.com/*",
+        "https://chat.qwen.ai/*",
+        "https://kimi.moonshot.cn/*",
+        "https://chatglm.cn/*",
+        "https://huggingface.co/*",
+        "https://poe.com/*",
+        "https://character.ai/*",
+        "https://deepseek.com/*"
       ],
       "js": ["ai-context-content.js"],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://claude.ai/*",
+        "https://perplexity.ai/*",
+        "https://you.com/*",
+        "https://gemini.google.com/*",
+        "https://chat.qwen.ai/*",
+        "https://kimi.moonshot.cn/*",
+        "https://chatglm.cn/*",
+        "https://huggingface.co/*",
+        "https://poe.com/*",
+        "https://character.ai/*",
+        "https://deepseek.com/*"
+      ],
+      "js": ["overlay.js"],
+      "run_at": "document_idle"
     }
   ]
 }

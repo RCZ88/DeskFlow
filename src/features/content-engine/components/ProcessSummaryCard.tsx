@@ -7,7 +7,7 @@ const api = () => (window as any).deskflowAPI?.contentEngine
 export function ProcessSummaryCard({ episodeId }: { episodeId: number }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [summary, setSummary] = useState<{ title: string; narrative: string } | null>(null)
+  const [summary, setSummary] = useState<{ title: string; narrative: string; turning_point?: string; growth_signal?: string } | null>(null)
   const [events, setEvents] = useState<any[]>([])
 
   const load = async () => {
@@ -43,7 +43,8 @@ export function ProcessSummaryCard({ episodeId }: { episodeId: number }) {
     )
   }
 
-  const turningPoint = events.find((e) => e.event_type === 'pivot' || e.event_type === 'turning_point')
+  const turningPoint = summary.turning_point || events.find((e) => e.event_type === 'pivot' || e.event_type === 'turning_point')?.label || events.find((e) => e.event_type === 'pivot' || e.event_type === 'turning_point')?.detail?.label
+  const growthSignal = summary.growth_signal || (events.find((e) => e.event_type === 'lesson_extracted')?.label)
   const lastEvent = events[events.length - 1]
 
   return (
@@ -69,18 +70,18 @@ export function ProcessSummaryCard({ episodeId }: { episodeId: number }) {
             <div>
               <div className="text-[9px] tracking-wider text-zinc-500 uppercase">Key turning point</div>
               <div className="text-[11px] text-zinc-300">
-                {turningPoint.label || turningPoint.detail?.label || 'Pivot detected'}
+                {turningPoint}
               </div>
             </div>
           </div>
         )}
-        {lastEvent && lastEvent.event_type === 'lesson_extracted' && (
+        {growthSignal && (
           <div className="flex items-start gap-1.5">
             <Zap size={11} className="mt-0.5 shrink-0 text-[#00d4ff]" />
             <div>
               <div className="text-[9px] tracking-wider text-zinc-500 uppercase">Growth signal</div>
               <div className="text-[11px] text-zinc-300">
-                {lastEvent.label || 'Lesson extracted from analytics'}
+                {growthSignal}
               </div>
             </div>
           </div>

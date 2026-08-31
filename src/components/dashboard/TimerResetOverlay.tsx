@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'motion/react'
 
 interface TimerResetOverlayProps {
   trigger: number
@@ -7,23 +7,33 @@ interface TimerResetOverlayProps {
 
 export function TimerResetOverlay({ trigger }: TimerResetOverlayProps) {
   const [active, setActive] = useState(false)
-  const prevRef = useRef(trigger)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevTriggerRef = useRef(trigger)
 
   useEffect(() => {
-    if (trigger > prevRef.current) {
+    if (trigger === prevTriggerRef.current) return
+    prevTriggerRef.current = trigger
+
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setActive(true)
+    timerRef.current = setTimeout(() => {
       setActive(false)
-      requestAnimationFrame(() => setActive(true))
-      const timer = setTimeout(() => setActive(false), 1500)
-      prevRef.current = trigger
-      return () => clearTimeout(timer)
+      timerRef.current = null
+    }, 1500)
+
+    return () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+        timerRef.current = null
+      }
     }
-    prevRef.current = trigger
   }, [trigger])
 
   return (
     <AnimatePresence>
       {active && (
         <motion.div
+          key="timer-reset-overlay"
           className="fixed inset-0 pointer-events-none z-[100] flex items-center justify-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

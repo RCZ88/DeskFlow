@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>03 — Icon Draw</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#050506;color:rgba(255,255,255,.85);font-family:'Space Grotesk',sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  svg{width:min(80vw,600px);height:min(80vw,600px)}
+  svg path{fill:none;stroke:rgba(255,255,255,.85);stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  svg .trace{stroke-dasharray:var(--len);stroke-dashoffset:var(--len)}
+  svg circle.dot{fill:#fff;filter:drop-shadow(0 0 6px rgba(255,255,255,.6))}
+  .replay{margin-top:24px;padding:8px 20px;border:1px solid rgba(255,255,255,.15);border-radius:99px;background:transparent;color:rgba(255,255,255,.6);font-family:'Space Grotesk',sans-serif;font-size:12px;cursor:pointer;transition:all .15s ease}
+  .replay:hover{border-color:rgba(255,255,255,.4);color:rgba(255,255,255,.85)}
+  @media(prefers-reduced-motion:reduce){.trace{stroke-dashoffset:0!important}.dot{display:none}}
+</style>
+</head>
+<body>
+<svg viewBox="-300 -300 600 600" id="icon">
+  <path id="rho" d="M-60,-120 C-60,-180 60,-180 60,-120 C60,-60 0,-60 0,0 C0,60 -120,60 -120,0 C-120,-60 -60,-60 -60,0 L-60,120"/>
+  <path id="rhoBg" d="M-60,-120 C-60,-180 60,-180 60,-120 C60,-60 0,-60 0,0 C0,60 -120,60 -120,0 C-120,-60 -60,-60 -60,0 L-60,120" style="stroke:rgba(255,255,255,.06);stroke-width:3"/>
+  <circle class="dot" id="dot" cx="0" cy="0" r="5"/>
+</svg>
+<button class="replay" id="btn">Replay</button>
+<script>
+const path = document.getElementById('rho');
+const dot = document.getElementById('dot');
+const btn = document.getElementById('btn');
+
+function play() {
+  const len = path.getTotalLength();
+  path.style.setProperty('--len', len);
+  path.style.strokeDasharray = len;
+  path.style.strokeDashoffset = len;
+  dot.style.opacity = 1;
+
+  const start = performance.now();
+  const DURATION = 900;
+
+  function frame(now) {
+    const t = Math.min((now - start) / DURATION, 1);
+    const eased = 1 - Math.pow(1 - t, 3);
+    path.style.strokeDashoffset = len * (1 - eased);
+    const pt = path.getPointAtLength(eased * len);
+    dot.setAttribute('cx', pt.x);
+    dot.setAttribute('cy', pt.y);
+    if (t < 1) requestAnimationFrame(frame);
+    else { dot.style.opacity = 0; }
+  }
+  requestAnimationFrame(frame);
+}
+
+btn.addEventListener('click', play);
+if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  path.style.strokeDashoffset = '0';
+  dot.style.display = 'none';
+} else {
+  play();
+}
+</script>
+</body>
+</html>

@@ -182,4 +182,45 @@ export class FocusGroupManager {
       },
     };
   }
+
+  /**
+   * Merge multiple focus groups into a single combined session config.
+   * - allowed apps / domains / categories are UNIONED (deduped, case-insensitive).
+   * - strictness = 'non_allowed' (strict) if ANY selected group is strict; otherwise 'distracting'.
+   * - duration defaults to the first selected group's default_duration (or 25m).
+   * Returns null if no valid groups were found.
+   */
+  toCombinedConfig(ids: number[], durationSec?: number, strictness?: 'distracting' | 'non_allowed'): { config: FocusConfig; groupIds: number[] } | null {
+    const groups = ids.map(id => this.get(Number(id))).filter((g): g is FocusGroup => !!g);
+    if (groups.length === 0) return null;
+
+    const appSet = new Map<string, string>();
+    const domainSet = new Map<string, string>();
+    const categorySet = new Map<string, string>();
+    let anyStrict = false;
+
+    for (const g of groups) {
+      if (g.strictness === 'non_allowed') anyStrict = true;
+      for (const a of g.allowed_apps ?? []) appSet.set(a.toLowerCase(), a);
+      for (const d of g.allowed_domains ?? []) domainSet.set(d.toLowerCase(), d);
+      for (const c of g.allowed_categories ?? []) categorySet.set(c.toLowerCase(), c);
+    }
+
+    const apps = Array.from(appSet.values());
+    const domains = Array.from(domainSet.values());
+    const categories = Array.from(categorySet.values());
+
+    const resolvedStrictness: 'distracting' | 'non_allowed' =
+      strictness ?? (anyStrict ? 'non_allowed' : 'distracting');
+    const tiers: Tier[] = resolvedStrictness === 'non_allowed' ? ['productive'] : ['productive', 'neutral'];
+
+    return {
+      groupIds: groups.map(g => g.id),
+      config: {
+        durationSec: typeof durationSec === 'number' ? durationSec : (groups[0].default_duration ?? 25 * 60),
+        strictness: resolvedStrictness,
+        allowed: { apps, domains, tiers, categories },
+      },
+    };
+  }
 }

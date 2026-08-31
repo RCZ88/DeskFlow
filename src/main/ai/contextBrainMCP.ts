@@ -126,6 +126,31 @@ function handleToolsList(): any {
           description: 'Get the most recent high-confidence context signals (preferences, corrections, habits).',
           inputSchema: { type: 'object', properties: { limit: { type: 'number', default: 10 } } },
         },
+        {
+          name: 'add_memory',
+          description: 'Write a fact the agent has learned into the context brain (persisted, queued for LLM extraction). Use this to remember decisions, preferences, and corrections discovered during a session.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              content: { type: 'string', description: 'What to remember' },
+              source: { type: 'string', description: 'Source tag, e.g. external_ai, in_terminal_agent', default: 'external_ai' },
+            },
+            required: ['content'],
+          },
+        },
+        {
+          name: 'add_reflection',
+          description: 'Log a self-improvement reflection / mistake / correction to the agent-reflect logs. Persisted as markdown and re-injected into future agent context so the same mistake is not repeated.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', description: 'Short title, e.g. "never use git reset --hard"' },
+              content: { type: 'string', description: 'Full reflection / lesson text' },
+              severity: { type: 'string', enum: ['info', 'warn', 'critical'], default: 'warn' },
+            },
+            required: ['title', 'content'],
+          },
+        },
       ],
     },
   }
@@ -218,6 +243,47 @@ function handleToolsCall(name: string, args: any): any {
         result: {
           content: [{ type: 'text', text: `Episode logged: ${epId}` }],
         },
+      }
+    }
+    case 'add_memory': {
+      const content = (args.content || '').trim()
+      if (!content) return { jsonrpc: '2.0', error: { code: -32602, message: 'content is required' } }
+      const epId = brain.logEpisode(args.source || 'external_ai', content)
+      if (epId && content.length >= 40) brain.createExtractionJob(epId)
+      return {
+        jsonrpc: '2.0',
+        result: { content: [{ type: 'text', text: `Memory stored: ${epId}` }] },
+      }
+    }
+    case 'add_reflection': {
+      const title = (args.title || '').trim()
+      const content = (args.content || '').trim()
+      const severity = args.severity || 'warn'
+      if (!title || !content) return { jsonrpc: '2.0', error: { code: -32602, message: 'title and content are required' } }
+      try {
+        const fs = require('fs')
+        const path = require('path')
+        // Locate repo root: walk up from this file to find package.json / agent dir.
+        let root = __dirname
+        for (let i = 0; i < 6; i++) {
+          if (fs.existsSync(path.join(root, 'agent', 'skills', 'agent-reflect', 'logs'))) break
+          const parent = path.dirname(root)
+          if (parent === root) break
+          root = parent
+        }
+        const logDir = path.join(root, 'agent', 'skills', 'agent-reflect', 'logs')
+        fs.mkdirSync(logDir, { recursive: true })
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+        const safeTitle = title.replace(/[^a-z0-9]+/gi, '_').slice(0, 60)
+        const file = path.join(logDir, `${stamp}_${safeTitle}.md`)
+        const header = `<!-- agent-reflection | severity: ${severity} | source: in_terminal_agent | ${stamp} -->\n# ${title}\n\n`
+        fs.writeFileSync(file, header + content + '\n', 'utf-8')
+        return {
+          jsonrpc: '2.0',
+          result: { content: [{ type: 'text', text: `Reflection logged: ${path.basename(file)}` }] },
+        }
+      } catch (e: any) {
+        return { jsonrpc: '2.0', error: { code: -32603, message: `Failed to write reflection: ${e.message}` } }
       }
     }
     case 'get_stats': {

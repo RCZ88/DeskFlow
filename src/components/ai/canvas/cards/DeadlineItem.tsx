@@ -13,7 +13,8 @@ interface DeadlineItemProps {
 }
 
 export function DeadlineItem({ title, course, dueDate, priority, status, linkedGoalStatus, onCreateGoal }: DeadlineItemProps) {
-  const daysLeft = Math.ceil((new Date(dueDate).getTime() - Date.now()) / 86400000)
+  const due = new Date(dueDate);
+  const daysLeft = !isNaN(due.getTime()) ? Math.ceil((due.getTime() - Date.now()) / 86400000) : NaN;
   const isUrgent = daysLeft <= 3 && daysLeft >= 0 && status !== 'done'
   const isOverdue = daysLeft < 0 && status !== 'done'
 
@@ -28,7 +29,7 @@ export function DeadlineItem({ title, course, dueDate, priority, status, linkedG
         </div>
         <div className="dk-deadline-item-meta">
           <span className="dk-deadline-item-due">
-            {isOverdue ? 'Overdue' : daysLeft === 0 ? 'Due today' : daysLeft === 1 ? '1 day left' : `${daysLeft} days left`}
+            {isNaN(daysLeft) ? 'No date' : isOverdue ? 'Overdue' : daysLeft === 0 ? 'Due today' : daysLeft === 1 ? '1 day left' : `${daysLeft} days left`}
           </span>
           <span className="dk-deadline-item-date">{dueDate.slice(0, 10)}</span>
         </div>

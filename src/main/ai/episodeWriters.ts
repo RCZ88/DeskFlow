@@ -19,9 +19,14 @@ function logAndQueue(source: string, content: string, sourceRef?: string, metada
 }
 
 // ═══ Goal Episode Writer ═══
+// NOTE: goal saves are a manual/user action and must NOT auto-trigger the LLM
+// extraction worker. We still capture the episode + entity/fact for history, but
+// we deliberately skip createExtractionJob so no AI call fires on goal create /
+// update / delete / complete (unless the user explicitly asks for AI via the
+// Goal Coach / AI Health Check buttons, which go through a different path).
 export function writeGoalEpisode(goal: any, action: 'created' | 'completed' | 'updated' | 'deleted') {
   const content = `Goal ${action}: "${goal.title}" (${goal.category || 'general'}) — status: ${goal.status || 'pending'}${goal.description ? ` — ${goal.description}` : ''}`
-  const epId = logAndQueue('goals', content, goal.id, { goalId: goal.id, action, category: goal.category })
+  const epId = brain.logEpisode('goals', content, goal.id, { goalId: goal.id, action, category: goal.category })
 
   // Extract entity
   const entityId = brain.upsertEntity('goal', goal.title, [goal.category].filter(Boolean))
@@ -157,4 +162,48 @@ export function writeAiContextEpisode(capture: { id?: number; provider: string; 
   if (entityId && epId) {
     brain.addFact(entityId, 'has_conversation', `External AI conversation (${capture.messages.length} messages)`, epId);
   }
+}
+
+// ── Content Engine → Context Brain ──────────────────────────
+// Every committed Content Engine asset (idea / episode / lesson / framework /
+// reflection) becomes an episode + a `content_asset` entity so the Knowledge
+// Graph auto-populates from AI feature usage. Extraction jobs then derive
+// finer `concept` nodes from the content.
+export function writeContentEngineEpisode(p: {
+  kind: 'idea' | 'episode' | 'lesson' | 'framework' | 'reflection';
+  title: string;
+  detail?: string;
+  refId?: string | number;
+  extra?: Record<string, any>;
+}): string {
+  const source = 'content_engine';
+  const content = `[${p.kind}] ${p.title}\n${p.detail || ''}`.slice(0, 1500);
+  const sourceRef = p.refId != null ? `content:${p.kind}:${p.refId}` : undefined;
+  const epId = brain.logEpisode(source, content, sourceRef, { kind: p.kind, ...(p.extra || {}) });
+  if (epId && content.length >= 40) brain.createExtractionJob(epId);
+  const entityId = brain.upsertEntity('content_asset', p.title.slice(0, 80), [p.kind, 'content_engine']);
+  if (entityId && epId) {
+    brain.addFact(entityId, 'asset_kind', p.kind, epId);
+    if (sourceRef) brain.addFact(entityId, 'source_ref', sourceRef, epId);
+  }
+  return epId;
+}
+
+// ── Learn (Lyceum) → Context Brain ──────────────────────────
+// Authored lessons become episodes + `lesson` entities so studying/writing in
+// the Learn OS feeds the same graph as everything else.
+export function writeLearnLessonEpisode(p: {
+  lessonId: string;
+  title: string;
+  summary?: string;
+  topic?: string;
+}): string {
+  const source = 'learn_lesson';
+  const content = `[learn] ${p.title}${p.topic ? ` (topic: ${p.topic})` : ''}\n${p.summary || ''}`.slice(0, 1500);
+  const sourceRef = `learn:lesson:${p.lessonId}`;
+  const epId = brain.logEpisode(source, content, sourceRef, { lessonId: p.lessonId, topic: p.topic });
+  if (epId && content.length >= 40) brain.createExtractionJob(epId);
+  const entityId = brain.upsertEntity('lesson', p.title.slice(0, 80), [p.topic || 'learn', 'lyceum']);
+  if (entityId && epId) brain.addFact(entityId, 'taught_in', p.topic || 'learn', epId);
+  return epId;
 }

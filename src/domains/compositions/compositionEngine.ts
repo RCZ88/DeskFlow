@@ -1,4 +1,6 @@
 import type Database from 'better-sqlite3';
+import { Notification, shell } from 'electron';
+import crypto from 'crypto';
 import { ASTNode, CompositionRule, EventPattern, SchedulePattern, ConditionClause, ActionItem, ExpressionNode, LiteralNode, IdentifierNode, EventBusEvent, ExecutionResult } from './compositionTypes';
 import { lex } from './compositionLexer';
 import { parse } from './compositionParser';
@@ -167,16 +169,58 @@ export class CompositionEngine {
         resolvedParams[key] = this.evaluateExpression(expr, context);
       }
 
+      const aliases: Record<string, string> = {
+        'system.notify': 'notify',
+        'finance.notify': 'notify',
+        'system.log': 'log',
+        'app.open': 'open_link',
+        'app.track': 'log',
+        'app.focus': 'log',
+        'system.launch': 'exec_blocked',
+        'system.script': 'exec_blocked',
+        'exec': 'exec_blocked',
+        'finance.add': 'connector_only',
+        'finance.summary': 'connector_only',
+        'finance.categorize': 'connector_only',
+      };
+      const actionName = aliases[item.name] || item.name;
+
       let result: any;
-      switch (item.name) {
-        case 'notify':
-          this.eventBus.enqueue('compositions.notification', 'engine', resolvedParams);
-          result = { sent: true, ...resolvedParams };
+      switch (actionName) {
+        case 'notify': {
+          const title = String(resolvedParams.title || resolvedParams.subject || 'DeskFlow Automation');
+          const body = String(resolvedParams.message || resolvedParams.body || resolvedParams.text || '');
+          this.eventBus.enqueue('compositions.notification', 'engine', { title, body, ...resolvedParams });
+          try {
+            if (typeof Notification !== 'undefined') new Notification({ title, body, silent: false }).show();
+          } catch { /* notification API unavailable in this environment */ }
+          result = { sent: true, title, body };
           break;
+        }
         case 'log':
           console.log(`[Composition:${ruleId}] ${resolvedParams.message || ''}`, resolvedParams.data || '');
           result = { logged: true };
           break;
+        case 'open_link': {
+          const url = String(resolvedParams.url || resolvedParams.link || resolvedParams.href || '');
+          if (url && /^https?:\/\//i.test(url)) {
+            try { shell.openExternal(url); result = { opened: url }; }
+            catch (e: any) { result = { error: 'open failed: ' + e?.message }; }
+          } else { result = { error: 'no valid url' }; }
+          break;
+        }
+        case 'http': {
+          const url = String(resolvedParams.url || resolvedParams.endpoint || '');
+          if (url) {
+            const method = String(resolvedParams.method || 'POST').toUpperCase();
+            const bodyArg = resolvedParams.body ? (typeof resolvedParams.body === 'string' ? resolvedParams.body : JSON.stringify(resolvedParams.body)) : undefined;
+            try {
+              await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: bodyArg });
+              result = { http: method, url };
+            } catch (e: any) { result = { error: 'http failed: ' + e?.message }; }
+          } else { result = { error: 'no url' }; }
+          break;
+        }
         case 'query':
           result = this.executeQuery(resolvedParams);
           break;
@@ -187,6 +231,68 @@ export class CompositionEngine {
         case 'sleep':
           await new Promise(r => setTimeout(r, resolvedParams.ms || 1000));
           result = { slept: resolvedParams.ms || 1000 };
+          break;
+        case 'goal:create': {
+          const title = String(resolvedParams.title || resolvedParams.name || 'Automation goal');
+          const category = String(resolvedParams.category || 'work');
+          const period = String(resolvedParams.period || 'daily');
+          const id = crypto.randomUUID();
+          this.db.prepare(
+            `INSERT INTO goals (id, date, title, description, category, period, status, source, created_at)
+             VALUES (?, date('now'), ?, ?, ?, ?, 'pending', 'automation', datetime('now'))`
+          ).run(id, title, resolvedParams.description ? String(resolvedParams.description) : null, category, period);
+          this.eventBus.enqueue('goals.goal.created', 'goals', { id, title, category });
+          result = { goal_created: id };
+          break;
+        }
+        case 'goal:complete': {
+          if (resolvedParams.title) {
+            this.db.prepare(
+              `UPDATE goals SET status='completed', completed_at=datetime('now') WHERE title=? AND status!='completed' ORDER BY created_at DESC LIMIT 1`
+            ).run(String(resolvedParams.title));
+            this.eventBus.enqueue('goals.goal.completed', 'goals', { title: resolvedParams.title });
+          } else if (resolvedParams.id) {
+            this.db.prepare(`UPDATE goals SET status='completed', completed_at=datetime('now') WHERE id=?`).run(String(resolvedParams.id));
+          }
+          result = { goal_completed: true };
+          break;
+        }
+        case 'deadline:add': {
+          const title = String(resolvedParams.title || resolvedParams.name || 'Automation deadline');
+          const due = String(resolvedParams.due_date || resolvedParams.due || resolvedParams.date || '');
+          const id = crypto.randomUUID();
+          this.db.prepare(
+            `INSERT INTO deadlines (id, title, due_date, priority, status, description, created_at)
+             VALUES (?, ?, ?, 'medium', 'pending', ?, datetime('now'))`
+          ).run(id, title, due, resolvedParams.description ? String(resolvedParams.description) : null);
+          result = { deadline_created: id };
+          break;
+        }
+        case 'schedule:add': {
+          const name2 = String(resolvedParams.title || resolvedParams.name || 'Automation schedule');
+          const id = crypto.randomUUID();
+          const entries = resolvedParams.entries
+            ? (typeof resolvedParams.entries === 'string' ? resolvedParams.entries : JSON.stringify(resolvedParams.entries))
+            : '[]';
+          this.db.prepare(
+            `INSERT INTO schedule_templates (id, name, entries_json, created_at) VALUES (?, ?, ?, datetime('now'))`
+          ).run(id, name2, entries);
+          result = { schedule_created: id };
+          break;
+        }
+        case 'exec_blocked':
+          console.warn(`[Composition] BLOCKED untrusted action '${item.name}' (system.script/system.launch not permitted)`);
+          result = { blocked: true, note: 'untrusted command execution not permitted' };
+          break;
+        case 'connector_only':
+        case 'email:send':
+        case 'calendar:create':
+          this.eventBus.enqueue('compositions.notification', 'engine', {
+            title: 'Automation action not yet connected',
+            body: `${item.name} requires an external connector that is not configured.`,
+            ...resolvedParams,
+          });
+          result = { connector_missing: item.name };
           break;
         default:
           result = { action: item.name, params: resolvedParams, note: 'action dispatched' };

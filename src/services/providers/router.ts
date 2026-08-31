@@ -31,7 +31,7 @@ export function sink(ev: Parameters<DebugSinkFn>[0]) {
 
 export function buildChain(
   state: AiProvidersState,
-  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder' | 'category' | 'colors' | 'lifeAssistant' | 'monthlyRecap' | 'contentEngine',
+  feature: 'researchDigest' | 'goalAssistant' | 'resumeBuilder' | 'category' | 'colors' | 'lifeAssistant' | 'monthlyRecap' | 'contentEngine' | 'vision' | 'presentation',
 ): Array<{ provider: ResolvedProvider; model: string }> {
   currentFeature = feature;
   const enabled = state.providers.filter(p => p.enabled);

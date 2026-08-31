@@ -10,7 +10,8 @@ import {
   ChevronLeft, ChevronRight, GripVertical,
   ArrowRightLeft,
   Calendar,
-  PieChart as PieChartIcon, BarChart3, LayoutGrid, Timer, CalendarDays, Sparkles
+   PieChart as PieChartIcon, BarChart3, LayoutGrid, Timer, CalendarDays, Sparkles,
+   Target
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -50,6 +51,9 @@ import { GapFillModal } from '@/components/external/GapFillModal';
 import { GapsListModal } from '@/components/external/GapsListModal';
 import { ManualAssignModal } from '@/components/external/ManualAssignModal';
 import { ActivitySelectionOverlay } from '@/components/external/ActivitySelectionOverlay';
+import { CurrentCanvas } from '../components/CurrentCanvas';
+import { renderInflow } from '../lib/renderers/inflow';
+import { startPhaseClock } from '../lib/currentPhase';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, Tooltip, Legend, Filler);
 
@@ -207,6 +211,7 @@ function formatBedtime(date: Date): string {
 }
 
 export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, onDateOffsetChange }: { selectedPeriod?: Period; dateOffset?: number; onDateOffsetChange?: (offset: number) => void }) {
+  useEffect(() => { startPhaseClock(); }, []);
   const [activities, setActivities] = useState<ExternalActivity[]>([]);
   const [orderedActivities, setOrderedActivities] = useState<ExternalActivity[]>([]);
   const dragIndex = useRef<number | null>(null);
@@ -225,6 +230,16 @@ export default function ExternalPage({ selectedPeriod = 'week', dateOffset = 0, 
   const [wakeTime, setWakeTime] = useState({ hours: 7, minutes: 0 });
   const [showAddModal, setShowAddModal] = useState(false);
   const [newActivity, setNewActivity] = useState({ name: '', type: 'stopwatch' as const, color: '#6366f1', icon: 'Clock', default_duration: 30 });
+  const [activityGoals, setActivityGoals] = useState<any[]>([]);
+
+  function formatElapsedShort(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    const rm = m % 60;
+    return rm > 0 ? `${h}h ${rm}m` : `${h}h`;
+  }
   const [viewingActivity, setViewingActivity] = useState<ExternalActivity | null>(null);
   const [viewingActivityStats, setViewingActivityStats] = useState<any>(null);
   const [viewingActivitySessions, setViewingActivitySessions] = useState<any[]>([]);
@@ -383,6 +398,13 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
       window.deskflowAPI.getExternalActivities().then((data) => {
         console.log('[ExternalPage] Loaded activities:', data.length);
         setActivities(data);
+        
+        // Load activity goals
+        if (window.deskflowAPI?.activityGoalGetAll) {
+          window.deskflowAPI.activityGoalGetAll().then((goals) => {
+            setActivityGoals(goals);
+          }).catch(() => {});
+        }
         
         // After activities load, check for active session
         if (window.deskflowAPI?.getActiveExternalSession) {
@@ -974,6 +996,8 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
 
   return (
     <PageShell page="external" variant="sticky-header">
+      <CurrentCanvas accent="#f59e0b" render={renderInflow} />
+      <div className="relative z-10">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <div className="flex items-center gap-3">
@@ -1572,6 +1596,56 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
               );
             })()}
           </motion.div>
+        )}
+
+        {/* ── Activity Goals Progress ── */}
+        {activityGoals.length > 0 && (
+          <div className="mb-6">
+            <h3 className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
+              <Target className="w-4 h-4 text-amber-400" />
+              Daily Goals
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {activityGoals.filter((g: any) => g.goal_enabled).map((goal: any) => {
+                const pct = goal.daily_target_minutes > 0
+                  ? Math.min(100, Math.round((goal.today_seconds / (goal.daily_target_minutes * 60)) * 100))
+                  : 0;
+                const achieved = goal.today_seconds >= (goal.daily_target_minutes || 0) * 60;
+                return (
+                  <div key={goal.id} className={`p-3 rounded-xl border transition-colors ${
+                    achieved
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : 'bg-zinc-800/50 border-zinc-700/30'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: goal.color }} />
+                      <span className="text-xs font-medium text-zinc-200 truncate">{goal.name}</span>
+                    </div>
+                    <div className="flex items-end justify-between">
+                      <span className="text-lg font-bold tabular-nums text-zinc-100">
+                        {formatElapsedShort(goal.today_seconds)}
+                      </span>
+                      <span className={`text-[10px] font-medium ${achieved ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                        {pct}%
+                      </span>
+                    </div>
+                    <div className="mt-2 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${pct}%`,
+                          backgroundColor: achieved ? '#10b981' : goal.color,
+                        }}
+                      />
+                    </div>
+                    <div className="mt-1 text-[10px] text-zinc-600">
+                      {goal.daily_target_minutes}min target
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
 
         {/* Activity Grid — Squarified Treemap */}
@@ -2589,6 +2663,79 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                 </div>
               </div>
 
+              {/* ── Goal Settings ── */}
+              <div className="mb-6 p-4 rounded-xl bg-zinc-800/50 border border-zinc-700/30">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Target className="w-4 h-4 text-amber-400" />
+                    <span className="text-sm font-medium text-zinc-200">Goal Settings</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const enabled = !(editingActivity as any).goal_enabled;
+                      setEditingActivity({ ...editingActivity, goal_enabled: enabled ? 1 : 0 } as any);
+                    }}
+                    className={`relative w-10 h-5 rounded-full transition-colors ${
+                      (editingActivity as any).goal_enabled ? 'bg-amber-500' : 'bg-zinc-700'
+                    }`}
+                  >
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      (editingActivity as any).goal_enabled ? 'translate-x-5' : 'translate-x-0.5'
+                    }`} />
+                  </button>
+                </div>
+                {(editingActivity as any).goal_enabled === 1 && (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Daily Target (minutes)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={480}
+                        value={(editingActivity as any).daily_target_minutes || ''}
+                        onChange={(e) => setEditingActivity({
+                          ...editingActivity,
+                          daily_target_minutes: parseInt(e.target.value) || null
+                        } as any)}
+                        placeholder="e.g. 60"
+                        className="w-full bg-zinc-900/60 border border-zinc-700/30 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-zinc-500 mb-1">Weekly Target (days)</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={7}
+                        value={(editingActivity as any).weekly_target_days || ''}
+                        onChange={(e) => setEditingActivity({
+                          ...editingActivity,
+                          weekly_target_days: parseInt(e.target.value) || null
+                        } as any)}
+                        placeholder="e.g. 5"
+                        className="w-full bg-zinc-900/60 border border-zinc-700/30 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-500">Reminder</span>
+                      <button
+                        onClick={() => setEditingActivity({
+                          ...editingActivity,
+                          reminder_enabled: (editingActivity as any).reminder_enabled ? 0 : 1
+                        } as any)}
+                        className={`relative w-8 h-4 rounded-full transition-colors ${
+                          (editingActivity as any).reminder_enabled ? 'bg-emerald-500' : 'bg-zinc-700'
+                        }`}
+                      >
+                        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+                          (editingActivity as any).reminder_enabled ? 'translate-x-4' : 'translate-x-0.5'
+                        }`} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(true)}
@@ -2606,6 +2753,16 @@ const [sleepDebugData, setSleepDebugData] = useState<any>(null);
                           color: editingActivity.color,
                           icon: editingActivity.icon
                         });
+                        // Save goal settings separately
+                        if (window.deskflowAPI?.activityGoalSave) {
+                          await window.deskflowAPI.activityGoalSave(editingActivity.id, {
+                            goal_enabled: (editingActivity as any).goal_enabled === 1,
+                            daily_target_minutes: (editingActivity as any).daily_target_minutes || undefined,
+                            weekly_target_days: (editingActivity as any).weekly_target_days || undefined,
+                            reminder_enabled: (editingActivity as any).reminder_enabled === 1,
+                            reminder_time: (editingActivity as any).reminder_time || undefined,
+                          });
+                        }
                         const updated = await window.deskflowAPI.getExternalActivities();
                         setActivities(updated);
                         setEditingActivity(null);
@@ -3285,6 +3442,7 @@ const selectedSleepDay = new Date(pastSleepDate + 'T00:00:00');
           />
         )}
       </AnimatePresence>
+      </div>
     </PageShell>
   );
 }

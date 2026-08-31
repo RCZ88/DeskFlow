@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { CheckCircle2, MinusCircle, XCircle, Clock } from 'lucide-react';
 import { BlurFade } from '../../components/ui/blur-fade';
 import { NumberTicker } from '../../components/ui/number-ticker';

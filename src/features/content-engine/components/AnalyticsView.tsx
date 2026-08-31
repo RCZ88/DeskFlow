@@ -3,6 +3,7 @@ import { BarChart3, Bot, ClipboardPaste, Eye, GraduationCap, Heart, MessageSquar
 import { AmberButton, Card, Chip, ConfirmIconButton, EmptyState, ErrorState, FieldLabel, GhostButton, LoadingBlock, SectionHeader, SelectInput, TextInput, toast } from './ui'
 import { RetentionCurveChart } from './SvgRetentionChart'
 import { AnalyticsImportModal } from './AnalyticsImportModal'
+import { BulkAIFill } from './BulkAIFill'
 import { CalibrationView } from './CalibrationView'
 import { ProcessSummaryCard } from './ProcessSummaryCard'
 import { cn } from '@/lib/utils'
@@ -151,12 +152,29 @@ function VideoCard({ video, onChanged }: { video: any; onChanged: () => void }) 
       </div>
 
       {insight && (
-        <div className="rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/[0.04] p-3">
-          <div className="mb-1 flex items-center gap-1 text-[9px] tracking-wider text-[#f5c518] uppercase"><Bot size={10} /> AI Insight</div>
-          <p className="text-[11px] leading-relaxed text-zinc-300">{String(insight.insight ?? insight.summary ?? JSON.stringify(insight)).slice(0, 600)}</p>
+        <div className="space-y-2">
+          <div className="flex items-center gap-1 text-[9px] tracking-wider text-[#f5c518] uppercase"><Bot size={10} /> AI Insights</div>
+          {Array.isArray(insight.insights) && insight.insights.length > 0 ? (
+            insight.insights.map((item: any, idx: number) => (
+              <div key={idx} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+                <div className="mb-1.5 flex items-center gap-2">
+                  <span className="inline-flex items-center rounded-md bg-[#f5c518]/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[#f5c518]">
+                    {item.metric}
+                  </span>
+                </div>
+                <p className="text-[11px] text-zinc-400 mb-1">{item.observation}</p>
+                <p className="text-[11px] text-zinc-300 mb-1">{item.interpretation}</p>
+                <p className="text-[11px] font-medium text-[#f5c518]">{item.action}</p>
+              </div>
+            ))
+          ) : (
+            <div className="rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/[0.04] p-3">
+              <p className="text-[11px] leading-relaxed text-zinc-300">{String(insight.insight ?? insight.summary ?? JSON.stringify(insight)).slice(0, 600)}</p>
+            </div>
+          )}
           {insight.verdict && (
             <div className={cn(
-              'mt-2 inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase',
+              'inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase',
               String(insight.verdict).toLowerCase().includes('fail')
                 ? 'bg-rose-500/10 text-rose-400'
                 : 'bg-emerald-500/10 text-emerald-400',
@@ -322,8 +340,23 @@ export function AnalyticsBody({ episodeId }: { episodeId?: number }) {
 
       {showForm && (
         <Card className="border-[#f5c518]/20">
-          <div className="mb-3 text-[10px] font-semibold tracking-wider text-[#f5c518] uppercase">
-            Log video{episodeId ? ` for episode ${episodeId}` : ''}
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-[10px] font-semibold tracking-wider text-[#f5c518] uppercase">
+              Log video{episodeId ? ` for episode ${episodeId}` : ''}
+            </div>
+            <BulkAIFill
+              fields={[
+                { id: 'title', label: 'Video Title', value: form.title, placeholder: 'Video title' },
+                { id: 'retention_csv', label: 'Retention Data', value: form.retention_csv, placeholder: '100,80,62,55,48' },
+                { id: 'views', label: 'Views', value: form.views, placeholder: '0' },
+                { id: 'likes', label: 'Likes', value: form.likes, placeholder: '0' },
+                { id: 'comments', label: 'Comments', value: form.comments, placeholder: '0' },
+                { id: 'audience_ages', label: 'Audience Ages', value: form.audience_ages, placeholder: '18-24:30,25-34:40,35+:30' },
+              ]}
+              onFill={(updates) => setForm({ ...form, ...updates })}
+              category="content-engine"
+              context="Help fill in video analytics data based on the conversation"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">

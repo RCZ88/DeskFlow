@@ -8,14 +8,11 @@
 // ============================================================
 
 import { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Calendar, Clock, MapPin, Plus, X, Edit3, Trash2,
   BookOpen, FlaskConical, Brain, FileText, Users, MoreHorizontal, Sun
 } from 'lucide-react';
-import { BorderBeam } from '../../components/ui/border-beam';
-import { AnimatedGradientText } from '../../components/ui/animated-gradient-text';
-import { SpotlightCard } from '../../components/dashboard/SpotlightCard';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import { Select, SelectItem } from '../../components/ui/select';
@@ -25,7 +22,11 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const DAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const DAY_LETTER = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-const COLORS = ['#22d3ee', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#3b82f6'];
+// Warm/amber palette — matches the Gold page's WarmCard theme (see WarmCard.tsx).
+const COLORS = ['#f59e0b', '#fbbf24', '#34d399', '#22d3ee', '#8b5cf6', '#fb7185', '#60a5fa'];
+const ACCENT = '#f59e0b';
+const ACCENT_SOFT = 'rgba(245, 158, 11, 0.12)';
+const ACCENT_BORDER = 'rgba(245, 158, 11, 0.30)';
 
 const CATEGORY_ICONS: Record<ScheduleCategory, React.ReactNode> = {
   class: <BookOpen size={12} />,
@@ -85,17 +86,21 @@ const formVariants = {
 
 interface ScheduleCardProps {
   entries: ScheduleEntry[];
+  selectedDate?: string;
+  selectedDay?: number;
   loading?: boolean;
   error?: string | null;
   onAdd: (entry: Omit<ScheduleEntry, 'id' | 'createdAt'>) => void;
   onUpdate: (id: string, patch: Partial<ScheduleEntry>) => void;
   onDelete: (id: string) => void;
+  linkedGoals?: { id: string; title: string; category: string }[];
+  showAll?: boolean;
 }
 
 export function ScheduleCard({
-  entries, loading = false, error = null, onAdd, onUpdate, onDelete,
+  entries, selectedDate, selectedDay: selectedDayProp, loading = false, error = null, onAdd, onUpdate, onDelete, linkedGoals, showAll = false,
 }: ScheduleCardProps) {
-  const [selectedDay, setSelectedDay] = useState(new Date().getDay());
+  const selectedDay = selectedDayProp ?? new Date().getDay();
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -112,8 +117,14 @@ export function ScheduleCard({
   });
 
   const dayEntries = useMemo(() =>
-    entries.filter(e => e.day_of_week === selectedDay).sort((a, b) => parseTime(a.start_time) - parseTime(b.start_time)),
-    [entries, selectedDay]
+    entries
+      .filter(e => showAll ? true : e.day_of_week === selectedDay)
+      .sort((a, b) =>
+        showAll
+          ? (a.day_of_week - b.day_of_week) || (parseTime(a.start_time) - parseTime(b.start_time))
+          : parseTime(a.start_time) - parseTime(b.start_time)
+      ),
+    [entries, selectedDay, showAll]
   );
 
   const currentEntry = dayEntries.find(e => {
@@ -159,97 +170,81 @@ export function ScheduleCard({
 
   if (loading) {
     return (
-      <SpotlightCard spotlightColor="rgba(236, 72, 153, 0.08)" className="rounded-xl">
-        <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px]">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-pink-500/30 via-pink-500/10 to-transparent" />
-          <div className="animate-pulse space-y-4">
-            <div className="h-5 bg-zinc-800 rounded w-1/3" />
-            <div className="flex gap-2">{[1,2,3,4,5,6,7].map(i => <div key={i} className="h-8 bg-zinc-800/50 rounded-md flex-1" />)}</div>
-            {[1,2,3].map(i => <div key={i} className="h-14 bg-zinc-800/30 rounded-lg" />)}
-          </div>
+      <div className="relative rounded-xl overflow-hidden border border-zinc-800/50 bg-zinc-900/30 p-5 min-h-[400px]">
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-amber-500/30 via-amber-500/10 to-transparent" />
+        <div className="animate-pulse space-y-4">
+          <div className="h-5 bg-zinc-800 rounded w-1/3" />
+          <div className="flex gap-2">{[1,2,3,4,5,6,7].map(i => <div key={i} className="h-8 bg-zinc-800/50 rounded-md flex-1" />)}</div>
+          {[1,2,3].map(i => <div key={i} className="h-14 bg-zinc-800/30 rounded-lg" />)}
         </div>
-      </SpotlightCard>
+      </div>
     );
   }
 
   if (error) {
     return (
-      <SpotlightCard spotlightColor="rgba(236, 72, 153, 0.08)" className="rounded-xl">
-        <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col items-center justify-center text-center">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-pink-500/30 via-pink-500/10 to-transparent" />
-          <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
-            <Calendar size={24} className="text-zinc-600" />
-          </div>
-          <p className="text-[14px] font-medium text-zinc-400">Could not load schedule</p>
-          <p className="text-[12px] text-zinc-600 mt-1 max-w-[220px]">{error}</p>
+      <div className="relative rounded-xl overflow-hidden border border-zinc-800/50 bg-zinc-900/30 p-5 min-h-[400px] flex flex-col items-center justify-center text-center">
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-amber-500/30 via-amber-500/10 to-transparent" />
+        <div className="w-14 h-14 rounded-full bg-zinc-800/50 flex items-center justify-center mb-3">
+          <Calendar size={24} className="text-zinc-600" />
         </div>
-      </SpotlightCard>
+        <p className="text-[14px] font-medium text-zinc-400">Could not load schedule</p>
+        <p className="text-[12px] text-zinc-600 mt-1 max-w-[220px]">{error}</p>
+      </div>
     );
   }
 
   return (
-    <SpotlightCard spotlightColor="rgba(236, 72, 153, 0.08)" className="rounded-xl">
-      <div className="relative rounded-xl overflow-hidden bg-zinc-950/50 backdrop-blur-xl border border-zinc-800/40 p-5 min-h-[400px] flex flex-col">
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-pink-500/30 via-pink-500/10 to-transparent" />
-        {currentEntry && isToday && <BorderBeam size={200} duration={12} colorFrom="#ec4899" colorTo="#f472b6" />}
+    <div className="relative rounded-xl overflow-hidden border border-zinc-800/50 bg-zinc-900/30 p-5 min-h-[400px] flex flex-col">
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-amber-500/30 via-amber-500/10 to-transparent" />
+      {currentEntry && isToday && (
+        <div className="absolute inset-0 pointer-events-none rounded-xl" style={{ boxShadow: `inset 0 0 0 1px ${ACCENT_BORDER}, 0 0 24px -6px ${ACCENT_SOFT}` }} />
+      )}
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-pink-500/10 border border-pink-500/20 flex items-center justify-center">
-              <Calendar size={15} className="text-pink-400" />
-            </div>
-            <div>
-              <AnimatedGradientText className="text-[15px] font-semibold" gradientFrom="#ec4899" gradientTo="#f472b6">
-                {DAYS[selectedDay]}&apos;s Schedule
-              </AnimatedGradientText>
-              <p className="text-[11px] text-zinc-500">
-                {dayEntries.length === 0 ? 'Nothing scheduled' : `${dayEntries.length} block${dayEntries.length > 1 ? 's' : ''}`}
-                {isToday && ' · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: ACCENT_SOFT, border: `1px solid ${ACCENT_BORDER}` }}>
+            <Calendar size={15} style={{ color: ACCENT }} />
           </div>
-
-          <div className="flex items-center gap-2">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={startAdd}
-              className="w-8 h-8 rounded-md bg-zinc-800/50 hover:bg-zinc-700/50 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
-              aria-label={isAdding || editingId ? 'Cancel' : 'Add schedule entry'}
-            >
-              {isAdding || editingId ? <X size={14} /> : <Plus size={14} />}
-            </motion.button>
+          <div>
+            <h3 className="text-[15px] font-semibold text-zinc-100">
+              {DAYS[selectedDay]}&apos;s Schedule
+            </h3>
+            <p className="text-[11px] text-zinc-500">
+              {dayEntries.length === 0 ? 'Nothing scheduled' : `${dayEntries.length} block${dayEntries.length > 1 ? 's' : ''}`}
+              {isToday && ' · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </p>
           </div>
         </div>
 
-        {/* Day selector */}
+        <div className="flex items-center gap-2">
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={startAdd}
+            className="w-8 h-8 rounded-md bg-zinc-800/50 hover:bg-zinc-700/50 flex items-center justify-center text-zinc-400 hover:text-white transition-colors"
+            aria-label={isAdding || editingId ? 'Cancel' : 'Add schedule entry'}
+          >
+            {isAdding || editingId ? <X size={14} /> : <Plus size={14} />}
+          </motion.button>
+        </div>
+      </div>
+
+        {/* Day selector (hidden in "show all" mode — every day is shown) */}
+        {!showAll && (
         <div className="flex items-center gap-1 mb-3 shrink-0">
-          {DAY_LETTER.map((letter, i) => {
-            const isSelected = i === selectedDay;
-            const hasEntries = entries.some(e => e.day_of_week === i);
-            return (
-              <motion.button
-                key={i}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => { setSelectedDay(i); setIsAdding(false); setEditingId(null); }}
-                className={`flex-1 h-8 rounded-md text-[11px] font-medium transition-all ${
-                  isSelected
-                    ? 'bg-pink-500/15 text-pink-400 border border-pink-500/30'
-                    : 'bg-zinc-900/40 text-zinc-600 border border-transparent hover:bg-zinc-800/50 hover:text-zinc-400'
-                }`}
-              >
-                <span className="relative">
-                  {letter}
-                  {hasEntries && !isSelected && (
-                    <span className="absolute -top-1 -right-1.5 w-1 h-1 rounded-full bg-pink-500/60" />
-                  )}
-                </span>
-              </motion.button>
-            );
-          })}
+          {DAY_LETTER.map((letter, i) => (
+            <span key={i} className={`flex-1 h-8 rounded-md text-[11px] font-medium flex items-center justify-center transition-all ${
+              i === selectedDay
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                : 'text-zinc-700 border border-transparent'
+            }`}>
+              {letter}
+            </span>
+          ))}
         </div>
+        )}
 
         {/* Add/Edit Form */}
         <AnimatePresence>
@@ -262,14 +257,14 @@ export function ScheduleCard({
                   onKeyDown={e => e.key === 'Enter' && handleSave()}
                   placeholder="Entry title (e.g. Linear Algebra)"
                   autoFocus
-                  className="bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-pink-500/50 text-[13px] h-9"
+                  className="bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-amber-500/50 text-[13px] h-9"
                 />
                 <div className="flex items-center gap-2">
                   <Input
                     value={form.location}
                     onChange={e => setForm(p => ({ ...p, location: e.target.value }))}
                     placeholder="Location (optional)"
-                    className="flex-1 bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-pink-500/50 text-[13px] h-9"
+                    className="flex-1 bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-amber-500/50 text-[13px] h-9"
                   />
                   <Select value={form.day} onValueChange={v => setForm(p => ({ ...p, day: v }))} className="w-[90px]">
                     {DAYS.map((d, i) => <SelectItem key={i} value={i.toString()}>{DAY_SHORT[i]}</SelectItem>)}
@@ -277,9 +272,9 @@ export function ScheduleCard({
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center gap-1 flex-1">
-                    <Input type="time" value={form.start} onChange={e => setForm(p => ({ ...p, start: e.target.value }))} className="bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-pink-500/50 text-[13px] h-9" />
+                    <Input type="time" value={form.start} onChange={e => setForm(p => ({ ...p, start: e.target.value }))} className="bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-amber-500/50 text-[13px] h-9" />
                     <span className="text-zinc-600 text-xs">to</span>
-                    <Input type="time" value={form.end} onChange={e => setForm(p => ({ ...p, end: e.target.value }))} className="bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-pink-500/50 text-[13px] h-9" />
+                    <Input type="time" value={form.end} onChange={e => setForm(p => ({ ...p, end: e.target.value }))} className="bg-zinc-900/80 border-zinc-700/50 focus-visible:ring-amber-500/50 text-[13px] h-9" />
                   </div>
                   <div className="flex items-center gap-1">
                     {COLORS.map(c => (
@@ -303,7 +298,7 @@ export function ScheduleCard({
                   </Select>
                   <div className="flex-1" />
                   <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                    <Button size="sm" onClick={handleSave} className="bg-pink-500/20 text-pink-300 border border-pink-500/30 hover:bg-pink-500/30 text-[12px] h-8">
+                    <Button size="sm" onClick={handleSave} className="bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-[12px] h-8">
                       {editingId ? 'Save' : 'Add'}
                     </Button>
                   </motion.div>
@@ -334,7 +329,7 @@ export function ScheduleCard({
               whileHover={{ scale: 1.02, y: -1 }}
               whileTap={{ scale: 0.98 }}
               onClick={startAdd}
-              className="mt-3 px-3 py-1.5 rounded-lg bg-pink-500/10 text-pink-400 border border-pink-500/20 hover:bg-pink-500/20 transition-colors text-[12px] font-medium"
+              className="mt-3 px-3 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors text-[12px] font-medium"
             >
               <Plus size={12} className="inline mr-1" />
               Add Entry
@@ -354,18 +349,23 @@ export function ScheduleCard({
                   layout
                   className="relative"
                 >
-                  <div className="relative p-3 rounded-lg border border-pink-500/30 bg-pink-500/[0.08] overflow-hidden group">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg" style={{ backgroundColor: currentEntry.color || '#ec4899' }} />
+                  <div className="relative p-3 rounded-lg border border-amber-500/30 bg-amber-500/[0.08] overflow-hidden group">
+                    <div className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg" style={{ backgroundColor: currentEntry.color || ACCENT }} />
                     <div className="flex items-start justify-between pl-3 gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <motion.span
                             animate={{ scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] }}
                             transition={{ duration: 2, repeat: Infinity }}
-                            className="w-1.5 h-1.5 rounded-full bg-pink-400 shrink-0"
+                            className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
                           />
                           <span className="text-sm font-semibold text-zinc-100">{currentEntry.title}</span>
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-pink-500/20 text-pink-400 border border-pink-500/20 shrink-0">
+                          {showAll && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800/60 text-zinc-300 border border-zinc-700/40 shrink-0">
+                              {DAY_SHORT[currentEntry.day_of_week]}
+                            </span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400 border border-amber-500/20 shrink-0">
                             NOW
                           </span>
                         </div>
@@ -410,6 +410,11 @@ export function ScheduleCard({
                             {CATEGORY_ICONS[entry.category || 'other']}
                             {CATEGORY_LABELS[entry.category || 'other']}
                           </span>
+                          {showAll && (
+                            <span className="text-[10px] text-zinc-500 px-1 py-0.5 rounded bg-zinc-800/50 border border-zinc-700/30 shrink-0">
+                              {DAY_SHORT[entry.day_of_week]}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 mt-0.5 flex-wrap">
                           <span className="text-[11px] text-zinc-500 font-mono">{formatTime(entry.start_time)} – {formatTime(entry.end_time)}</span>
@@ -456,6 +461,5 @@ export function ScheduleCard({
           </motion.div>
         )}
       </div>
-    </SpotlightCard>
   );
 }

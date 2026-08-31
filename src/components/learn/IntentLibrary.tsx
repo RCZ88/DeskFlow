@@ -10,6 +10,8 @@ interface Intent {
   title: string;
   description: string;
   context: string;
+  knowledge_context: string;
+  config: string;
   category: string;
   status: string;
   created_at: string;
@@ -185,6 +187,12 @@ export function IntentLibrary({ onGenerateFromIntent }: Props) {
                             <div className="mt-3">
                               <p className="text-[10px] uppercase tracking-wider text-zinc-600 mb-1">Reference material</p>
                               <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap line-clamp-6">{intent.context}</p>
+                            </div>
+                          )}
+                          {intent.knowledge_context && (
+                            <div className="mt-3">
+                              <p className="text-[10px] uppercase tracking-wider text-emerald-500/70 mb-1">Learner knowledge context</p>
+                              <p className="text-xs text-zinc-400 leading-relaxed whitespace-pre-wrap line-clamp-6">{intent.knowledge_context}</p>
                             </div>
                           )}
                           <div className="mt-4 flex justify-end">

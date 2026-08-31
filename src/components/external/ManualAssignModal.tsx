@@ -47,6 +47,7 @@ export function ManualAssignModal({
   const [mode, setMode] = useState<'random' | 'custom'>('random');
   const [loading, setLoading] = useState(false);
   const [tracked, setTracked] = useState<TimeInterval[]>([]);
+  const [external, setExternal] = useState<Array<{ started_at: string; ended_at: string; activity_name: string }>>([]);
   const [manual, setManual] = useState<ManualAssignment[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,13 +98,14 @@ export function ManualAssignModal({
     setLoading(true);
 
     (window as any).deskflowAPI?.manualAssignDayContext?.(dateKey(day))
-      .then((ctx: { tracked: Array<{ started_at: string; ended_at: string; app?: string | null }>; manual: ManualAssignment[] }) => {
+      .then((ctx: { tracked: Array<{ started_at: string; ended_at: string; app?: string | null }>; external: Array<{ started_at: string; ended_at: string; activity_name: string }>; manual: ManualAssignment[] }) => {
         if (cancelled) return;
         setTracked((ctx.tracked || []).map((t) => ({
           start: new Date(t.started_at),
           end: new Date(t.ended_at),
           app: t.app || null,
         })));
+        setExternal(ctx.external || []);
         setManual(ctx.manual || []);
       })
       .catch(() => {
@@ -241,6 +243,16 @@ export function ManualAssignModal({
   const manualMinutes = useMemo(
     () => manual.reduce((sum, m) => sum + m.duration_seconds / 60, 0),
     [manual]
+  );
+
+  const trackedMinutes = useMemo(
+    () => tracked.reduce((sum, t) => sum + (t.end.getTime() - t.start.getTime()) / MS_MIN, 0),
+    [tracked]
+  );
+
+  const externalMinutes = useMemo(
+    () => external.reduce((sum, ex) => sum + (new Date(ex.ended_at).getTime() - new Date(ex.started_at).getTime()) / MS_MIN, 0),
+    [external]
   );
 
   // Cell index → time helpers for custom painting (48 cells of 30 min)
@@ -577,24 +589,6 @@ export function ManualAssignModal({
             </div>
 
             <div className="flex-1 overflow-y-auto p-5">
-              {/* Day summary */}
-              <div className="mb-4 grid grid-cols-3 gap-2 text-center">
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                  <div className="text-lg font-semibold text-zinc-100">{formatMinutes(freeMinutes)}</div>
-                  <div className="text-[11px] uppercase tracking-wider text-zinc-500">Free</div>
-                </div>
-                <div className="rounded-xl border border-violet-400/20 bg-violet-400/10 p-3">
-                  <div className="text-lg font-semibold text-violet-200">{formatMinutes(manualMinutes)}</div>
-                  <div className="text-[11px] uppercase tracking-wider text-violet-400/70">Manual</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                  <div className="text-lg font-semibold text-zinc-100">
-                    {formatMinutes(tracked.reduce((s, t) => s + (t.end.getTime() - t.start.getTime()) / MS_MIN, 0))}
-                  </div>
-                  <div className="text-[11px] uppercase tracking-wider text-zinc-500">Tracked</div>
-                </div>
-              </div>
-
               {/* 24h strip */}
               <div className="mb-1 flex text-[10px] text-zinc-600">
                 {Array.from({ length: 25 }, (_, i) => (
@@ -610,19 +604,31 @@ export function ManualAssignModal({
                     style={{ left: `${(i / 24) * 100}%` }}
                   />
                 ))}
-                {/* tracked blocks */}
+                {/* tracked blocks (sky) */}
                 {tracked.map((t, i) => (
                   <div
                     key={`t${i}`}
-                    className="absolute top-0 bottom-0 bg-zinc-600/50"
+                    className="absolute top-0 bottom-0 bg-sky-500/40"
                     style={{
                       left: `${((t.start.getTime() - dayStart.getTime()) / (24 * 60 * 60 * 1000)) * 100}%`,
                       width: `${((t.end.getTime() - t.start.getTime()) / (24 * 60 * 60 * 1000)) * 100}%`,
                     }}
-                    title={`Tracked: ${formatHM(t.start)} — ${formatHM(t.end)}`}
+                    title={`Tracked: ${t.app || 'app'} (${formatHM(t.start)} — ${formatHM(t.end)})`}
                   />
                 ))}
-                {/* manual blocks */}
+                {/* external blocks (amber) */}
+                {external.map((ex, i) => (
+                  <div
+                    key={`x${i}`}
+                    className="absolute top-0 bottom-0 bg-amber-500/40"
+                    style={{
+                      left: `${((new Date(ex.started_at).getTime() - dayStart.getTime()) / (24 * 60 * 60 * 1000)) * 100}%`,
+                      width: `${((new Date(ex.ended_at).getTime() - new Date(ex.started_at).getTime()) / (24 * 60 * 60 * 1000)) * 100}%`,
+                    }}
+                    title={`External: ${ex.activity_name} (${formatHM(new Date(ex.started_at))} — ${formatHM(new Date(ex.ended_at))})`}
+                  />
+                ))}
+                {/* manual blocks (violet) */}
                 {manual.map((m) => (
                   <div
                     key={`m${m.id}`}
@@ -646,6 +652,34 @@ export function ManualAssignModal({
                     title={`Preview: ${formatHM(c.start)} — ${formatHM(c.end)}${chunkApps[i] ? ` · ${chunkApps[i]}` : ''}`}
                   />
                 ))}
+              </div>
+
+              {/* Legend */}
+              <div className="mb-4 flex items-center gap-4 text-[11px] text-zinc-500">
+                <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-sky-500/40" /> App tracking</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-amber-500/40" /> External</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-500/60" /> Manual</span>
+                <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-sm bg-violet-300/80" /> Preview</span>
+              </div>
+
+              {/* Summary stats */}
+              <div className="mb-4 grid grid-cols-4 gap-2 text-center">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="text-lg font-semibold text-zinc-100">{formatMinutes(freeMinutes)}</div>
+                  <div className="text-[11px] uppercase tracking-wider text-zinc-500">Free</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="text-lg font-semibold text-sky-200">{formatMinutes(trackedMinutes)}</div>
+                  <div className="text-[11px] uppercase tracking-wider text-sky-400/70">App</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                  <div className="text-lg font-semibold text-amber-200">{formatMinutes(externalMinutes)}</div>
+                  <div className="text-[11px] uppercase tracking-wider text-amber-400/70">External</div>
+                </div>
+                <div className="rounded-xl border border-violet-400/20 bg-violet-400/10 p-3">
+                  <div className="text-lg font-semibold text-violet-200">{formatMinutes(manualMinutes)}</div>
+                  <div className="text-[11px] uppercase tracking-wider text-violet-400/70">Manual</div>
+                </div>
               </div>
 
               {/* Already filled today — shows what time is occupied so the user knows what can't be assigned */}
@@ -675,6 +709,20 @@ export function ManualAssignModal({
                         {t.app && <span className="truncate max-w-[80px] text-zinc-500">{t.app}</span>}
                         <span className="text-zinc-600">
                           ({formatMinutes((t.end.getTime() - t.start.getTime()) / MS_MIN)})
+                        </span>
+                      </div>
+                    ))}
+                    {external.map((ex, i) => (
+                      <div
+                        key={`fx${i}`}
+                        className="flex items-center gap-1.5 rounded-lg border border-amber-400/15 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300/90"
+                        title={`External: ${ex.activity_name} (${formatHM(new Date(ex.started_at))} — ${formatHM(new Date(ex.ended_at))})`}
+                      >
+                        <div className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                        <span>{formatHM(new Date(ex.started_at))} – {formatHM(new Date(ex.ended_at))}</span>
+                        <span className="truncate max-w-[80px] text-amber-400/60">{ex.activity_name}</span>
+                        <span className="text-amber-500/40">
+                          ({formatMinutes((new Date(ex.ended_at).getTime() - new Date(ex.started_at).getTime()) / MS_MIN)})
                         </span>
                       </div>
                     ))}

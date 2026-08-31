@@ -1,0 +1,204 @@
+# RHEO Landing Page Design — Creative Brief for External AI Designer
+
+You are a world-class landing page designer. I need you to generate 3-5 completely different, creative, meaningful design directions for a landing page. Each direction must have a strong visual metaphor with intention behind it — not just "looks cool."
+
+---
+
+## WHAT IS RHEO?
+
+RHEO is a **local-first, privacy-first desktop application** (Electron + React + SQLite). It's a multi-functional productivity and life-management system with 15+ subsystems.
+
+**The one-sentence pitch:** "Your data never leaves your machine. No accounts. No cloud. No subscription. One app that tracks, learns, manages money, and runs AI — all locally."
+
+**Core philosophy:** Everything lives in a single SQLite file on your computer. Zero telemetry. Zero tracking. Open source (MIT).
+
+**What it does:**
+- Tracks your app usage, browser tabs, coding time, focus sessions
+- AI chat with multiple providers (OpenRouter, Ollama local, direct API)
+- Hierarchical learning system with AI-powered lessons and quizzes
+- Finance tracking (wallets, expenses, subscriptions, spending analytics)
+- Life timeline visualization (phases, goals, reflections)
+- Terminal workspace with AI agents
+- Knowledge graph (Context Brain) that remembers everything
+- Content creation pipeline (brainstorm → script → publish)
+
+**The app feels like:** A personal command center. A private dashboard. A second brain that lives on your machine.
+
+**Target audience:** Power users, developers, privacy-conscious people, quantified-self enthusiasts, people tired of 15 different subscriptions.
+
+---
+
+## WHAT THE LANDING PAGE MUST COMMUNICATE (in order of importance)
+
+1. **"Your data never leaves your machine"** — THE differentiator. Privacy-first, local-first.
+2. **"It's not one app — it's 15+ tools that work together"** — Multi-functional, modular.
+3. **"AI-native, not AI-bolted-on"** — AI is woven into every feature.
+4. **"Track everything, see everything, improve everything"** — The beauty of the process.
+5. **"Free and open source"** — No subscription, no lock-in.
+
+---
+
+## CRITICAL CONSTRAINT
+
+**DO NOT use any existing app visualizations on the landing page.** The app already has:
+- Solar system visualization
+- City visualization  
+- 3D architecture maps
+- Life phases ring & grain visualization
+- Reaction-diffusion patterns
+- Force-directed graphs
+
+**The landing page needs its OWN unique visual identity.** It should be the invitation to the app, not a preview of what's inside. Think of it like the difference between a movie poster and the movie itself.
+
+---
+
+## DESIGN TOKENS (existing app palette — you can evolve from these)
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| Background | `#09090b` (zinc-950) | Main background |
+| Card bg | `#18181b` (zinc-900) | Card backgrounds |
+| Accent | `#fbbf24` (amber-400) | Primary accent |
+| Text primary | `#fafafa` (zinc-50) | Headlines |
+| Text secondary | `#a1a1aa` (zinc-400) | Body text |
+| Font body | Geist / Inter, 13px | |
+| Font mono | JetBrains Mono | Code, labels |
+| Glass | `bg-[rgba(24,24,27,0.60)]` + backdrop-blur | Card surfaces |
+| Border radius | 12px max | Never larger |
+
+**You can evolve this** — go darker, go more cinematic, add new accent colors, whatever serves the concept. But maintain the dark-mode-only, glass-morphism feel.
+
+---
+
+## AVAILABLE TOOLS
+
+**Animation:** Motion.dev (Framer Motion successor), GSAP + ScrollTrigger, Lenis smooth scroll, React Three Fiber (WebGL)
+
+**Components:** shadcn/ui (buttons, cards, badges), Magic UI (animated beams, particles, text effects, bento grids, border beams, shiny text), React Bits (aurora, threads, waves backgrounds), Lucide icons
+
+**Inspiration references:** motion.dev (clean, black & white, precise), pacomepertant.com (Awwwards SOTD, rhythm-driven), vshslv.com (Three.js/WebGL/GSAP, award-winning interactive)
+
+---
+
+## THE STORE CONCEPT (one section of the page)
+
+The landing page includes a playful "module store" section:
+- Individual features displayed as purchasable modules: $2.99 each
+- Bundles (3 features): $6.99 each
+- Admin toggle unlocks everything (flips prices to "Included")
+- This is a visual metaphor for modularity, NOT real commerce
+
+---
+
+## YOUR TASK
+
+Generate **3-5 completely different design directions**. Each must be:
+- **Visually distinct** from the others (different color palettes, different metaphors, different moods)
+- **Meaningful** — every visual choice must tie back to what RHEO is
+- **Memorable** — someone should screenshot it and share it
+- **Implementable** — use the tools listed above, no "magic" that doesn't exist
+
+### For Each Candidate, Provide:
+
+#### 1. Name & Metaphor
+Give it a name and explain the core metaphor. Why does this metaphor fit RHEO?
+
+#### 2. Mood & Tone
+What does it feel like? (e.g., "mysterious and powerful," "clean and clinical," "warm and inviting")
+
+#### 3. Color Scheme
+- Background colors
+- Text colors  
+- Accent colors
+- Why these colors?
+
+#### 4. Hero Section
+- What does the user see first?
+- What's the visual hook? (animation, shader, illustration, typography treatment)
+- Headline text
+- Subheadline text
+- CTA text
+- Load animation sequence
+
+#### 5. Full Section Flow (8 sections)
+Map out what happens as the user scrolls. Name each section and describe its purpose.
+
+#### 6. Key Animations (top 3)
+- What animates?
+- What library/technique?
+- What does the animation communicate?
+
+#### 7. Why This Fits RHEO
+Explain the intention. Why is this the right design for THIS specific app?
+
+---
+
+## EXAMPLE TO SHOW DEPTH
+
+### Example: "The Vault"
+**Metaphor:** RHEO is a secure vault for your life data.
+**Mood:** Heavy, impenetrable, precious.
+**Colors:** Gunmetal gray, steel silver, amber warning lights, deep black.
+**Hero:** A massive vault door engraved with "RHEO." As you scroll, the door slowly rotates open (3D transform), gears turn, locks click. Behind it: a glimpse of the app's dark interface. Amber warning lights pulse.
+**Animation:** Vault door rotation on scroll, gear mechanics, amber pulse lights, blur reveal of app behind door.
+**Why:** Makes "local-first" feel tangible. Your data is precious enough to vault.
+
+---
+
+## RULES
+
+1. **No existing app visualizations** — solar system, city, 3D maps, etc. are OFF LIMITS
+2. **Every animation needs a reason** — not decoration, communication
+3. **One focal element per viewport** — don't clutter
+4. **Typography hierarchy** — use scale and weight, not borders and pills
+5. **Dark mode only** — this is a privacy app, not a SaaS dashboard
+6. **Mobile dignity** — it should work on phone, not just "shrunk desktop"
+7. **Reduced motion respect** — must work without animations for accessibility
+
+---
+
+## DELIVERABLE FORMAT
+
+For each of your 3-5 candidates, use this exact structure:
+
+```
+## CANDIDATE X: "[NAME]"
+
+### Metaphor
+[2-3 sentences]
+
+### Mood & Tone
+[1-2 sentences]
+
+### Color Scheme
+- Background: [colors]
+- Text: [colors]
+- Accent: [colors]
+- Rationale: [why these colors]
+
+### Hero Section
+- Visual: [description]
+- Headline: [text]
+- Subheadline: [text]
+- CTA: [text]
+- Load Animation: [sequence]
+
+### Section Flow
+1. [Section name] — [purpose]
+2. [Section name] — [purpose]
+... (8 sections total)
+
+### Key Animations
+1. [Animation name] — [technique] — [what it communicates]
+2. [Animation name] — [technique] — [what it communicates]
+3. [Animation name] — [technique] — [what it communicates]
+
+### Why This Fits RHEO
+[3-5 sentences]
+```
+
+---
+
+Be bold. Be unexpected. But always tie back to what RHEO actually is.
+
+The landing page should make someone stop scrolling and think: "I need to know what this is."

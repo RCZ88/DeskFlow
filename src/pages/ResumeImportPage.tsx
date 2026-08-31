@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { VoiceInputWrapper } from '@/components/VoiceInputWrapper';
 import { ArrowLeft, Upload, Smartphone, Award, MessageSquare, Search, FileText, Plus } from 'lucide-react';
+import { FieldAIButton } from '@/components/ai-bridge/FieldAIButton';
 import { useResumeStore } from '../stores/resumeStore';
 import { ChatCompilationCard } from '../features/resume/components/ChatCompilationCard';
 import { DocumentUploader } from '../features/resume/components/DocumentUploader';
@@ -180,6 +181,15 @@ export default function ResumeImportPage() {
                   className="w-full p-4 rounded-xl bg-gradient-to-br from-zinc-900/80 to-zinc-800/40 ring-1 ring-zinc-700/50 text-sm text-white placeholder-zinc-500 outline-none focus:ring-[var(--page-accent)]/50 focus:ring-2 transition-all duration-150 resize-none font-mono leading-relaxed"
                 />
               </VoiceInputWrapper>
+              <FieldAIButton
+                fieldName="chatInput"
+                label="Chat Transcript"
+                value={chatInput}
+                onUpdate={setChatInput}
+                allFields={{ chatInput, chatSource }}
+                category="resume"
+                context="Help extract resume information from this AI chat conversation"
+              />
               <Button
                 onClick={handleExtractChat}
                 disabled={!chatInput.trim() || isExtracting}

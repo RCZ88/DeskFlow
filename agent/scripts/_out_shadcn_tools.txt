@@ -1,0 +1,33 @@
+(node:28028) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+INIT: {"name":"shadcn","version":"1.0.0"}
+TOOLS(7): [
+  {
+    "name": "get_project_registries",
+    "desc": "Get configured registry names from components.json - Returns error if no compone"
+  },
+  {
+    "name": "list_items_in_registries",
+    "desc": "List items from registries (requires components.json - use init_project if missi"
+  },
+  {
+    "name": "search_items_in_registries",
+    "desc": "Search for components in registries using fuzzy matching (requires components.js"
+  },
+  {
+    "name": "view_items_in_registries",
+    "desc": "View detailed information about specific registry items including the name, desc"
+  },
+  {
+    "name": "get_item_examples_from_registries",
+    "desc": "Find usage examples and demos with their complete code. Search for patterns like"
+  },
+  {
+    "name": "get_add_command_for_items",
+    "desc": "Get the shadcn CLI add command for specific items in a registry. This is useful "
+  },
+  {
+    "name": "get_audit_checklist",
+    "desc": "After creating new components or generating new code files, use this tool for a "
+  }
+]

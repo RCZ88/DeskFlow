@@ -60,6 +60,82 @@ If a system you need is toggled off, say so; don't hallucinate its contents.
 ## 5b. Frontend design skill (mandatory for all UI work)
 Before writing any UI component, page, modal, or screen, load the **humancentred-UIUX skill** (`agent/skills/humancentred-UIUX/SKILL.md`) and follow its 6 pillars, anti-patterns, and generation workflow. This is not optional — the skill catches the #1 failure mode of AI-generated UI (no loading/empty/error states, no feedback, no hierarchy). Always declare scope, cover all 4 states (empty/loading/error/populated), wire hover/focus/disabled, animate transitions, and humanize copy.
 
+### Design Intent Mandate — 4 questions before ANY UI code
+After loading all 8 design skills, BEFORE writing a single line of code, you MUST answer:
+1. **What skills did you use and why?** — list every skill loaded and its contribution.
+2. **What is the design idea?** — the ONE visual/conceptual idea driving the design (not "make it nice").
+3. **What is the meaning of the design?** — every choice must have a reason tied to purpose.
+4. **Is the design intentional and fitting with the parent context?** — how does it fit the larger page/app.
+Print these answers. Show reasoning. Then code. If you cannot answer all 4, you are not ready.
+
+## 5c. Available IPC tools (use these to inspect the codebase)
+The app exposes these IPC tools via `window.deskflowAPI` that you can call to understand the codebase:
+
+### Architecture Map
+Scan the codebase to understand file structure, components, features, and connections:
+```
+window.deskflowAPI.archMap.generate({ force?: boolean })
+// Returns: { nodes: ArchNode[], edges: ArchEdge[], stats: { totalPages, totalComponents, totalLines, ... } }
+// Each node has: id, type, name, filePath, lineCount, route?, imports, exports, features, ipcHandlers, ipcCalls, childComponents
+
+window.deskflowAPI.archMap.getNode(nodeId: string)
+// Returns: full ArchNode with all details
+
+window.deskflowAPI.archMap.search(query: string)
+// Returns: ArchNode[] matching the query across names, paths, features, IPC channels
+```
+
+**Use this when:** you need to understand which files contain which features, what components a page uses, or how IPC flows between renderer and main. Do NOT guess — scan first.
+
+### User Dictionary
+Manage user-defined terminology that gets injected into agent prompts:
+```
+window.deskflowAPI.userDictionary.list()
+// Returns: { ok: boolean, entries: { id, term, definition, context, aliases, created_at }[] }
+
+window.deskflowAPI.userDictionary.add({ term, definition, context?, aliases? })
+window.deskflowAPI.userDictionary.update({ id, term?, definition?, context?, aliases? })
+window.deskflowAPI.userDictionary.delete(id: number)
+window.deskflowAPI.userDictionary.export()
+// Returns: { ok, markdown: string (formatted dictionary), count }
+window.deskflowAPI.userDictionary.import(entries: Array<{ term, definition, context?, aliases? }>)
+```
+
+**Use this when:** the user defines custom terminology (e.g., "workspace" means X to them), or you need to check what terms are already defined. The dictionary is injected into every agent's system prompt via `assemble-context`.
+
+### Agent State Detection
+The app tracks agent phases via IPC events. When you need to know if an agent is ready:
+```
+window.deskflowAPI.agentGetPhase(terminalId)  // Returns: { phase: 'launching'|'ready'|'busy'|'attention'|'error' }
+window.deskflowAPI.agentGetStatus(terminalId) // Returns: { phase, sessionId?, error? }
+```
+
+**Phase meanings:**
+- `launching` — process spawned, waiting for ready signal
+- `ready` — agent is idle, waiting for input (prompt regex matched or TUI settled)
+- `busy` — agent is processing a request
+- `attention` — agent needs human input (confirmation prompt detected)
+- `error` — agent failed (write unverified, launch timeout, crash)
+
+### Context Systems
+Check health of context knowledge systems:
+```
+window.deskflowAPI.getContextSystems(projectPath?)
+// Returns: { success, data: { id, name, itemCount, itemLabel, available, lastBuilt, error }[] }
+```
+
+## 5d. Architecture Map prompt (for generating ARCHITECTURE.md)
+To generate a full architecture document with code references, use the prompt at:
+`agent/docs/generate-prompt-docs/architecture-map/PROMPT.md`
+
+This prompt instructs the AI to scan every file and produce `ARCHITECTURE.md` with:
+- Per-page architecture with file:line references for every import, state, effect, IPC call
+- IPC handler map (channel → main.ts line → caller component)
+- Feature matrix (which features exist in which files with line numbers)
+- Connection graph (import edges, render edges, IPC edges)
+
+**Run this when:** the codebase has changed significantly and the architecture doc is stale.
+
 ## Scope & precedence
 You may receive layered instructions. Resolve conflicts by specificity, most specific wins:
 Project > Agent-type > General > Default (this baseline).

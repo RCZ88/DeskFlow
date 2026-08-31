@@ -1,0 +1,180 @@
+- generic [active] [ref=f6e1]:
+  - main [ref=f6e2]:
+    - navigation [ref=f6e3]:
+      - link "Viacheslav Novoseltsev" [ref=f6e4] [cursor=pointer]:
+        - /url: /
+      - link "Portfolio" [ref=f6e5] [cursor=pointer]:
+        - /url: /portfolio
+      - link "Profile" [ref=f6e6] [cursor=pointer]:
+        - /url: /profile
+    - generic [ref=f6e7]:
+      - generic:
+        - img "sketch"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Losko admin footer"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "War Robots thumbnail"
+      - generic:
+        - img "Ultimate Guitar thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Strelka Institute thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Musehub concept thumbnail"
+      - generic:
+        - img "Strelka Shop thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Архитекторы.рф"
+      - generic:
+        - img "Архитекторы.рф"
+      - generic:
+        - img "War Robots UI thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Culture of Congestion thumbnail"
+      - generic:
+        - img "Losko mobile thumbnail"
+      - generic:
+        - img "Strelka Editor UI thumbnail"
+      - generic:
+        - img "Losko iPad thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Apex thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Strelka Magazine thumbnail"
+      - generic:
+        - img "Strelka Magazine thumbnail"
+      - generic:
+        - img "Uchi.ru thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Strelka Bar thumbnail"
+      - generic:
+        - img "War Robots website thumbnail"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Strelka.com thumbnail"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Axion Sense thumbnail"
+      - generic:
+        - img "Speed tracker app thumbnail"
+      - generic:
+        - img "Datum AI thumbnail"
+      - generic:
+        - img "sketch"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Losko admin footer"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "War Robots thumbnail"
+      - generic:
+        - img "Ultimate Guitar thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Strelka Institute thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Musehub concept thumbnail"
+      - generic:
+        - img "Strelka Shop thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Архитекторы.рф"
+      - generic:
+        - img "Архитекторы.рф"
+      - generic:
+        - img "War Robots UI thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Culture of Congestion thumbnail"
+      - generic:
+        - img "Losko mobile thumbnail"
+      - generic:
+        - img "Strelka Editor UI thumbnail"
+      - generic:
+        - img "Losko iPad thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Apex thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Strelka Magazine thumbnail"
+      - generic:
+        - img "Strelka Magazine thumbnail"
+      - generic:
+        - img "Uchi.ru thumbnail"
+      - generic:
+        - img "Strelka Editor thumbnail"
+      - generic:
+        - img "Strelka Bar thumbnail"
+      - generic:
+        - img "War Robots website thumbnail"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Muse Group website thumbnail"
+      - generic:
+        - img "Strelka.com thumbnail"
+      - generic:
+        - img "Losko thumbnail"
+      - generic:
+        - img "Axion Sense thumbnail"
+      - generic:
+        - img "Speed tracker app thumbnail"
+      - generic:
+        - img "Datum AI thumbnail"
+    - generic:
+      - generic: I
+      - generic: 834 906
+      - generic: Windows
+      - generic:
+        - generic: "14"
+        - generic: "45"
+    - dialog
+  - generic: Close
+  - generic: Move

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>04 — Wake</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#050506;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center}
+  canvas{display:block}
+  @media(prefers-reduced-motion:reduce){canvas{display:none}body::after{content:'Wake — reduced motion';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:rgba(255,255,255,.3)}}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+const W = Math.min(window.innerWidth * 0.85, 800);
+const H = Math.min(window.innerHeight * 0.65, 500);
+canvas.width = W * dpr; canvas.height = H * dpr;
+canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+ctx.scale(dpr, dpr);
+
+// Cubic bezier control points
+const P0 = {x: W*0.08, y: H*0.7};
+const P1 = {x: W*0.35, y: H*0.05};
+const P2 = {x: W*0.65, y: H*0.95};
+const P3 = {x: W*0.92, y: H*0.3};
+
+function bez(t) {
+  const u=1-t;
+  return {
+    x: u*u*u*P0.x + 3*u*u*t*P1.x + 3*u*t*t*P2.x + t*t*t*P3.x,
+    y: u*u*u*P0.y + 3*u*u*t*P1.y + 3*u*t*t*P2.y + t*t*t*P3.y
+  };
+}
+
+// Precompute arc-length table for constant speed
+const N = 200;
+const segLen = [];
+let totalLen = 0;
+for (let i = 0; i < N; i++) {
+  const a = bez(i/N), b = bez((i+1)/N);
+  const l = Math.hypot(b.x-a.x, b.y-a.y);
+  segLen.push(l);
+  totalLen += l;
+}
+const cumLen = [0];
+for (let i = 0; i < N; i++) cumLen.push(cumLen[i] + segLen[i]);
+
+function atDist(d) {
+  d = Math.max(0, Math.min(d, totalLen));
+  for (let i = 0; i < N; i++) {
+    if (cumLen[i+1] >= d) {
+      const t = i/N + ((d - cumLen[i]) / segLen[i]) / N;
+      return bez(t);
+    }
+  }
+  return bez(1);
+}
+
+// Ticks persist
+const ticks = [];
+const MOVE_S = 3, PAUSE_S = 1, LOOP_S = MOVE_S + PAUSE_S;
+
+let lastFrame = 0;
+function tick(now) {
+  const t = (now / 1000) % LOOP_S;
+  const moveFrac = Math.min(t / MOVE_S, 1);
+  const pos = atDist(moveFrac * totalLen);
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw faint bezier
+  ctx.beginPath();
+  for (let i = 0; i <= 100; i++) {
+    const p = bez(i/100);
+    i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.06)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Draw control points
+  ctx.strokeStyle = 'rgba(255,255,255,.08)';
+  ctx.setLineDash([4,4]);
+  ctx.beginPath();
+  ctx.moveTo(P0.x,P0.y); ctx.lineTo(P1.x,P1.y);
+  ctx.moveTo(P2.x,P2.y); ctx.lineTo(P3.x,P3.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Add tick at current position if moving
+  if (moveFrac < 1 && (ticks.length === 0 || Math.hypot(pos.x - ticks[ticks.length-1].x, pos.y - ticks[ticks.length-1].y) > 3)) {
+    ticks.push({x: pos.x, y: pos.y, a: 1});
+  }
+
+  // Reset ticks at loop boundary
+  if (t < 0.016) ticks.length = 0;
+
+  // Draw ticks
+  for (const tk of ticks) {
+    ctx.beginPath();
+    ctx.arc(tk.x, tk.y, 2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${tk.a * 0.4})`;
+    ctx.fill();
+  }
+
+  // Draw dot
+  if (moveFrac < 1) {
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.shadowColor = 'rgba(255,255,255,.5)';
+    ctx.shadowBlur = 12;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  requestAnimationFrame(tick);
+}
+
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

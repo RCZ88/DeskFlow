@@ -293,8 +293,8 @@ function setProjectSchedule(projectId, minutes, projectPath) {
 function createProjectBackup(projectId, projectPath, label, extra) {
   try {
     loadDeps();
-    if (!archiver) return { success: false, error: 'archiver package not installed' };
-    if (!projectPath || !fs.existsSync(projectPath)) return { success: false, error: `project path not found: ${projectPath}` };
+    if (!archiver) return Promise.resolve({ success: false, error: 'archiver package not installed' });
+    if (!projectPath || !fs.existsSync(projectPath)) return Promise.resolve({ success: false, error: `project path not found: ${projectPath}` });
 
     const id = generateId();
     const timestamp = new Date().toISOString();
@@ -333,7 +333,7 @@ function createProjectBackup(projectId, projectPath, label, extra) {
       archive.finalize();
     });
   } catch (err) {
-    return { success: false, error: String(err) };
+    return Promise.resolve({ success: false, error: String(err) });
   }
 }
 

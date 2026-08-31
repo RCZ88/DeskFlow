@@ -1158,3 +1158,14 @@
 |---|-------|--------|-------|
 | V1 | webkitSpeechRecognition unreliable in Electron (no Google API keys) | AI Attempted Fix | 3-engine fallback chain implemented: **Cloud API** (Groq/OpenAI-compatible; IPC ` stt:transcribe `; prefs ` sttApiKey `/` sttBaseUrl `/` sttModel `) -> **Windows native** (PowerShell System.Speech dictation; ` stt:native-start `/` stt:native-stop `; events over ` stt-native-event `) -> **browser** (existing webkit path, untouched fallback). Both consumers rewired (VoiceInputWrapper.tsx + useVoiceInput.ts). Settings -> General -> Voice & Speech card added. Builds OK (vite renderer + preload.cjs + main.cjs), tsc clean on changed files (only pre-existing aiAgentService.test.ts errors). RUNTIME NOT VERIFIED - needs full app relaunch + dictation test (mic button in chat/terminal input). |
 | V2 | No offline dictation path on Windows | AI Attempted Fix | Windows native engine via PowerShell System.Speech (DictationGrammar, 8s recognize loop, JSON lines on stdout, idle after 3 empty rounds). Script written to userDataPath/stt-native.ps1 at native-start. No API key needed. See V1 notes. |
+
+## 🎯 2026-08-27 — Goals Customization Overhaul (session opencode-term-1-goals)
+
+> User reports: "the customization feature is very bad. I'm unable to select the external activity. The schedule is still the same shit."
+
+**Status:** In Progress — 15/17 checklist items done, ScheduleCard redesign + runtime verification remaining.
+
+**Files created:** goals.ts, ExternalActivityPicker, CrossFeatureLinkPicker, GoalCompletionEngine, MissedGoalRecoveryBanner, HabitTracker, GoalAICoach, GoalLanguageParser, GoalsSection
+**Files modified:** main.ts, preload.ts, deskflow-api.d.ts, dashboard/types.ts, ai/types.ts, GoalStore.ts, CriteriaBuilder, GoalCard, GoalsPage, GoldPage
+
+---

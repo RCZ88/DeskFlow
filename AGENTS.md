@@ -13,6 +13,38 @@ This is a CONTINUOUS pipeline, never a standalone chat. If a new session starts 
 you are unsure where you are: **DO NOT GUESS, DO NOT ASK — read the memory files in
 Section 1 to recover state.**
 
+## 0b. EXTERNAL AI SESSION FLOW (Learn module)
+Local LLMs (Ollama, etc.) are expensive and limited. Most lesson generation and knowledge
+enrichment happens via **external AI sessions** (ChatGPT, Claude, etc.) through the browser.
+
+**Flow:**
+1. **App generates prompt** — CreateLessonDialog assembles system+user prompt with KB context,
+   tunability settings (focus/depth/style), and lesson size instructions.
+2. **User sends to external AI** — "Send to External AI" button copies prompt to clipboard and
+   opens ChatGPT/Claude. User pastes and runs the prompt.
+3. **Response enriches lesson** — The external AI's .lmd output is pasted back into the
+   CreateLessonDialog result step, or imported via the "Paste .lmd" import section.
+4. **Extension tracks sessions** — The browser extension (DeskFlow) captures which AI provider
+   and chat session was used, storing it in `ai_context_captures`. This creates a traceable
+   link between the lesson and the external conversation.
+5. **Knowledge base grows** — Entries extracted from external AI responses feed back into the
+   learner profile's `knowledgeBase`, making future lessons more personalized.
+
+**Why external, not local:**
+- External AIs have broader knowledge, better reasoning, and are free for the user
+- Local models are for lightweight tasks (quiz grading, embedding, retrieval)
+- The extension bridges the gap: it captures external sessions so the app knows what was discussed
+
+## 0c. LESSON CREATION TUNABILITY (v1.3)
+CreateLessonDialog supports these controls:
+- **Lesson Size:** Compact (3 nodes), Standard (5), Full (8), Dynamic (AI decides)
+- **Knowledge Base:** Auto-match (AI picks relevant KB entries) or Select (user picks)
+- **Knowledge Context:** Free-text area for pasting existing knowledge
+- **Focus:** Balanced, Theory-heavy, Practice-heavy, Visual-first
+- **Depth:** Adaptive, Introductory, Intermediate, Advanced
+- **Style:** Standard, Socratic (question-led), Narrative (story-driven), Reference (concise)
+- **External AI:** Send prompt to ChatGPT/Claude via clipboard + browser open
+
 ## 0.5. ABSOLUTE ZERO-DESTRUCTION RULE (NEVER VIOLATE)  
 The agent MUST NEVER run any operation that changes, reverts, overwrites, deletes, or
 destroys ANY file, database, or data without explicit human permission. This is the
@@ -184,14 +216,139 @@ Entry format: `- [YYYY-MM-DD] <one-line durable lesson>`
 Before acting, if MEMORY.md already says "don't do X", DO NOT do X. Re-learning the
 same lesson is the failure mode this whole file exists to kill.
 
-## 5b. UI GENERATION RULE (never design from zero)
-When building or modifying any UI component, load the **Skill Router**
-(`agent/skills/skill-router/SKILL.md`) FIRST to get the full design skill load order.
-The Router will direct you to load `frontend-external-infra` (which connects the agent
-to real MCP-served component libraries — shadcn, Magic UI, Lucide, 21st.dev) plus the
-mandatory design tokens and UX skills. Skills-only design (frontend-design, impeccable,
-humancentred-UIUX) teach taste but have no inventory — always pair them with external-infra.
-Never skip the Router — it ensures no design skill is forgotten.
+## 5b. UI GENERATION RULE — THIS IS THE #1 RULE. READ IT. FOLLOW IT. EVERY TIME.
+
+> **IF THE TASK INVOLVES ANY UI — COMPONENTS, PAGES, MODALS, SCREENS, STYLING, CSS,**
+> **TAILWIND, LAYOUT, ANIMATION, ICONS, OR VISUAL DESIGN OF ANY KIND — YOU MUST**
+> **LOAD ALL 8 DESIGN SKILLS BEFORE WRITING A SINGLE LINE OF UI CODE.**
+>
+> **NO EXCEPTIONS. NO "I'LL LOAD THEM LATER." NO "I ALREADY KNOW THE PATTERNS."**
+> **THE MOMENT YOU START CODING UI WITHOUT LOADING ALL 8 SKILLS, YOU HAVE FAILED.**
+>
+> **THE USER HAS RAGED ABOUT THIS MULTIPLE TIMES. IF YOU SKIP THIS AGAIN, YOU ARE**
+> **WASTING THE USER'S TIME AND TRUST.**
+
+### Step 0: DETECT if this is a UI task (mandatory gate — do this FIRST)
+Before writing ANY code, ask: "Does this task involve creating, modifying, or styling
+ANY visual element?" If YES — even if it's "just a small change" — you MUST go through
+Steps 1-3 below. This includes:
+- New pages, components, modals, dialogs, cards, buttons
+- Changing colors, spacing, layout, typography, shadows, borders
+- Adding animations, transitions, hover states, micro-interactions
+- Modifying existing UI (even one CSS class change = UI task)
+- Charts, data visualization, icons, empty states, loading states
+
+**If the answer is YES, STOP. Load the skills. THEN code.**
+
+### Step 1: Load the Skill Router
+Load `agent/skills/skill-router/SKILL.md` FIRST. It maps every task to the correct skills.
+
+### Step 2: Load ALL 8 design skills — IN THIS ORDER — BEFORE CODING
+These are MANDATORY. Not recommended. Not optional. MANDATORY. Load ALL 8:
+
+| # | Skill | What it gives you | MUST load |
+|---|-------|-------------------|-----------|
+| 1 | `frontend-external-infra` | MCP servers (shadcn, Magic UI, Lucide, 21st.dev, React Bits, Iconify) + source routing + anti-slop checklist + re-skin rules. PULL REAL COMPONENTS FROM MCP — DO NOT INVENT FROM SCRATCH. | YES |
+| 2 | `frontend-design` | DeskFlow design system — colors, spacing, typography, glass cards, page patterns, component patterns, animation tokens | YES |
+| 3 | `Human-Centric UX` | 6 pillars: clarity, progressive disclosure, visual hierarchy, state coverage (empty/loading/error/populated), feedback, forgiveness. Pre-return checklist. | YES |
+| 4 | `Impeccable` | 7 domains (typography, color, spatial, motion, interaction, responsive, UX writing) + 23 commands + 27 anti-patterns | YES |
+| 5 | `Motion — Bring the UI Alive` | Liveliness Levels (L1/L2/L3), motion taxonomy (reactive/transitional/ambient/narrative), recipes, reduced-motion fallback. MUST pick a level. | YES |
+| 6 | `Design Taste System` | Master dispatcher — knobs, aesthetic matrix, anti-repetition rules, decision tree | YES |
+| 7 | `UI UX Pro Max` | Industry-specific design rules (developer tools, finance, AI/ML, analytics), style library, color palettes | YES |
+| 8 | `Taste Skill` | 3 tunable knobs (variance/motion/density), aesthetic variant matrix, anti-repetition rules | YES |
+
+### Step 3: Pull REAL components from MCP servers — NEVER design from zero
+After loading skills, use the MCP tools to pull real, production-grade components:
+- `shadcn-ui-mcp_get_component` / `shadcn-ui-mcp_get_component_demo` — for standard UI blocks
+- `magicui_searchRegistryItems` / `magicui_getRegistryItem` — for animated components
+- `lucide_search_icons` (via lucide MCP) — for icons
+- `reactbits_search_components` / `reactbits_get_component` — for animated React components
+- `shadcn-ui-mcp_apply_theme` — for theme presets from tweakcn
+
+**Pull first. Read the source. Adapt to DeskFlow tokens. Never invent from the model's
+training data average. That is the definition of "AI slop."**
+
+### Step 4: Also load if relevant
+- `signature-design` — for page-level redesigns (ONE concept per screen)
+- `beautiful-charts` — for charts/graphs/data visualization
+- `google-stitch` — for mockups and DESIGN.md workflows
+- `font-selection` — for font choice decisions
+
+### ALSO load if the work touches backend
+- `max-security` — if the UI change touches auth/crypto/IPC/DB
+
+### WHY THIS MATTERS (the failure modes — read these before skipping)
+
+**Failure mode 1: "I'll load them after I start coding"**
+→ You write UI from memory, miss the anti-patterns, produce AI slop, then have to
+  rewrite everything. Waste of time.
+
+**Failure mode 2: "I only need 2-3 skills for this simple change"**
+→ The skills cover different dimensions: comprehension (Human-Centric UX), visual tokens
+  (frontend-design), motion (Motion skill), typography (Impeccable), color (Impeccable),
+  industry rules (UI UX Pro Max), taste (Taste Skill), real components (frontend-external-
+  infra). Missing ANY ONE produces incomplete UI. There is no "simple change" that only
+  needs 2 skills.
+
+**Failure mode 3: "I already know the patterns from MEMORY.md"**
+→ MEMORY.md has high-level lessons. The skills have the actual rules, anti-patterns,
+  component specs, and MCP server connections. Knowing "use rounded-xl" is not the same
+  as knowing the 27 anti-patterns, the 6 UX pillars, the motion budget system, and the
+  MCP source routing table.
+
+**Failure mode 4: "I'll just pull from MCP without loading the design skills"**
+→ Without frontend-design you don't know DeskFlow's tokens. Without Human-Centric UX
+  you don't know to add empty/loading/error states. Without Impeccable you don't know
+  the 27 anti-patterns. Without Motion you don't know the liveliness levels. Without
+  Taste you don't know the anti-repetition rules. MCP gives you raw components; the
+  skills tell you how to make them RIGHT.
+
+### VERIFICATION: Before returning any UI code, self-check:
+- [ ] Did I load ALL 8 design skills? (check: skill tool was called 8 times)
+- [ ] Did I pull real components from MCP instead of inventing? (check: MCP tools were called)
+- [ ] Did I pick a liveliness level? (from Motion skill)
+- [ ] Did I apply anti-repetition rules? (from Taste Skill)
+- [ ] Did I cover all 4 states (empty/loading/error/populated)? (from Human-Centric UX)
+- [ ] Did I follow DeskFlow's spacing, color, and typography tokens? (from frontend-design)
+- [ ] Did I check the 27 anti-patterns? (from Impeccable)
+- [ ] Did I follow the industry rules for developer tools? (from UI UX Pro Max)
+
+**If any box is unchecked, you are not done. Go back and fix it.**
+
+### DESIGN INTENT MANDATE — Answer these 4 questions BEFORE writing ANY UI code
+
+> **THE USER HAS RAGED ABOUT THIS. IF YOU SKIP THESE QUESTIONS, YOU ARE PRODUCING**
+> **AI SLOP — GENERIC, UNINTENTIONAL, MEANINGLESS UI. STOP AND THINK FIRST.**
+
+After loading all 8 skills, BEFORE writing a single line of code, you MUST answer these
+4 questions in your response. Print them. Show your reasoning. Then code.
+
+**Question 1: What skills did you use and why?**
+- List every skill you loaded and what each one contributed to this specific design.
+- If you didn't load a skill, explain why it doesn't apply (not "I forgot").
+
+**Question 2: What is the design idea?**
+- State the ONE visual/conceptual idea driving this design.
+- Example: "The Self tab represents the user's mind — identity, knowledge, memory."
+- Example: "The Schedule tab represents time as a living grid — structured but breathing."
+- NOT: "I'll make it look nice with glass cards and gradients." (That's not an idea.)
+
+**Question 3: What is the meaning of the design?**
+- Every design choice must have a REASON tied to the feature's purpose.
+- Example: "The hero strip puts identity first because the user IS their brain."
+- Example: "Breathing glow on brain stats = the brain is alive, always working."
+- Example: "Two-column layout = identity (who) and tools (what) are parallel, not stacked."
+- NOT: "I used pink because it's the page accent." (That's a token, not a meaning.)
+
+**Question 4: Is the design intentional and fitting with the parent context?**
+- How does this design fit into the larger page/app?
+- Example: "Life page = whole person. Self tab = mind. Design should feel contemplative
+  but powerful, matching the Life page's warm-but-serious tone."
+- Example: "This is a developer tool — no bouncy springs, no playful particles in data areas."
+- NOT: "It looks good." (Looking good is not fitting.)
+
+**If you cannot answer all 4 questions clearly, you are not ready to code. Go back to
+the skills and think harder. The user can tell when you're generating without intent.**
 
 ## 5c. TESTING LAYERS (never report a false PASS)
 Three layers — an IPC probe passing does NOT mean the feature works:

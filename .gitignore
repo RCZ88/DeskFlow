@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 dist-electron
+dist-tmp
 *.local
 
 # Release builds (too large for GitHub)

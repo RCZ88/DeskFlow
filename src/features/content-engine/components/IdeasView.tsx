@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Lightbulb, Star, ChevronRight, Trash2, Sparkles, CheckCircle2, SlidersHorizontal, ShieldCheck, ShieldX, Shield } from 'lucide-react'
-import { AmberButton, Card, Chip, ConfirmIconButton, EmptyState, ErrorState, LoadingBlock, SectionHeader, TextInput, toast } from './ui'
+import { Lightbulb, Star, ChevronRight, Trash2, Sparkles, CheckCircle2, SlidersHorizontal, ShieldCheck, ShieldX, Shield, Clapperboard, ExternalLink, ClipboardPaste, Check, Zap, BrainCircuit, ArrowRight } from 'lucide-react'
+import { AmberButton, CopyPromptButton, GhostButton, Card, Chip, ConfirmIconButton, EmptyState, ErrorState, LoadingBlock, SectionHeader, TextInput, TextArea, toast } from './ui'
 import { cn } from '@/lib/utils'
+import { useContentEngine } from '../ContentEngineContext'
+import { TemplateSelector } from './TemplateSelector'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
@@ -23,7 +25,27 @@ function GateChip({ gates }: { gates?: any }) {
 
 function IdeaCard({ idea, onSaved, onDeleted }: { idea: any; onSaved: () => void; onDeleted: () => void }) {
   const [saving, setSaving] = useState(false)
+  const [creatingEp, setCreatingEp] = useState(false)
+  const { requestOpenEpisode } = useContentEngine()
   const priority = idea.priority ?? 1
+
+  const createEpisode = async () => {
+    if (creatingEp) return
+    setCreatingEp(true)
+    try {
+      const res = await api()?.episodeSave({ idea_id: idea.id ? Number(idea.id) : undefined, title: idea.title, status: 'draft' })
+      if (res?.ok) {
+        toast('Episode created from idea')
+        requestOpenEpisode(res.id)
+      } else {
+        toast(res?.error || 'Failed to create episode', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Failed to create episode', 'error')
+    } finally {
+      setCreatingEp(false)
+    }
+  }
 
   const save = async (patch: any) => {
     if (saving) return
@@ -103,6 +125,10 @@ function IdeaCard({ idea, onSaved, onDeleted }: { idea: any; onSaved: () => void
             <SlidersHorizontal size={11} /> Refine
           </button>
         )}
+        <button onClick={createEpisode} disabled={creatingEp}
+          className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-[#f5c518]/10 hover:text-[#f5c518]">
+          <Clapperboard size={11} /> {creatingEp ? 'Creating…' : 'Episode'}
+        </button>
         {idea.status !== 'used' && NEXT_STATUS[idea.status] && (
           <button onClick={() => save({ status: NEXT_STATUS[idea.status] })} disabled={saving}
             className="ml-auto inline-flex h-6 items-center gap-0.5 rounded-md px-1.5 text-[10px] font-medium text-zinc-400 transition-colors hover:bg-white/[0.06] hover:text-zinc-200">
@@ -120,6 +146,23 @@ export function IdeasView() {
   const [error, setError] = useState<string | null>(null)
   const [synthNote, setSynthNote] = useState('')
   const [synthesizing, setSynthesizing] = useState(false)
+
+  // Quick Capture (merged from BrainstormView)
+  const [captureThought, setCaptureThought] = useState('')
+  const [classifying, setClassifying] = useState(false)
+  const [classifyResult, setClassifyResult] = useState<any>(null)
+  const [classifyError, setClassifyError] = useState<string | null>(null)
+  const [routing, setRouting] = useState(false)
+
+  // External AI state
+  const [externalMode, setExternalMode] = useState(false)
+  const [externalPrompt, setExternalPrompt] = useState('')
+  const [externalPaste, setExternalPaste] = useState('')
+  const [externalImporting, setExternalImporting] = useState(false)
+  const [externalSending, setExternalSending] = useState(false)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [selectedTemplates, setSelectedTemplates] = useState<string[]>([])
+  const [frameMode, setFrameMode] = useState<'strict' | 'flexible'>('strict')
 
   const load = async () => {
     setLoading(true)
@@ -166,6 +209,132 @@ export function IdeasView() {
     }
   }
 
+  const sendToExternalAI = async () => {
+    setExternalSending(true)
+    try {
+      const res = await api()?.externalBuildSynthesizePrompt({ note: synthNote.trim() || undefined, count: 3, templateIds: selectedTemplates, frameMode })
+      if (res?.ok && res.prompt) {
+        setExternalPrompt(res.prompt)
+        setExternalMode(true)
+        await navigator.clipboard.writeText(res.prompt)
+        setCopiedPrompt(true)
+        setTimeout(() => setCopiedPrompt(false), 2000)
+        window.open('https://chatgpt.com', '_blank')
+        toast('Prompt copied — paste it into ChatGPT/Claude')
+      } else {
+        toast(res?.error || 'Failed to build prompt', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Failed to build prompt', 'error')
+    } finally {
+      setExternalSending(false)
+    }
+  }
+
+  const copyPromptOnly = async () => {
+    try {
+      const res = await api()?.externalBuildSynthesizePrompt({ note: synthNote.trim() || undefined, count: 3, templateIds: selectedTemplates, frameMode })
+      if (res?.ok && res.prompt) {
+        setExternalPrompt(res.prompt)
+        setExternalMode(true)
+        await navigator.clipboard.writeText(res.prompt)
+        setCopiedPrompt(true)
+        setTimeout(() => setCopiedPrompt(false), 2000)
+        toast('Prompt copied — paste it into any AI, then paste the response below')
+      } else {
+        toast(res?.error || 'Failed to build prompt', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Failed to build prompt', 'error')
+    }
+  }
+
+  const importExternalResponse = async () => {
+    if (!externalPaste.trim()) { toast('Paste the AI response first', 'error'); return }
+    setExternalImporting(true)
+    try {
+      const res = await api()?.externalImportSynthesize({ rawJson: externalPaste.trim() })
+      if (res?.ok) {
+        toast(`Imported ${res.count || 0} ideas`)
+        setExternalMode(false)
+        setExternalPaste('')
+        setExternalPrompt('')
+        load()
+      } else {
+        toast(res?.error || 'Import failed', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Import failed', 'error')
+    } finally {
+      setExternalImporting(false)
+    }
+  }
+
+  // Quick Capture: classify a thought and route it
+  const classifyThought = async () => {
+    if (!captureThought.trim() || classifying) return
+    setClassifying(true)
+    setClassifyError(null)
+    setClassifyResult(null)
+    try {
+      const res = await api()?.brainstormClassify({ thought: captureThought.trim() })
+      if (res?.ok && res.category) setClassifyResult(res)
+      else setClassifyError(res?.error || 'Classification failed')
+    } catch (e: any) {
+      setClassifyError(e?.message || 'Unexpected error')
+    } finally {
+      setClassifying(false)
+    }
+  }
+
+  const routeClassified = async () => {
+    if (!classifyResult || routing) return
+    setRouting(true)
+    try {
+      const cat = classifyResult.category
+      if (cat === 'content_idea') {
+        await api()?.ideaSave({
+          title: classifyResult.suggested_title || captureThought.trim().slice(0, 80),
+          hook: captureThought.trim(),
+          status: 'raw',
+          format_type: classifyResult.format_type,
+          niche: classifyResult.niche_hint || null,
+        })
+        toast('Routed to Ideas', 'success')
+      } else if (cat === 'framework_update') {
+        await api()?.frameworkSave({
+          name: classifyResult.suggested_title || captureThought.trim().slice(0, 40),
+          rules: [{ id: 'rule-1', rule: captureThought.trim() }],
+          description: classifyResult.reason || '',
+        })
+        toast('Routed to Frameworks', 'success')
+      } else if (cat === 'analytics') {
+        await api()?.lessonSave({
+          lesson: captureThought.trim(),
+          applies_to: 'general',
+          confidence: 0.7,
+          status: 'active',
+        })
+        toast('Routed to Lessons', 'success')
+      } else {
+        await api()?.ideaSave({
+          title: captureThought.trim().slice(0, 80),
+          hook: captureThought.trim(),
+          status: 'raw',
+          format_type: 'other',
+        })
+        toast('Routed to Ideas', 'success')
+      }
+      setCaptureThought('')
+      setClassifyResult(null)
+      load()
+    } catch (e: any) {
+      toast(e?.message || 'Routing failed', 'error')
+    } finally {
+      setRouting(false)
+    }
+  }
+
   return (
     <section className="space-y-6">
       <SectionHeader
@@ -183,9 +352,106 @@ export function IdeasView() {
               <Sparkles size={13} />
               {synthesizing ? 'Synthesizing…' : 'Synthesize 3'}
             </AmberButton>
+            <GhostButton onClick={copyPromptOnly} disabled={externalSending}>
+              <ClipboardPaste size={13} /> Copy Prompt
+            </GhostButton>
+            <GhostButton onClick={sendToExternalAI} disabled={externalSending}>
+              {externalSending ? <Zap size={13} className="animate-pulse" /> : <ExternalLink size={13} />}
+              {externalSending ? 'Building…' : 'External AI'}
+            </GhostButton>
           </div>
         }
       />
+
+      <TemplateSelector selected={selectedTemplates} onChange={setSelectedTemplates} frameMode={frameMode} onFrameModeChange={setFrameMode} />
+
+      {/* Quick Capture — classify a thought and route it */}
+      <Card className="border-[#a855f7]/20">
+        <div className="flex items-center gap-2 mb-3">
+          <BrainCircuit size={14} className="text-[#a855f7]" />
+          <span className="text-[10px] font-semibold tracking-wider text-[#a855f7] uppercase">Quick Capture</span>
+          <span className="text-[9px] text-zinc-500">— dump a thought, AI classifies and routes it</span>
+        </div>
+        <div className="flex gap-2">
+          <TextArea
+            className="flex-1"
+            rows={2}
+            placeholder="A video idea, a question, a half-formed thought..."
+            value={captureThought}
+            onChange={(e) => setCaptureThought(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); classifyThought() } }}
+          />
+          <div className="flex flex-col gap-1.5 shrink-0">
+            <AmberButton onClick={classifyThought} disabled={!captureThought.trim() || classifying} className="h-8">
+              <BrainCircuit size={13} />
+              {classifying ? 'Classifying…' : 'Classify'}
+            </AmberButton>
+            <CopyPromptButton fieldKey="brainstorm-idea" />
+          </div>
+        </div>
+        {classifyError && <div className="mt-2 text-[11px] text-rose-400">{classifyError}</div>}
+        {classifyResult && (
+          <div className="mt-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Chip className="border-[#a855f7]/25 bg-[#a855f7]/10 text-[#a855f7]">{classifyResult.category}</Chip>
+                {classifyResult.suggested_title && <span className="text-[11px] text-zinc-300 font-medium">{classifyResult.suggested_title}</span>}
+              </div>
+              <button onClick={() => setClassifyResult(null)} className="text-[10px] text-zinc-500 hover:text-zinc-300">Dismiss</button>
+            </div>
+            {classifyResult.reason && <p className="text-[10px] text-zinc-500 mb-2">{classifyResult.reason}</p>}
+            <div className="flex items-center gap-2">
+              <AmberButton onClick={routeClassified} disabled={routing} className="h-7">
+                <ArrowRight size={12} />
+                {routing ? 'Routing…' : `Route to ${classifyResult.category === 'content_idea' ? 'Ideas' : classifyResult.category === 'framework_update' ? 'Frameworks' : 'Lessons'}`}
+              </AmberButton>
+              <GhostButton onClick={() => { setCaptureThought(classifyResult.suggested_title || captureThought); setClassifyResult(null) }} className="h-7 text-[10px]">Edit thought</GhostButton>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {externalMode && (
+        <Card className="border-[#00d4ff]/20">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[10px] font-semibold tracking-wider text-[#00d4ff] uppercase">
+              <ClipboardPaste size={11} className="mr-1 inline" />
+              Paste External AI Response
+            </div>
+            <GhostButton onClick={() => { setExternalMode(false); setExternalPaste(''); setExternalPrompt('') }} className="h-5 px-1.5 text-[10px]">
+              Cancel
+            </GhostButton>
+          </div>
+          {externalPrompt && (
+            <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[9px] tracking-wider text-zinc-500 uppercase">Prompt sent to AI</span>
+                <button
+                  onClick={async () => { await navigator.clipboard.writeText(externalPrompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 2000) }}
+                  className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-white/[0.06]"
+                >
+                  {copiedPrompt ? <Check size={10} /> : <ClipboardPaste size={10} />}
+                  {copiedPrompt ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="max-h-32 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-zinc-400">{externalPrompt}</pre>
+            </div>
+          )}
+          <textarea
+            className="w-full rounded-lg border border-white/[0.08] bg-white/[0.03] p-2.5 text-xs text-zinc-200 placeholder-zinc-600 outline-none focus:border-[#00d4ff]/40"
+            rows={4}
+            value={externalPaste}
+            onChange={(e) => setExternalPaste(e.target.value)}
+            placeholder="Paste the JSON output from ChatGPT/Claude here…"
+          />
+          <div className="mt-2">
+            <AmberButton onClick={importExternalResponse} disabled={!externalPaste.trim() || externalImporting}>
+              {externalImporting ? <Zap size={13} className="animate-pulse" /> : <ClipboardPaste size={13} />}
+              {externalImporting ? 'Importing…' : 'Import Response'}
+            </AmberButton>
+          </div>
+        </Card>
+      )}
 
       {loading && <LoadingBlock label="Loading ideas…" />}
       {error && <ErrorState message={error} onRetry={load} />}
@@ -224,7 +490,7 @@ export function IdeasView() {
         <EmptyState
           icon={<Lightbulb size={28} />}
           title="No ideas in the funnel yet"
-          hint="Classify a thought in Brainstorm, or hit “Synthesize 3” to have the AI generate your first batch."
+          hint="Use Quick Capture above to classify a thought, or hit “Synthesize 3” to have the AI generate your first batch."
           action={<AmberButton onClick={synthesize} disabled={synthesizing}><Sparkles size={13} /> Synthesize 3</AmberButton>}
         />
       )}

@@ -1,0 +1,11 @@
+(node:39024) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+INIT: {"name":"shadcn-ui-mcp-server","version":"2.0.0"}
+CALL get_component: {
+  "jsonrpc": "2.0",
+  "id": 2,
+  "error": {
+    "code": -32603,
+    "message": "Failed to get component \"undefined\": Cannot read properties of undefined (reading 'toLowerCase')"
+  }
+}

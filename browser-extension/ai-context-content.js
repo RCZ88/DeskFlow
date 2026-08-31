@@ -1,6 +1,7 @@
 // DeskFlow AI Context Capture — Content Script (MAIN world)
 (function() {
   'use strict';
+  if (!chrome?.runtime?.id) return;
   const PROVIDERS = {
     'chatgpt.com': { name: 'chatgpt', apiPattern: '/backend-api/conversation' },
     'chat.openai.com': { name: 'chatgpt', apiPattern: '/backend-api/conversation' },
@@ -8,6 +9,13 @@
     'perplexity.ai': { name: 'perplexity', apiPattern: '/api/chat' },
     'you.com': { name: 'you', apiPattern: '/api/chat' },
     'gemini.google.com': { name: 'gemini', apiPattern: '/_/BardChat' },
+    'chat.qwen.ai': { name: 'qwen', apiPattern: '/api/chat' },
+    'kimi.moonshot.cn': { name: 'kimi', apiPattern: '/api/chat' },
+    'chatglm.cn': { name: 'chatglm', apiPattern: '/api/chat' },
+    'huggingface.co': { name: 'huggingface', apiPattern: '/api/chat' },
+    'poe.com': { name: 'poe', apiPattern: '/api/chat' },
+    'character.ai': { name: 'character', apiPattern: '/api/chat' },
+    'deepseek.com': { name: 'deepseek', apiPattern: '/api/chat' },
   };
   const hostname = window.location.hostname;
   const provider = PROVIDERS[hostname];
@@ -134,6 +142,114 @@
 
   // --- DOM observer (fallback) ---
   let lastMessageCount = 0;
+
+  // --- Correlation state (Bridge auto-capture) ---
+  // The DeskFlow app hands out a one-time correlationId + the exact keys it expects
+  // back. When the AI replies, we check whether the reply's JSON contains any of
+  // those keys; if so we echo the correlationId + matchedKeys so the app can
+  // auto-fill the exact field/form — no guessing by a generic promptType.
+  const FINALIZE_DEBOUNCE_MS = 1500; // wait for streaming to settle before finalizing
+  const PENDING_TTL_MS = 5 * 60 * 1000; // abandon a correlation after 5 min
+  let finalizeTimer = null;
+
+  function getProviderFromHostname() {
+    const h = location.hostname;
+    if (h.includes('chatgpt.com') || h.includes('openai.com')) return 'chatgpt';
+    if (h.includes('claude.ai')) return 'claude';
+    if (h.includes('perplexity.ai')) return 'perplexity';
+    if (h.includes('gemini.google.com')) return 'gemini';
+    if (h.includes('you.com')) return 'you';
+    if (h.includes('qwen')) return 'qwen';
+    if (h.includes('kimi')) return 'kimi';
+    if (h.includes('chatglm')) return 'chatglm';
+    if (h.includes('huggingface.co')) return 'huggingface';
+    if (h.includes('poe.com')) return 'poe';
+    if (h.includes('character.ai')) return 'character.ai';
+    if (h.includes('deepseek')) return 'deepseek';
+    return h;
+  }
+
+  function getPendingCorrelation() {
+    let p = window.__deskflowPending;
+    if (!p) return null;
+    if (Date.now() - (p.ts || 0) > PENDING_TTL_MS) {
+      window.__deskflowPending = null;
+      return null;
+    }
+    return p;
+  }
+
+  // Lightweight JSON extraction — only needs to find *a* JSON blob to check keys.
+  function extractFirstJson(text) {
+    const match = text.match(/[\{\[][\s\S]*[\}\]]/);
+    if (!match) return null;
+    try { return JSON.parse(match[0]); } catch { return null; }
+  }
+
+  function matchExpectedKeys(parsed, expectedKeys) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+    const keys = Object.keys(parsed);
+    return expectedKeys.filter((k) => keys.includes(k));
+  }
+
+  function runDetection(messages) {
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage) return;
+    const rawText = lastMessage.content || '';
+
+    const pending = getPendingCorrelation();
+    if (pending && pending.correlationId) {
+      const parsed = extractFirstJson(rawText);
+      const matchedKeys = matchExpectedKeys(parsed, pending.expectedKeys || []);
+      if (matchedKeys.length > 0) {
+        window.postMessage({
+          type: 'DESKFLOW_CE_RESPONSE',
+          promptType: 'field-fill',
+          correlationId: pending.correlationId,
+          matchedKeys,
+          provider: getProviderFromHostname(),
+          data: parsed ?? rawText,
+          url: location.href,
+          timestamp: Date.now()
+        }, '*');
+        window.__deskflowPending = null; // one response consumes the correlation
+        return;
+      }
+      // No key match — fall through to the legacy CE check (an unrelated CE flow
+      // could be running in the same tab).
+    }
+
+    const ceResult = detectContentEngineResponse(messages);
+    if (ceResult) {
+      window.postMessage({
+        type: 'DESKFLOW_CE_RESPONSE',
+        promptType: ceResult.promptType,
+        provider: getProviderFromHostname(),
+        data: ceResult.data,
+        url: location.href,
+        timestamp: Date.now()
+      }, '*');
+    }
+  }
+
+  function scheduleFinalizeCheck(messages) {
+    clearTimeout(finalizeTimer);
+    finalizeTimer = setTimeout(() => runDetection(messages), FINALIZE_DEBOUNCE_MS);
+  }
+
+  // Sync the cross-context fallback (focusOverlay.js may live in a different
+  // content-script context than this one).
+  try {
+    chrome.storage.session.get('deskflowPending', (result) => {
+      if (result.deskflowPending) window.__deskflowPending = result.deskflowPending;
+    });
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === 'session' && changes.deskflowPending) {
+        window.__deskflowPending = changes.deskflowPending.newValue;
+      }
+    });
+  } catch (e) {}
+
   function observeDOM() {
     const observer = new MutationObserver(() => {
       try {
@@ -149,9 +265,50 @@
           if (text && text.length > 10) messages.push({ role, content: text.slice(0, 8000) });
         });
         if (messages.length > 0) bufferCapture(messages, { source: 'dom-observer' });
+        // Schedule a debounced correlation + CE detection pass.
+        scheduleFinalizeCheck(messages);
       } catch (e) {}
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
+
+  // --- Content Engine Response Detection ---
+  // Signatures that indicate a Content Engine prompt was answered
+  const CE_SIGNATURES = {
+    script: ['script_frames', 'retention_evidence', 'frame_number'],
+    gates: ['gate_results', 'scroll_stop', 'hard_cut', 'asset_ready'],
+    synthesize: ['content_ideas', 'idea_title', 'hook_type'],
+    seo: ['seo_keywords', 'keyword_phrases', 'hidden_keywords'],
+    analytics: ['performance_metrics', 'retention_curve', 'audience_data'],
+    lessons: ['durable_rules', 'lesson_text', 'confidence'],
+    reflection: ['creator_intuition', 'contradictions', 'data_insights'],
+    frameworks: ['framework_rules', 'rule_text', 'applicable_context'],
+    classify: ['destination', 'category', 'routing']
+  };
+
+  function detectContentEngineResponse(messages) {
+    // Only check new assistant messages
+    const assistantMsgs = messages.filter(m => m.role === 'assistant');
+    for (const msg of assistantMsgs) {
+      const content = msg.content;
+      // Try to parse as JSON (Content Engine outputs structured JSON)
+      try {
+        const parsed = JSON.parse(content);
+        for (const [promptType, sigs] of Object.entries(CE_SIGNATURES)) {
+          if (sigs.some(sig => parsed.hasOwnProperty(sig) || content.includes(`"${sig}"`))) {
+            return { promptType, data: content };
+          }
+        }
+      } catch {
+        // Not JSON — check for signature strings in raw text
+        for (const [promptType, sigs] of Object.entries(CE_SIGNATURES)) {
+          if (sigs.some(sig => content.includes(`"${sig}"`))) {
+            return { promptType, data: content };
+          }
+        }
+      }
+    }
+    return null;
   }
   if (document.readyState === 'complete') observeDOM(); else window.addEventListener('load', observeDOM);
 

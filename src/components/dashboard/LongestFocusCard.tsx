@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Zap, Clock, Monitor } from 'lucide-react';
 import { NumberTicker } from '../ui/number-ticker';
 

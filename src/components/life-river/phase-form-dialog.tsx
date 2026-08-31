@@ -73,8 +73,10 @@ function freshDraft(initial: LifePhase | null, now: Date): Draft {
     category: initial?.category ?? 'growth',
     startMonth: initial?.startMonth ?? now.getMonth() + 1,
     startYear: initial?.startYear ?? now.getFullYear(),
+    startDate: initial?.startDate ?? null,
     endMonth: initial?.endMonth ?? null,
     endYear: initial?.endYear ?? null,
+    endDate: initial?.endDate ?? null,
     magnitude: initial?.magnitude ?? 50,
     color: initial?.color ?? null,
     reflection: initial?.reflection ?? '',
@@ -294,8 +296,10 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
       category: draft.category,
       startMonth: draft.startMonth,
       startYear: draft.startYear,
+      startDate: draft.startDate,
       endMonth: draft.endMonth,
       endYear: draft.endYear,
+      endDate: draft.endDate,
       magnitude: draft.magnitude,
       color: draft.color,
       reflection: draft.reflection,
@@ -415,6 +419,37 @@ export function PhaseFormDialog({ open, onOpenChange, initial, allPhases = [], o
             />
           </div>
           <p className="text-[10.5px] text-zinc-600">Leave empty if this chapter is still open.</p>
+        </div>
+      </div>
+
+      {/* Optional specific dates */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>Start date <span className="text-zinc-500 font-normal">(optional)</span></Label>
+          <Input
+            value={draft.startDate ?? ''}
+            onChange={e => dispatch({ type: 'set', patch: { startDate: e.target.value || null } })}
+            placeholder="YYYY-MM-DD"
+            className="w-full font-mono text-sm"
+            inputMode="numeric"
+            maxLength={10}
+            aria-label="Start date (optional)"
+          />
+          <p className="text-[10.5px] text-zinc-600">Refines the month+year above with a day.</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label>End date <span className="text-zinc-500 font-normal">(optional)</span></Label>
+          <Input
+            value={draft.endDate ?? ''}
+            onChange={e => dispatch({ type: 'set', patch: { endDate: e.target.value || null } })}
+            placeholder="YYYY-MM-DD"
+            disabled={!draft.endYear}
+            className="w-full font-mono text-sm"
+            inputMode="numeric"
+            maxLength={10}
+            aria-label="End date (optional)"
+          />
+          <p className="text-[10.5px] text-zinc-600">Only if you know the exact end day.</p>
         </div>
       </div>
 

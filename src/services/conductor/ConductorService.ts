@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import { SignalingBus, ConductorSignal } from '../lib/signaling/SignalingBus';
 
 export type ConductorRole = 'director' | 'planner' | 'worker' | 'qa' | 'auditor' | 'resolver';
 export type ConductorStatus = 'pending' | 'spawning' | 'running' | 'blocked' | 'awaiting-review' | 'done' | 'failed' | 'killed';
@@ -36,6 +37,7 @@ export interface ConductorNode {
   boundaries: string[];
   createdAt: number;
   lastActivityAt: number;
+  budgetWarned?: boolean;
 }
 
 export interface ConductorMessage {
@@ -96,13 +98,26 @@ export interface ConductorHost {
   killTerminal: (id: string) => any;
   isAgentReady: (id: string) => boolean;
   broadcast: (event: string, ...args: any[]) => void;
+  onSignal?: (sig: ConductorSignal) => void;
+  onMessage?: (msg: ConductorMessage) => void;
 }
 
 const CONDUCTOR_DIR = '.conductor';
 const TICK_MS = 3000;
 const AUDIT_COOLDOWN_MS = 20000;
 const READY_TIMEOUT_MS = 45000;
+const BUDGET_WALL_MS = 30 * 60 * 1000;
 const ACTIVE_STATUSES: ConductorStatus[] = ['pending', 'spawning', 'running', 'blocked', 'awaiting-review'];
+
+const MSG_SIGNAL_MAP: Record<ConductorMessage['type'], SignalType> = {
+  TASK: 'node.spawned',
+  REPORT: 'review.completed',
+  ESCALATE: 'escalation.raised',
+  DIRECTIVE: 'directive.sent',
+  MERGE_OK: 'merge.ok',
+  MERGE_CONFLICT: 'merge.conflict',
+  INFO: 'signal.in',
+};
 
 function nowId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
@@ -112,10 +127,34 @@ export class ConductorService {
   private host: ConductorHost;
   private missions: Map<string, Mission> = new Map();
   private tickHandle: any = null;
+  private bus = new SignalingBus();
 
   constructor(host: ConductorHost) {
     this.host = host;
     this.tickHandle = setInterval(() => { this.tick().catch((e) => this.log('tick error: ' + e?.message)); }, TICK_MS);
+    if (host.onSignal) this.bus.on((sig) => { try { host.onSignal!(sig); } catch { } });
+    if (host.onMessage) this.bus.on((sig) => { if (sig.type === 'signal.in') try { host.onMessage!(sig.payload); } catch { } });
+  }
+
+  /** Subscribe to orchestration signals (renderer uses this for live UI). */
+  onSignal(cb: (s: ConductorSignal) => void): () => void {
+    return this.bus.on(cb);
+  }
+
+  /** Subscribe to agent messages (mirrors conductor:message broadcast). */
+  onMessage(cb: (m: ConductorMessage) => void): () => void {
+    return this.bus.on((sig) => { if (sig.type === 'signal.in') try { cb(sig.payload); } catch { } });
+  }
+
+  /** Emit an internal signal and broadcast it to the renderer. */
+  emitSignal(signal: ConductorSignal): void {
+    this.bus.emit(signal);
+    try { this.host.broadcast('conductor:signal', signal); } catch { }
+  }
+
+  /** Handle a signal coming from outside (e.g. a renderer directive). */
+  handleSignal(sig: ConductorSignal): void {
+    this.bus.emit({ ...sig, type: 'signal.in' });
   }
 
   listMissions() {
@@ -241,6 +280,56 @@ export class ConductorService {
     return this.getSnapshot(missionId);
   }
 
+  /**
+   * Task A: persist an agent-to-agent message and (best-effort) forward it to a
+   * live target agent terminal. Falls back to a broadcast signal if the bridge
+   * is unavailable (e.g. running server-side).
+   */
+  async routeAgentMessage(msg: {
+    missionId: string;
+    from: string;
+    to: string;
+    type: ConductorMessage['type'];
+    summary: string;
+    payload?: any;
+  }): Promise<{ ok: boolean; id?: string; error?: string }> {
+    try {
+      const bridge: any = (globalThis as any).window?.deskflowAPI || (globalThis as any).deskflowAPI;
+      if (bridge?.agent?.sendMessage) {
+        const res: any = await bridge.agent.sendMessage({
+          from_agent: msg.from,
+          to_agent: msg.to,
+          message_type: msg.type,
+          content: msg.summary,
+          mission_id: msg.missionId,
+          payload: msg.payload,
+        });
+        return { ok: !!res?.ok, id: res?.id, error: res?.error };
+      }
+      // Fallback: emit a local signal so the UI still updates.
+      this.emitSignal({ type: MSG_SIGNAL_MAP[msg.type] || 'signal.in', missionId: msg.missionId, nodeId: msg.from, payload: msg });
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: e?.message };
+    }
+  }
+
+  /** Task A: retrieve messages for a mission (optionally filtered by agent). */
+  async getAgentMessages(missionId: string, agentFilter?: string): Promise<any[]> {
+    try {
+      const bridge: any = (globalThis as any).window?.deskflowAPI || (globalThis as any).deskflowAPI;
+      if (bridge?.agent?.getMessages) {
+        const res: any = await bridge.agent.getMessages({ mission_id: missionId, agent_filter: agentFilter });
+        return res?.messages || [];
+      }
+      const m = this.missions.get(missionId);
+      if (!m) return [];
+      return m.messages.filter((mm) => !agentFilter || mm.from === agentFilter || mm.to === agentFilter);
+    } catch {
+      return [];
+    }
+  }
+
   resolveEscalation(missionId: string, escalationId: string, decision: EscalationDecision, note?: string) {
     const m = this.req(missionId);
     const esc = m.escalations.find((e) => e.id === escalationId);
@@ -249,6 +338,7 @@ export class ConductorService {
     esc.decidedAt = Date.now();
     esc.note = note;
     this.applyEscalationDecision(m, esc);
+    this.emitSignal({ type: 'escalation.resolved', missionId: m.id, nodeId: esc.nodeId, payload: esc });
     this.emit(m);
     return this.getSnapshot(missionId);
   }
@@ -287,6 +377,12 @@ export class ConductorService {
 
   private async pollNode(mission: Mission, node: ConductorNode) {
     const dir = path.join(node.worktreePath, CONDUCTOR_DIR);
+    // Budget gate (spec §2.4): warn once when wall-clock budget is exceeded.
+    if (!node.budgetWarned && (Date.now() - node.createdAt) > BUDGET_WALL_MS) {
+      node.budgetWarned = true;
+      this.raiseEscalation(mission, node.id, 'budget', `${node.role} (${node.id}) has exceeded its wall-clock budget (${BUDGET_WALL_MS / 60000} min).`);
+      this.emitSignal({ type: 'budget.exceeded', missionId: mission.id, nodeId: node.id, payload: { role: node.role } });
+    }
     if (node.status === 'spawning') {
       if (this.host.isAgentReady(node.terminalId)) {
         node.status = 'running';
@@ -325,6 +421,7 @@ export class ConductorService {
           });
         }
         node.status = 'awaiting-review';
+        this.emitSignal({ type: 'review.requested', missionId: mission.id, nodeId: node.id, payload: { role: node.role, objective: node.objective } });
       }
       try { fs.renameSync(planPath, planPath + '.handled'); } catch { }
     }
@@ -348,10 +445,13 @@ export class ConductorService {
         if (node.parentId === null) {
           node.status = 'done';
         }
+        if (node.status === 'done') this.emitSignal({ type: 'node.done', missionId: mission.id, nodeId: node.id, payload: { role: node.role } });
+        else this.emitSignal({ type: 'review.requested', missionId: mission.id, nodeId: node.id, payload: { role: node.role, objective: node.objective } });
       } else {
         node.retries += 1;
         if (node.retries > 2) {
           node.status = 'failed';
+          this.emitSignal({ type: 'node.failed', missionId: mission.id, nodeId: node.id, payload: { role: node.role } });
           this.raiseEscalation(mission, node.id, 'confidence', `${node.role} (${node.id}) failed after ${node.retries} attempts: ${data?.summary || 'no details'}`);
         } else {
           node.status = 'running';
@@ -545,6 +645,7 @@ export class ConductorService {
       lastActivityAt: Date.now(),
     };
     mission.nodes.set(nodeId, node);
+    this.emitSignal({ type: 'node.spawned', missionId: mission.id, nodeId, payload: { role: opts.role, objective: opts.objective, depth: opts.depth } });
 
     const spec: SessionSpec = {
       session_id: nodeId,
@@ -669,6 +770,8 @@ export class ConductorService {
     const m: ConductorMessage = { id: nowId('msg'), missionId: mission.id, ts: Date.now(), from, to, type, summary, payload };
     mission.messages.push(m);
     if (mission.messages.length > 500) mission.messages = mission.messages.slice(-500);
+    const sigType = MSG_SIGNAL_MAP[type] || 'signal.in';
+    this.emitSignal({ type: sigType, missionId: mission.id, nodeId: from, payload: m });
     try { this.host.broadcast('conductor:message', m); } catch { }
   }
 

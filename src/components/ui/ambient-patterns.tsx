@@ -46,7 +46,7 @@ export function MeshGradient({ className }: { className?: string }) {
   return (
     <div aria-hidden="true" className={cn("absolute inset-0 pointer-events-none overflow-hidden", className)}>
       <div
-        className="absolute inset-0 opacity-[0.08] df-animate-mesh"
+        className="absolute inset-0 opacity-[0.08]"
         style={{
           background: `
             radial-gradient(at 20% 30%, var(--page-accent) 0px, transparent 50%),

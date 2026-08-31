@@ -1,0 +1,9 @@
+(node:43896) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+INIT: {"name":"Magic UI MCP","version":"1.0.4"}
+CALL searchRegistryItems: [
+  {
+    "type": "text",
+    "text": "{\n  \"query\": \"slider\",\n  \"total\": 0,\n  \"limit\": 25,\n  \"offset\": 0,\n  \"hasMore\": false,\n  \"availableKinds\": [\n    \"component\",\n    \"example\",\n    \"lib\",\n    \"style\"\n  ],\n  \"items\": []\n}"
+  }
+]

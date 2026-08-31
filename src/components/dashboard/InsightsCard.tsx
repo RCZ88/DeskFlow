@@ -7,7 +7,7 @@
 //         Human-Centric UX (progressive insight disclosure, plain copy)
 // ============================================================
 
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import {
   Flame, TrendingUp, Target, Clock, AlertTriangle,
   Zap, Sparkles, BarChart3, PieChart, Activity

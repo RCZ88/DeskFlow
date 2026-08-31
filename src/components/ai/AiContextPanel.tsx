@@ -197,7 +197,7 @@ export function AiContextPanel({ open }: { open: boolean }) {
   if (!open) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 w-[420px] max-h-[70vh] overflow-y-auto bg-zinc-950 text-zinc-200 rounded-xl border border-zinc-800/40 shadow-2xl z-50">
+    <div className="flex flex-col h-full overflow-hidden bg-zinc-950 text-zinc-200">
       {/* Filters */}
       <div className="p-4 border-b border-zinc-800/60 space-y-3">
         <div className="relative">

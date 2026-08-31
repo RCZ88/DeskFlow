@@ -3122,7 +3122,7 @@ Services exist. Let me try launching now.
 BUILD MARKER v4
 [DeskFlow] Preload path: C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker\dist-electron\preload.cjs
 [DeskFlow] __dirname: C:\Users\cleme\Documents\COMPUTAH_SAYENCE\App Tracker\dist-electron
-[DeskFlow] Skipping sleep detection â€” gap 15644min exceeds 16h max
+[DeskFlow] Skipping sleep detection — gap 15644min exceeds 16h max
 (node:35620) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
 (Use `electron --trace-deprecation ...` to show where the warning was created)
 [PERF] createWindow: 2.328s
@@ -3134,7 +3134,7 @@ BUILD MARKER v4
 [PERF]   pollForeground#0: 2.165s
 [DeskFlow] ðŸŒ Browser tracking server started on port 54321
 [DeskFlow] Serving on http://localhost:59912
-[DeskFlow] Skipping sleep detection â€” gap 15644min exceeds 16h max
+[DeskFlow] Skipping sleep detection — gap 15644min exceeds 16h max
 [Backup] startup: 21310 rows -> deskflow-2026-07-26T15-46-09-883Z.db.gz
 [DeskFlow] Browser data received: youtube.com is_browser_focused: true
 [DeskFlow] ? Browser data skipped ï¿½ foreground app does not match configured browser: youtube.com (current: null )
@@ -3168,7 +3168,7 @@ Error occurred in handler for 'focus:history': Error: No handler registered for 
     at Session.<anonymous> (node:electron/js2c/browser_init:2:116575)
     at Session.emit (node:events:508:28)
 [FROZEN-DBG] get-dashboard-aggregates START week 0 0
-[FROZEN-DBG] get-dashboard-aggregates CACHE MISS â€” running queries
+[FROZEN-DBG] get-dashboard-aggregates CACHE MISS — running queries
 [FROZEN-DBG] computePeriodRange done in 0 ms range: 2026-07-20 2026-07-27
 [FROZEN-DBG] Q1 (stats_daily weekly) took 0 ms rows: 0
 [FROZEN-DBG] Q2 (logs hourly) took 0 ms rows: 0

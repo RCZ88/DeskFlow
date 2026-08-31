@@ -1,43 +1,50 @@
-# ðŸ“‹ Feature Tracker
+# °Å¸“â¹ Feature Tracker
 
 **Purpose:** Complete inventory of every page and feature in DeskFlow app.
 
 **Last Updated:** 2026-08-22
 
-## 2026-08-22 � Context System Full Fix (PLANNED)
+## 2026-08-23  File Locking & Conflict Prevention System (PLANNED)
+- **User demand:** Parallel agents editing same file causes corruption. No pre-edit locking, no persistence, no git protection, no build mutex.
+- **Spec:** gent/docs/generate-prompt-docs/file-locking-system-22082026/PROMPT.md
+- **Bugs found:** Post-hoc locks (cosmetic), in-memory only (lost on restart), TTL mismatch (3 values), session_context column missing, no pre-edit locking, no git protection, no build mutex, touched_files unbounded
+- **Being built:** 8 tasks (A-H)  pre-edit locking, DB persistence, TTL config, session_context column, git auto-commit, build mutex, touched_files cleanup, preload bridges
+- **Status:** PLANNED
+
+## 2026-08-22  Context System Full Fix (PLANNED)
 - **User demand:** Context system is completely broken. Every subsystem has identifiable bugs.
 - **Spec:** gent/docs/generate-prompt-docs/context-system-fix-22082026/PROMPT.md
 - **Bugs found:** memoryRetrieval empty threadDate, agent_memories 0 rows, entity extraction 46/47 failed, budget starvation, ContextService.ts dead code, state.md not injected, episode writers skip extraction, brain retrieval returns nothing for generic topics
 - **Being built:** 8 tasks (A-H) fixing all broken subsystems
 - **Status:** PLANNED
 
-## 2026-08-22 � Cross-Session Context Awareness (PLANNED)
+## 2026-08-22  Cross-Session Context Awareness (PLANNED)
 - **User demand:** Sessions blind to each other. /sync manual. No auto-injection. No real-time activity stream.
 - **Spec:** gent/docs/generate-prompt-docs/cross-session-context-22082026/PROMPT.md
 - **What exists:** /sync command, context-changed events, file conflict detection, touched files, crossSessionSyncEnabled toggle
 - **Being built:** Auto-injection in assemble-context, real-time activity stream, auto-sync on session start, SessionActivityFeed UI, message history sharing, ContextSidebar toggle
 - **Status:** PLANNED
 
-## 2026-08-22 � Per-Page Context System (IMPLEMENTED)
+## 2026-08-22  Per-Page Context System (IMPLEMENTED)
 - **Spec:** gent/docs/generate-prompt-docs/page-context-system-22082026/PROMPT.md
 - **Built:** pageContextRegistry.ts, assemble-context page block, get-page-context + notify-page-change IPC, App.tsx page detection, TerminalPage listener, ContextSidebar page tab, system prompt extension
-- **Status:** IMPLEMENTED � all builds pass
+- **Status:** IMPLEMENTED  all builds pass
 
-## 2026-08-22 � Auto-Assign Session Routing (ALREADY EXISTS)
+## 2026-08-22  Auto-Assign Session Routing (ALREADY EXISTS)
 - **Status:** FULLY IMPLEMENTED in codebase (route-prompt, RoutingToast, RoutingDisambiguationDialog, Configs tab)
 
-## 2026-08-18 � AI Chat Organizer & Context Loop via extension (PENDING)
+## 2026-08-18  AI Chat Organizer & Context Loop via extension (PENDING)
 
 ## 2026-08-18 — AI Chat Organizer & Context Loop via extension (opencode-term-1-aivault, PENDING external AI RESULT.md)
-- **User demand (verbatim transcript, voice):** many AI tools, messy; "can't modify AI tools internally" → build the organization layer in the extension instead; auto-capture has limits → manual capture (paste link / save current chat); sessions taggable by roles/groups with notes/nicknames so chats are findable without memorizing titles/links or scrolling huge prompts; want to see contents (current title-only viewer insufficient); context management + visualization; two-way context transfer: app ↔ extension ↔ external AI — copy captured content back INTO the AI chat itself (e.g. "remember this" / context injection into the chat input)
-- **Package (created 2026-08-18):** `agent/docs/generate-prompt-docs/ai-chat-organizer-context-loop-18082026/` — PROMPT.md (mandate: Lead Designer AND Engineer → RESULT.md; Engineering A = extension manual capture: popup "Save this chat" + "Add link" → POST /ai-context source='manual'; Engineering B = org schema: ai_context_captures + nickname/note/tags/group_id/pinned/is_manual + new ai_context_groups table + IPC update/groups + preload + types; Engineering C = Viewer v3 org UI; Engineering D = two-way context loop: viewer "Send to AI" → copy transcript / open chat / extension injects into chat input via chrome.runtime message, extension → app manual capture; Design task = popup org section + viewer v3 glass cards all 4 states; constraints: MV3, MAIN-world capture intact, dedup preserved, no new deps) + CONTEXT_BUNDLE.md (self-contained: full verbatim extension source = manifest.json + popup.html + popup.js + ai-context-content.js 343 lines + focusOverlay.js + background.js ai-context relay + DB schema; main.ts ai-context handlers verbatim main.ts:7642-7710; preload.ts:132-138 bridges + deskflow-api.d.ts:221-227 types; full AiContextPanel.tsx 485 lines; design tokens; RESULT.md format)
+- **User demand (verbatim transcript, voice):** many AI tools, messy; "can't modify AI tools internally" â build the organization layer in the extension instead; auto-capture has limits â manual capture (paste link / save current chat); sessions taggable by roles/groups with notes/nicknames so chats are findable without memorizing titles/links or scrolling huge prompts; want to see contents (current title-only viewer insufficient); context management + visualization; two-way context transfer: app â extension â external AI — copy captured content back INTO the AI chat itself (e.g. "remember this" / context injection into the chat input)
+- **Package (created 2026-08-18):** `agent/docs/generate-prompt-docs/ai-chat-organizer-context-loop-18082026/` — PROMPT.md (mandate: Lead Designer AND Engineer â RESULT.md; Engineering A = extension manual capture: popup "Save this chat" + "Add link" â POST /ai-context source='manual'; Engineering B = org schema: ai_context_captures + nickname/note/tags/group_id/pinned/is_manual + new ai_context_groups table + IPC update/groups + preload + types; Engineering C = Viewer v3 org UI; Engineering D = two-way context loop: viewer "Send to AI" â copy transcript / open chat / extension injects into chat input via chrome.runtime message, extension â app manual capture; Design task = popup org section + viewer v3 glass cards all 4 states; constraints: MV3, MAIN-world capture intact, dedup preserved, no new deps) + CONTEXT_BUNDLE.md (self-contained: full verbatim extension source = manifest.json + popup.html + popup.js + ai-context-content.js 343 lines + focusOverlay.js + background.js ai-context relay + DB schema; main.ts ai-context handlers verbatim main.ts:7642-7710; preload.ts:132-138 bridges + deskflow-api.d.ts:221-227 types; full AiContextPanel.tsx 485 lines; design tokens; RESULT.md format)
 - **NOT implemented yet** — implementation begins only after the external AI's RESULT.md arrives
 
 ## 2026-08-17 — Content Engine v2.0.0 FULLY IMPLEMENTED (opencode-term-1-ceng): backend + all 5 UI phases
-- **Backend:** rubric.ts v2.0.0 (14 criteria, 10 non-negotiable, auto-reject rule), scoringSchemes.ts (3 schemes A/B/C with weights summing to 1.00), prompts.ts (contentEngineSystem + 17 prompts), index.ts (5 new tables, 13+ new IPC handlers, logEvent helper, buildScriptInput, lessonConfirm auto-promotion ≥0.8, process:gallery).
+- **Backend:** rubric.ts v2.0.0 (14 criteria, 10 non-negotiable, auto-reject rule), scoringSchemes.ts (3 schemes A/B/C with weights summing to 1.00), prompts.ts (contentEngineSystem + 17 prompts), index.ts (5 new tables, 13+ new IPC handlers, logEvent helper, buildScriptInput, lessonConfirm auto-promotion â¥0.8, process:gallery).
 - **Phase 2 UI:** ScriptProofCard (per-bullet retention proof: criteria chips, mechanism, evidence quotes, score bars, accept/reject/regenerate, rejected state with rose border), EpisodeScoreSummary (weighted breakdown per criterion, NN check, scheme info).
 - **Phase 3 UI:** ReflectionPanel (human intuition: textarea, AI analysis, characteristics/intuitions/contradictions/format_fit), ProcessTimelineView (chronological events with 14 color-coded types), ProcessGalleryView (growth gallery grid with trend summary), Process tab added to workspace.
-- **Phase 4-5 UI:** AnalyticsImportModal (3-step paste→AI parse→confirm), CalibrationView (accuracy ring + per-criterion bars + recommendations), ProcessSummaryCard (AI narrative), AnalyticsView updated with dual-layer (objective + human reflection) + import button + calibration section.
+- **Phase 4-5 UI:** AnalyticsImportModal (3-step pasteâAI parseâconfirm), CalibrationView (accuracy ring + per-criterion bars + recommendations), ProcessSummaryCard (AI narrative), AnalyticsView updated with dual-layer (objective + human reflection) + import button + calibration section.
 - **ContentEngineWorkspace:** 8 tabs (Brainstorm, Ideas, Episodes, Themes, Analytics, Lessons, Frameworks, Process).
 - **10 new files created, 3 existing files enhanced. Build gates all pass.**
 - **Runtime:** NOT LAUNCHED (no app with debug port). IPC channel names differ slightly from RESULT.md spec but are functionally equivalent.
@@ -51,17 +58,17 @@
 ## 2026-08-16 - Reaction-Diffusion "Living Substrate" on Life page (opencode-term-1-rdlife, RESULT.md reaction-diffusion-life-16082026)
 - **Feature:** Gray-Scott reaction-diffusion ambient "living substrate" backdrop inside the CoreSample ring stage on the Life page — deep amber organic coral glow behind the RingCanvas rings (petri-dish metaphor)
 - **Surface map (from RESULT.md):** HERO = CoreSample stage backdrop at z-0 (RingCanvas bumped to z-10); full-page background SKIPPED; PhaseCards/RiverMap REJECTED (GPU contexts + readability)
-- **Architecture:** R3F `<Canvas orthographic gl={{alpha:true, antialias:false}}>`, ping-pong pair of `WebGLRenderTarget` (FloatType, NearestFilter), 256x256 buffer (384 when devicePixelRatio > 1.5), 2 simulation passes per display frame, display pass maps B-chemical through a hardcoded premultiplied-alpha amber ramp (B=0 → #09090b/a0, B=0.5 → #b45309/a0.15, B=1 → #fbbf24/a0.40), coral preset f=0.0545/k=0.062/dA=1.0/dB=0.5, 14 random circular B-gradient seeds
-- **Perf/a11y:** paused on `document.hidden`, unmounts entirely on `prefers-reduced-motion`, wrapped in error boundary → renders null → existing radial-gradient amber glow in CoreSample stays as graceful fallback
+- **Architecture:** R3F `<Canvas orthographic gl={{alpha:true, antialias:false}}>`, ping-pong pair of `WebGLRenderTarget` (FloatType, NearestFilter), 256x256 buffer (384 when devicePixelRatio > 1.5), 2 simulation passes per display frame, display pass maps B-chemical through a hardcoded premultiplied-alpha amber ramp (B=0 â #09090b/a0, B=0.5 â #b45309/a0.15, B=1 â #fbbf24/a0.40), coral preset f=0.0545/k=0.062/dA=1.0/dB=0.5, 14 random circular B-gradient seeds
+- **Perf/a11y:** paused on `document.hidden`, unmounts entirely on `prefers-reduced-motion`, wrapped in error boundary â renders null â existing radial-gradient amber glow in CoreSample stays as graceful fallback
 - **Files:** NEW `src/shaders/rd-simulation.glsl` (stripped of mousePosition/brushRadius/styleMap*, 5-point Laplacian setWeights(2)), NEW `src/shaders/rd-display.glsl` (no renderingStyle branches), NEW `src/shaders/glsl.d.ts` (`?raw` types), NEW `src/components/life-river/LivingSubstrate.tsx` (v1.0 console stamp), MODIFIED `src/components/life-river/CoreSample.tsx` (LivingSubstrate at z-0, RingCanvas wrapper z-10)
 - **Build:** vite OK (LifePage.BJRdEuAb.js 898KB; shader/component markers present in chunk), preload.cjs 105KB, main.cjs 1.38MB, tsc clean (only pre-existing aiAgentService.test.ts errors); audit vs RESULT.md = zero omission; NOT LAUNCHED (RHEO running since ~22:26 WITHOUT --remote-debugging-port — CZ must relaunch to see it)
 
 ## 2026-08-16 - AFK popup shows all of today's unfilled gaps (MissedTimePanel)
-- **Feature:** When the AFK detection popup appears, it now also shows ALL unfilled gaps for that day (not just the AFK span): a "Missed time today" panel with a day-strip hero (00:00 → now) where tracked time is a subtle gradient bar and each unfilled gap is an eroding "void" segment (dark + amber edges + slow marching stripes, transform-only animation, 10s linear), with mono time ticks and "now" at the right edge
-- **Focal stat:** count-up % tracked (useSpring, reduced-motion aware, gradient amber→rose text) + "X gaps missed" chip (CalendarX2) + total missing duration chip (Hourglass) + "Y% of your day is unaccounted for" subline
-- **Actions:** "Fill gaps now" (indigo → clears AFK entry + opens the app-wide smart GapFillDrawer via open-gap-drawer event) and "Later" (collapses panel; slim amber reminder bar with Show). Loading = pulse skeleton; zero gaps = emerald "Nothing missed today"
+- **Feature:** When the AFK detection popup appears, it now also shows ALL unfilled gaps for that day (not just the AFK span): a "Missed time today" panel with a day-strip hero (00:00 â now) where tracked time is a subtle gradient bar and each unfilled gap is an eroding "void" segment (dark + amber edges + slow marching stripes, transform-only animation, 10s linear), with mono time ticks and "now" at the right edge
+- **Focal stat:** count-up % tracked (useSpring, reduced-motion aware, gradient amberârose text) + "X gaps missed" chip (CalendarX2) + total missing duration chip (Hourglass) + "Y% of your day is unaccounted for" subline
+- **Actions:** "Fill gaps now" (indigo â clears AFK entry + opens the app-wide smart GapFillDrawer via open-gap-drawer event) and "Later" (collapses panel; slim amber reminder bar with Show). Loading = pulse skeleton; zero gaps = emerald "Nothing missed today"
 - **Files:** new `src/components/MissedTimePanel.tsx` (v1.0, fetches `detectUsageGaps({period:'today', minGapMinutes:5})`, refreshes on external-data-changed + 60s interval); `AfkPromptModal` gained `children?: React.ReactNode` slot rendered before the Action Bar; App.tsx passes the panel into the AFK modal (~line 3355)
-- **Metric:** % computed against the ELAPSED day (00:00 → now), never full 24h — future time isn't "missing". Backend already treats logs + external sessions + manual_time_assignments as coverage (detect-usage-gaps, main.ts ~20972)
+- **Metric:** % computed against the ELAPSED day (00:00 â now), never full 24h — future time isn't "missing". Backend already treats logs + external sessions + manual_time_assignments as coverage (detect-usage-gaps, main.ts ~20972)
 - **Build:** vite OK (entry index.DXNM5nU5.js), preload.cjs 105KB, main.cjs 1.38MB, tsc clean (only pre-existing aiAgentService.test.ts errors); markers in compiled bundle; NOT LAUNCHED (no CDP port on running instance)
 
 ## 2026-08-16 — Manual time-assignment (External page) + hardening round (opencode-term-1-manual)
@@ -70,8 +77,8 @@
 - **Backend:** `manual_time_assignments` table (main.ts ~2810, index ~2820); IPC `manual-assign:list` (21110) / `day-context` (21124, returns `{tracked, manual}` with local-midnight day window) / `create` (21156, validates overlap against tracked logs AND existing manual rows; stores local date in `date`, ISO in `started_at`) / `delete` (~21187+); `syncManualStats` (21068) mirrors totals into daily aggregates (pseudo-app "Manual time"); `detect-usage-gaps` includes manual rows (20986, 21050) so assigned time never becomes a gap.
 - **Preload/types:** `manualAssignList`/`manualAssignDayContext`/`manualAssignCreate`/`manualAssignDelete` (preload.ts 654–657); `ManualAssignment` interface + 4 API methods (deskflow-api.d.ts 481–484, 515).
 - **Lib:** `src/lib/external/manualTime.ts` — `freeSpans` (min 30 min), `scatterChunks` (capacity clamp to max free fill, min 15 min/chunk, exact-remainder path, [] when nothing fits), `splitDurations`, `intervalsOverlap`.
-- **Hardening round (this cycle):** (1) scatterChunks round-overflow bug — real log timestamps are SECOND-aligned so `Math.round(maxStart/MS_MIN)` could overshoot the slot by ~1 min → backend overlap rejection; fixed with floor-based whole-minute pick. (2) modal `free`/`isCellFree`/`runPreview` now treat existing MANUAL assignments as occupied (custom paint could overlap manual → partial save). (3) capacity warning + "No free space" empty-state messages (`previewNotice`). (4) stale preview cleared on input change. (5) Escape-to-close (deferred while delete-confirm dialog open). (6) "Today" shortcut in day picker. (7) delete now confirms via CustomConfirmDialog (danger variant; no one-click destructive; tracked time untouched). (8) fixed partial-failure bug — success message no longer overwrites real errors; day context refreshes, preview clears, failing block shown in error. (9) copy fixed ("of your recorded duration" → user-typed total).
-- **Verified:** precision harness (second-level slots: 3000 trials 0 overlaps; capacity clamp; exact remainder; fully-occupied → []) + 500-trial loop all pass. Build: vite OK (bundle index.BzCOLPW5.js), preload.cjs 103 KB, main.cjs 1.38 MB; markers confirmed in compiled bundle; dist/index.html valid; NOT LAUNCHED (DeskFlow not running; only YAP-A-TrON electron processes present — not ours, untouched).
+- **Hardening round (this cycle):** (1) scatterChunks round-overflow bug — real log timestamps are SECOND-aligned so `Math.round(maxStart/MS_MIN)` could overshoot the slot by ~1 min â backend overlap rejection; fixed with floor-based whole-minute pick. (2) modal `free`/`isCellFree`/`runPreview` now treat existing MANUAL assignments as occupied (custom paint could overlap manual â partial save). (3) capacity warning + "No free space" empty-state messages (`previewNotice`). (4) stale preview cleared on input change. (5) Escape-to-close (deferred while delete-confirm dialog open). (6) "Today" shortcut in day picker. (7) delete now confirms via CustomConfirmDialog (danger variant; no one-click destructive; tracked time untouched). (8) fixed partial-failure bug — success message no longer overwrites real errors; day context refreshes, preview clears, failing block shown in error. (9) copy fixed ("of your recorded duration" â user-typed total).
+- **Verified:** precision harness (second-level slots: 3000 trials 0 overlaps; capacity clamp; exact remainder; fully-occupied â []) + 500-trial loop all pass. Build: vite OK (bundle index.BzCOLPW5.js), preload.cjs 103 KB, main.cjs 1.38 MB; markers confirmed in compiled bundle; dist/index.html valid; NOT LAUNCHED (DeskFlow not running; only YAP-A-TrON electron processes present — not ours, untouched).
 
 ## 2026-08-16 - Sleep Adjacent Gap Fill (untracked time around sleep)
 - **Feature:** After confirming sleep, the sleep modal offers to fill untracked device time right before falling asleep / after waking (2-step flow: sleep -> gaps)
@@ -84,10 +91,10 @@
 ## 2026-08-12 — Clement Overlay Studio (Video Intelligence)
 - **Route:** /studio (Sparkles icon, 'Overlay Studio')
 - **Full spec:** agent/docs/clement-overlay-studio-context.md (all3 versions)
-- **Pipeline:** video → ffmpeg → faster-whisper → transcript.json → Ollama → cut_plan.json → human approve → ffmpeg lossless cut → kept segments → Ollama → scene_dsl.json → renderer dispatch → cards/diagrams/timeline.json
+- **Pipeline:** video â ffmpeg â faster-whisper â transcript.json â Ollama â cut_plan.json â human approve â ffmpeg lossless cut â kept segments â Ollama â scene_dsl.json â renderer dispatch â cards/diagrams/timeline.json
 - **Built:** overlayStudio.ts (types/tokens), overlayPrompts.ts (3 prompts), overlayParser.ts (parse pipeline), IPC handler, preload wrapper
 - **Not built:** 4-tab page rewrite, transcript upload UI, cut plan timeline, scene DSL preview, Manual Bridge wizard, Python backend, renderer registry
-- **Manual Bridge:** copy prompt → paste into any web AI → paste back → app validates + repairs
+- **Manual Bridge:** copy prompt â paste into any web AI â paste back â app validates + repairs
 
 ## 2026-08-12 — Feature Studio AI Director Pipeline
 - **Route:** /studio (App.tsx sidebar, Sparkles icon)
@@ -96,7 +103,7 @@
 - **JSON Extraction:** extractJsonFromAIResponse handles direct parse + \\\json fences + brace-matching fallback
 - **Validation:** validateDirectorOutput checks type/title/data.kind/accent/size per component with strict error messages
 - **Rendering:** DynamicCardRenderer handles all 7 types with charts, sparklines, tables, timelines, lists, forms, stats
-- **Modes:** AI Generate (script → IPC → parse → render) and Manual JSON (paste → validate → render)
+- **Modes:** AI Generate (script â IPC â parse â render) and Manual JSON (paste â validate â render)
 - **Export:** JSON file download + save to AI canvas component library
 
 ## 2026-08-12 — AI Canvas Setup Context System (RESULT.md R1–R5, opencode-term-1-setup cycle 3)
@@ -113,9 +120,9 @@
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
 | CAM1 | CodeArchitectureMap component: two-panel layout (file tree + cytoscape/dagre graph), nodes colored by file type, edges from parent relationships, zoom/pan/search/filter by type, node detail panel with dependents/dependencies | Implemented (build OK, NOT LAUNCHED) | `src/components/workspace/CodeArchitectureMap.tsx` |
-| CAM2 | Replaced WorkspaceMindMap in Context → Architecture Map subtab; renamed tab from "Context Map" to "Architecture Map" | Implemented (build OK, NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
+| CAM2 | Replaced WorkspaceMindMap in Context â Architecture Map subtab; renamed tab from "Context Map" to "Architecture Map" | Implemented (build OK, NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
 | CAM3 | Fallback tree with 200+ known project paths when file listing API unavailable | Implemented | `src/components/workspace/CodeArchitectureMap.tsx` (buildFallbackTree) |
-| CAM4 | In-app file viewer: click node → "View" button → reads file via `readProjectFile` IPC → shows content with line numbers, copy button, simple syntax highlighting (TS/TSX/CSS/JSON/MD keywords) | Implemented (build OK, NOT LAUNCHED) | `src/components/workspace/CodeArchitectureMap.tsx` (FileViewerPanel + CodeLine) |
+| CAM4 | In-app file viewer: click node â "View" button â reads file via `readProjectFile` IPC â shows content with line numbers, copy button, simple syntax highlighting (TS/TSX/CSS/JSON/MD keywords) | Implemented (build OK, NOT LAUNCHED) | `src/components/workspace/CodeArchitectureMap.tsx` (FileViewerPanel + CodeLine) |
 
 ---
 
@@ -124,7 +131,7 @@
 | # | Feature | Status | Where |
 |---|---|---|---|
 | WS1 | Revamped workspace New Agent event accepts the embedded workspace's `propProjectId`; dialog receives the effective project ID/path | AI Attempted Fix (build OK, runtime NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
-| WS2 | Work → Sessions → New Session explicitly resets create mode before opening the shared dialog | AI Attempted Fix (build OK, runtime NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
+| WS2 | Work â Sessions â New Session explicitly resets create mode before opening the shared dialog | AI Attempted Fix (build OK, runtime NOT LAUNCHED) | `src/pages/TerminalPage.tsx` |
 
 ---
 
@@ -140,7 +147,7 @@
 
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
-| F1 | ZoomPan.tsx rewritten: auto-fit-to-square on mount + ResizeObserver (content + container) resets fit unless user interacted; arrow buttons (↑↓←→) + arrow-key panning; wheel zoom (native passive:false); drag pan (5px threshold); +/-/fit/fullscreen toolbar | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/ZoomPan.tsx` |
+| F1 | ZoomPan.tsx rewritten: auto-fit-to-square on mount + ResizeObserver (content + container) resets fit unless user interacted; arrow buttons (ââââ) + arrow-key panning; wheel zoom (native passive:false); drag pan (5px threshold); +/-/fit/fullscreen toolbar | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/ZoomPan.tsx` |
 | F2 | MermaidBlock wrapped in ZoomPan; SVG max-width stripped (`removeProperty('max-width')` + `maxWidth='none'`); `preserveAspectRatio` preserved | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/MermaidBlock.tsx` |
 | F3 | mermaidLoader: `flowchart.useMaxWidth: false`, `sequence.useMaxWidth: false` — diagrams render at natural pixel width instead of locking to container | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/mermaidLoader.ts` |
 | F4 | PendingIllustrationsPanel: checklist UI — `CheckSquare`/`Square` icons per card (emerald checked = inserted, grey unchecked = pending); progress bar (amber pending, emerald when done); header shows "X/Y inserted" | Implemented (build OK, NOT LAUNCHED) | `src/components/learn/blocks/PendingIllustrationsPanel.tsx` |
@@ -166,17 +173,17 @@
 
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
-| F1 | `isTuiSettled` replaces `hasEnoughAgentOutputToAcceptInput`: ≥150 bytes buffer + last line not shell + PTY idle ≥500ms (lastOutputAt reset on every chunk) — readiness no longer depends on fragile `>` regex or bracketed-paste config | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `isTuiSettled` (~L11183) |
-| F2 | Write verification: `agent:send` starts 2.5s timer after direct write; new PTY output while `busy` → `[AGENT-VERIFY] Write confirmed`, broadcast `agent:write-verified` + agent:idle + ai-task:updated, phase→ready; timeout → retry `\r`+payload once, then `[AGENT-VERIFY] Retry failed` → phase=error + `agent:write-failed` broadcast | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `agent:send` handler + both PTY data callbacks |
+| F1 | `isTuiSettled` replaces `hasEnoughAgentOutputToAcceptInput`: â¥150 bytes buffer + last line not shell + PTY idle â¥500ms (lastOutputAt reset on every chunk) — readiness no longer depends on fragile `>` regex or bracketed-paste config | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `isTuiSettled` (~L11183) |
+| F2 | Write verification: `agent:send` starts 2.5s timer after direct write; new PTY output while `busy` â `[AGENT-VERIFY] Write confirmed`, broadcast `agent:write-verified` + agent:idle + ai-task:updated, phaseâready; timeout â retry `\r`+payload once, then `[AGENT-VERIFY] Retry failed` â phase=error + `agent:write-failed` broadcast | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `agent:send` handler + both PTY data callbacks |
 | F3 | Launching transition = `detectAgentPrompt(...) \|\| isTuiSettled(st)` with `[AGENT-SETTLE]` log; handshake-based `isAgentReady`/`handshakeSeen` removed from callbacks | Implemented (build OK, NOT LAUNCHED) | src/main.ts — terminal:create + spawn-terminal data handlers |
-| F4 | Blind 5s force-ready REMOVED from `startAgentTimeout`; hard error timeout 30s→15s | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `startAgentTimeout` |
+| F4 | Blind 5s force-ready REMOVED from `startAgentTimeout`; hard error timeout 30sâ15s | Implemented (build OK, NOT LAUNCHED) | src/main.ts — `startAgentTimeout` |
 | F5 | AgentState gains `lastOutputAt` + `verifyTimeout`; `agent:send` returns `{success, queued, written, verified, error?}` | Implemented (build OK, NOT LAUNCHED) | src/main.ts — AgentState, agent:send |
 | F6 | Renderer: DUMMY ENTER fallback removed from `initializeTerminal` (now 300ms settle only); init-prompt send no longer logs mode; waits on backend broadcast | Implemented (build OK, NOT LAUNCHED) | src/pages/TerminalPage.tsx (~L1130) |
 | F7 | `agentSend` declared in `src/types/deskflow-api.d.ts` with expanded return type (was missing entirely) | Implemented (build OK) | src/types/deskflow-api.d.ts |
 
 ---
 
-## NEW: NewSessionDialog — 3-step wizard rebuild (name/agent → context map → review) — 2026-08-10 (session opencode-term-1-nsdlg)
+## NEW: NewSessionDialog — 3-step wizard rebuild (name/agent â context map â review) — 2026-08-10 (session opencode-term-1-nsdlg)
 
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
@@ -184,7 +191,7 @@
 | F2 | Backend contract preserved: system.status/verify, listInitFiles, getAgentsContext, assemble, `deskflow:context-update` listener, advanced config toggles; SessionConfig.customSystemPrompt carries assembled prompt (`prompt \|\| undefined`) | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
 | F3 | Named export `export function NewSessionDialog` + `export interface SessionConfig` — TerminalPage.tsx:10 imports `{ NewSessionDialog, type SessionConfig }` (default export breaks vite build) | Implemented (build OK) | `src/components/NewSessionDialog.tsx`, `src/pages/TerminalPage.tsx` |
 | F4 | Visual layer: base-ui Dialog shell, NSD_ACCENT (`--page-accent`) override, sr-only title/description, staggered nsd-* entrance animations (slideUp/slideInRight/Left/fadein/beam-flow) with prefers-reduced-motion guard; VoiceInputWrapper used as direct child (no render-prop) | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
-| F5 | Step 1 systems list honors `showAll` (slice(0,4) unless expanded); tier row onMouseEnter → tierHint; workspaceConfig seeds enabledNodes from WORKSPACE_CONFIG_PREF_KEY | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
+| F5 | Step 1 systems list honors `showAll` (slice(0,4) unless expanded); tier row onMouseEnter â tierHint; workspaceConfig seeds enabledNodes from WORKSPACE_CONFIG_PREF_KEY | Implemented (build OK, NOT LAUNCHED) | `src/components/NewSessionDialog.tsx` |
 
 ---
 
@@ -192,10 +199,10 @@
 
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
-| F1 | Gaps list multi-select: per-row checkbox (aria-pressed, only when `onFillGaps` provided), sticky footer bar "N selected • Xm" with Select all / Clear / "Fill N gaps" (opens the composition editor once) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapsListModal.tsx` — `selected` Map state, `toggleGap`, footer bar |
+| F1 | Gaps list multi-select: per-row checkbox (aria-pressed, only when `onFillGaps` provided), sticky footer bar "N selected â¢ Xm" with Select all / Clear / "Fill N gaps" (opens the composition editor once) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapsListModal.tsx` — `selected` Map state, `toggleGap`, footer bar |
 | F2 | GapFillModal multi-gaps mode (`multiGaps` prop): header "Fill N Gaps" + untracked total + "Same composition, scaled to each gap's length" hint; reference gap = `multiGaps[0]` for the editor; sequential submit with "Filling X/N…" progress; partial failures keep the modal open and RETRY targets only the failed gaps (no double-fill) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapFillModal.tsx` — `referenceGap`/`isMulti`, `fillProgress`, `failedGaps` retry list |
-| F3 | `scaleSegmentsToGap(segments, targetSeconds)` pure helper: drops null-activity segments, proportional scaling (floor ≥1 min, rounding remainder to LAST segment), never renormalizes; fillGapWithSegments clips overshoot | Implemented (build OK, node harness 10/10 PASS) | `src/lib/external/gaps.ts` |
-| F4 | ExternalPage wiring: `gapTargets` state, GapsListModal `onFillGaps` → close list → open GapFillModal with `multiGaps`; single-gap "Fill" flow unchanged | Implemented (build OK, NOT LAUNCHED) | `src/pages/ExternalPage.tsx` (~L3140-3180) |
+| F3 | `scaleSegmentsToGap(segments, targetSeconds)` pure helper: drops null-activity segments, proportional scaling (floor â¥1 min, rounding remainder to LAST segment), never renormalizes; fillGapWithSegments clips overshoot | Implemented (build OK, node harness 10/10 PASS) | `src/lib/external/gaps.ts` |
+| F4 | ExternalPage wiring: `gapTargets` state, GapsListModal `onFillGaps` â close list â open GapFillModal with `multiGaps`; single-gap "Fill" flow unchanged | Implemented (build OK, NOT LAUNCHED) | `src/pages/ExternalPage.tsx` (~L3140-3180) |
 
 ---
 
@@ -204,7 +211,7 @@
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
 | F1 | `computeRecapStats` (main.ts:25810) now returns `spendingByCategory` — ALL categories (no LIMIT) via LEFT JOIN with `'Uncategorized'`/`'#888888'` fallbacks, alongside `topCategories`; AI prompt (`buildRecapUserMessage` ~25898) uses the full list when present, falls back to `topCategories` | Implemented (build OK, NOT LAUNCHED) | src/main.ts — spendingByCategory query + prompt injection |
-| F2 | RecapPanel "Spending by Category" section: doughnut (cutout 72%, hoverOffset 6) with center total overlay + "spent", animated horizontal bars (motion width, stagger 0.05*i, ease [0.16,1,0.3,1], h-1.5 tracks), top 6 + "Other" lump (#71717a), glass tooltip; legacy recaps fall back to `stats.topCategories`; empty → null | Implemented (build OK, NOT LAUNCHED) | src/components/finance/RecapPanel.tsx — `renderSpendingByCategory()` after `renderStatsGrid()`, before `renderOnBehalf()`; ArcElement + ChartTooltip registered locally |
+| F2 | RecapPanel "Spending by Category" section: doughnut (cutout 72%, hoverOffset 6) with center total overlay + "spent", animated horizontal bars (motion width, stagger 0.05*i, ease [0.16,1,0.3,1], h-1.5 tracks), top 6 + "Other" lump (#71717a), glass tooltip; legacy recaps fall back to `stats.topCategories`; empty â null | Implemented (build OK, NOT LAUNCHED) | src/components/finance/RecapPanel.tsx — `renderSpendingByCategory()` after `renderStatsGrid()`, before `renderOnBehalf()`; ArcElement + ChartTooltip registered locally |
 
 ---
 
@@ -243,7 +250,7 @@ Deviation notes: ring "unroll" implemented as click -> smooth-scroll + 900ms amb
 | F1 | Smart Fill button in the GLOBAL top bar (app-wide gap-fill drawer entry, was External-page-only) | Implemented (build OK, NOT LAUNCHED) | App.tsx top bar (line ~2813) — dispatches same `open-gap-drawer` event; ExternalPage header button kept |
 | F2 | beautiful-charts (Dribbble/Hyper Charts) restyle of External Overview tab: gradient bar fills + neon caps, glass tooltips, donut glow + legend dot glows | Implemented (build OK, NOT LAUNCHED) | ExternalPage.tsx `vizTab === 'grid'` — `barGradient`/`hexWithAlpha`/`glassTooltip` helpers (~899), all 3 Overview cards |
 | F3 | Drag-to-reorder of segments in the External Fill Gap popup (dnd-kit, grip handle) | Implemented (build OK, NOT LAUNCHED) | `src/components/external/GapFillModal.tsx` — SortableSegmentRow + sensors + arrayMove |
-| F4 | Sleep popup day-lookup rewrite: matches the LOCAL grouped evening date (startH<12 → previous day) instead of UTC date() + '+1 day' + ORDER BY DESC (which returned the NEXT night's sleep) | Implemented (build OK, NOT LAUNCHED) | main.ts `get-sleep-for-date` — window query `[dateStr 12:00 local, +24h)`, ASC, first match |
+| F4 | Sleep popup day-lookup rewrite: matches the LOCAL grouped evening date (startH<12 â previous day) instead of UTC date() + '+1 day' + ORDER BY DESC (which returned the NEXT night's sleep) | Implemented (build OK, NOT LAUNCHED) | main.ts `get-sleep-for-date` — window query `[dateStr 12:00 local, +24h)`, ASC, first match |
 
 ---
 
@@ -252,8 +259,8 @@ Deviation notes: ring "unroll" implemented as click -> smooth-scroll + 900ms amb
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
 | F1 | Shared heuristic cleaner for AI recap output: strips "Financial Biographer"-style briefs, data bullet echoes (category: amount (n txns), wallet/net lines, "X on YYYY-MM-DD"), "Thought:" blocks, preambles ("This is a narrative summary… Please read the data below…") — narrative-only output | Implemented (build OK, parser verified via fixture, NOT LAUNCHED) | `src/shared/recap.ts` `cleanRecapSummary` — BRIEF_PATTERNS/DATA_PATTERNS; consumed by main.ts `finance:recap-generate` AND defensively in RecapPanel.tsx narrative memo (legacy rows fixed without regen) |
-| F2 | APEX insight card derived from REAL stats instead of AI-invented: dominant category (≥30% of spending) → net swing vs prev month → wallet delta ≥5000 → biggest expense | Implemented (build OK, NOT LAUNCHED) | `computeApexInsight(stats)` in `src/shared/recap.ts`; stored inside stats_json (no schema change); rendered in RecapPanel when present |
-| F3 | Live generation progress: reading → analyzing → writing → saving → done over `finance:recap-progress` IPC with animated stage bar + stage-labeled buttons; stronger system prompt (strict OUTPUT FORMAT) + maxTokens 500→700 | Implemented (build OK, NOT LAUNCHED) | main.ts generateRecapInternal + RECAP_SYSTEM_PROMPT; preload `onRecapProgress`; deskflow-api.d.ts; RecapPanel genStage/STAGE_LABEL/STAGE_DESC/STAGE_WIDTH |
+| F2 | APEX insight card derived from REAL stats instead of AI-invented: dominant category (â¥30% of spending) â net swing vs prev month â wallet delta â¥5000 â biggest expense | Implemented (build OK, NOT LAUNCHED) | `computeApexInsight(stats)` in `src/shared/recap.ts`; stored inside stats_json (no schema change); rendered in RecapPanel when present |
+| F3 | Live generation progress: reading â analyzing â writing â saving â done over `finance:recap-progress` IPC with animated stage bar + stage-labeled buttons; stronger system prompt (strict OUTPUT FORMAT) + maxTokens 500â700 | Implemented (build OK, NOT LAUNCHED) | main.ts generateRecapInternal + RECAP_SYSTEM_PROMPT; preload `onRecapProgress`; deskflow-api.d.ts; RecapPanel genStage/STAGE_LABEL/STAGE_DESC/STAGE_WIDTH |
 
 ---
 
@@ -261,11 +268,11 @@ Deviation notes: ring "unroll" implemented as click -> smooth-scroll + 900ms amb
 
 | # | Feature | Status | Where |
 |---|---------|--------|-------|
-| F1 | Rename "Rerun setup" → "Adjust setup answers" + confirm dialog; strengthen reset-profile confirm | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx (onRerunSetup prop) — button renamed + `confirm()` dialog; LearnerSetup pre-fills from `loadProfile()` (line 19) |
+| F1 | Rename "Rerun setup" â "Adjust setup answers" + confirm dialog; strengthen reset-profile confirm | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx (onRerunSetup prop) — button renamed + `confirm()` dialog; LearnerSetup pre-fills from `loadProfile()` (line 19) |
 | F2 | Knowledge Base form chips = user's OWN lesson topics (loadUserLessons), not CURRICULUM_BLUEPRINT chips | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx KB editor + LearnerSetup.tsx Q9 — chips show lesson titles, `linkedLessons: string[]`, empty state |
 | F3 | Prior Knowledge section shows ONLY curriculum parts the user has lessons in | Implemented (build OK, NOT LAUNCHED) | LearnerProfilePanel.tsx + LearnerSetup.tsx Q8 — filtered by `userLessons.parts`, empty state |
 | F4 | Remove redundant duplicate chapter/topic list in reader (node outline + TableOfContents + ChecklistProgress all list the same titles) | Implemented (build OK, NOT LAUNCHED) | ReaderView.tsx — compact ChecklistProgress removed from sidebar; outline is the single listing; full checklist remains at node bottom |
-| F5 | Image generation respects profile setting (ImageGenSettings.enabled): when disabled → placeholder + notification, offer prompt-based setup UI | Implemented (build OK, NOT LAUNCHED) | IllustrationBlock.tsx — `aiEnabled` from `learnGetImageGenSettings`; disabled → "AI generation is off" hint button; upload still available |
+| F5 | Image generation respects profile setting (ImageGenSettings.enabled): when disabled â placeholder + notification, offer prompt-based setup UI | Implemented (build OK, NOT LAUNCHED) | IllustrationBlock.tsx — `aiEnabled` from `learnGetImageGenSettings`; disabled â "AI generation is off" hint button; upload still available |
 | F6 | CodeBlock Run/execute button (bash/python) via electron:execute-command (runnable flag already in data model) | Implemented (build OK, NOT LAUNCHED) | CodeBlock.tsx + new `learn:runCode` IPC (services/learn/index.ts) + preload `learnRunCode` — language-keyed (runnable flag is hardcoded false by parser), 15s timeout, scratch dir |
 | F7 | Learn keyboard shortcuts on/off toggle — NO preference exists today (hardcoded keydown LearnPage.tsx ~134-193); add toggle in the '?' shortcuts modal | Implemented (build OK, NOT LAUNCHED) | LearnPage.tsx — `lyceum.shortcutsEnabled` (localStorage, default true), guard keeps only Esc + '?' when off, Switch in '?' modal |
 | F8 | LDOC viewer toggle per node: button in reader shows raw .ldoc source for the current section (debug + modify) | Implemented (build OK, NOT LAUNCHED) | ReaderView.tsx — "Source" tab-bar button, `learnGetLessonSource({lessonId})`, pretty-printed JSON pane |
@@ -283,7 +290,7 @@ Deviation notes: ring "unroll" implemented as click -> smooth-scroll + 900ms amb
 Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAiPeriod 'all', minDate-anchored); this round added the phases strip to it plus the new Tool timeline. Renderer-only, no new IPC.
 ---
 
-## ðŸ“Œ Page Index
+## °Å¸“Å Page Index
 
 | Route | Page Component | Description |
 |-------|----------------|-------------|
@@ -303,7 +310,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 ---
 
-## ðŸŒŒ 1. Dashboard Page (`/`)
+## °Å¸ÅÅ 1. Dashboard Page (`/`)
 
 **Component:** `src/pages/DashboardPage.tsx` (~2400 lines)
 
@@ -313,29 +320,29 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 - **Feature:** Interactive 3D solar system visualization
 - **Technology:** React Three Fiber, Three.js
 - **Details:**
-  - Planets represent apps with size = usage time
+ - Planets represent apps with size = usage time
 
-  - Orbits based on usage (most used = furthest)
+ - Orbits based on usage (most used = furthest)
 
-  - Logarithmic orbit spacing (inner planets close, outer planets spread)
+ - Logarithmic orbit spacing (inner planets close, outer planets spread)
 
-  - Visual balance factor (0.65) for engaging angular speeds
+ - Visual balance factor (0.65) for engaging angular speeds
 
-  - Procedural textures generated via Canvas API
+ - Procedural textures generated via Canvas API
 
-  - Category-based color schemes and patterns
+ - Category-based color schemes and patterns
 
-  - Click planets to see app details with camera tracking
+ - Click planets to see app details with camera tracking
 
-  - Hover for tooltips with usage stats
+ - Hover for tooltips with usage stats
 
-  - Period selector inside OrbitSystem UI (Today/Week/Month/All)
+ - Period selector inside OrbitSystem UI (Today/Week/Month/All)
 
-  - Category dropdown animates camera to solar system
+ - Category dropdown animates camera to solar system
 
-  - Planet click locks camera to follow orbiting planet
+ - Planet click locks camera to follow orbiting planet
 
-  - Tracking cleared on zoom out, reset, galaxy switch
+ - Tracking cleared on zoom out, reset, galaxy switch
 
 #### 1.2 Category System
 - **Productive:** IDE, AI Tools, Developer Tools, Education, Productivity, Tools
@@ -345,49 +352,49 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 - **Custom categories:** Add/remove custom categories (persist in deskflow-categories.json)
 
 #### 1.3 Heatmap
-- **Feature:** Hourly activity heatmap (7 days Ã— 24 hours)
+- **Feature:** Hourly activity heatmap (7 days ×— 24 hours)
 - **Modes:**
-  - `external` - External activity only (AI tools, websites)
+ - `external` - External activity only (AI tools, websites)
 
-  - `device` - Device activity only (local apps)
+ - `device` - Device activity only (local apps)
 
-  - `combined` - Both with color blending
+ - `combined` - Both with color blending
 
 - **Interactions:**
-  - **Hover:** Tooltip shows device + external time per hour
-  - **Click hour:** Detail panel below heatmap with per-app device breakdown, colored dots, durations
-  - **Click day label:** DayDetailPopup modal with timeline items (app=blue, browser=green, external=purple)
-  - Hour-splitting uses calendar hour boundaries (no cross-hour leakage)
+ - **Hover:** Tooltip shows device + external time per hour
+ - **Click hour:** Detail panel below heatmap with per-app device breakdown, colored dots, durations
+ - **Click day label:** DayDetailPopup modal with timeline items (app=blue, browser=green, external=purple)
+ - Hour-splitting uses calendar hour boundaries (no cross-hour leakage)
 
-  - 12-hour format labels (12a, 1a...12p, 1p)
+ - 12-hour format labels (12a, 1a...12p, 1p)
 
 - **Color coding:**
-  - External-only: Purple scheme
+ - External-only: Purple scheme
 
-  - Device-only: Red-green productivity colors
+ - Device-only: Red-green productivity colors
 
-  - Combined: Max duration with blended colors
+ - Combined: Max duration with blended colors
 
 #### 1.4 Weekly Overview (Activity Charts)
 - **Feature:** Bar chart showing period activity summary with stacked bars
 - **Details:**
-  - Rounded bar corners
+ - Rounded bar corners
 
-  - Total hours displayed below chart
+ - Total hours displayed below chart
 
-  - Device breakdown bar (colored segments per app)
+ - Device breakdown bar (colored segments per app)
 
-  - External activity stacked on top (purple)
+ - External activity stacked on top (purple)
 
-  - Period navigation (prev/next buttons + "Today" reset)
+ - Period navigation (prev/next buttons + "Today" reset)
 
-  - Respects period selector + dateOffset
+ - Respects period selector + dateOffset
 
-  - Dynamic labels: hourly for today, daily for week, 30-day for month, monthly for all
+ - Dynamic labels: hourly for today, daily for week, 30-day for month, monthly for all
 
-  - Horizontal scroll for overflow
+ - Horizontal scroll for overflow
 
-  - Dedicated "View Heatmap" button (no click-on-chart)
+ - Dedicated "View Heatmap" button (no click-on-chart)
 
 #### 1.5 Activity Stats
 - **Total time today/week/all**
@@ -398,11 +405,11 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 #### 1.6 Recent Sessions
 - **Feature:** List of recent app usage sessions
 - **Details:**
-  - Shows "App" or "Website" based on type
+ - Shows "App" or "Website" based on type
 
-  - Duration, start time, category
+ - Duration, start time, category
 
-  - Click to view session details
+ - Click to view session details
 
 #### 1.7 Quick Stats Cards
 - **Active time today**
@@ -424,7 +431,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 - **Affects:** Which activities show in orbit/heatmap
 
 #### 1.11 Dashboard Optimization (v3.58)
-- **Feature:** Major performance overhaul â€” replaced 6 redundant useMemos with single `getDashboardAggregates` IPC call
+- **Feature:** Major performance overhaul —” replaced 6 redundant useMemos with single `getDashboardAggregates` IPC call
 - **Chart bars:** Computed from backend `weeklyHeatmap`
 - **Hourly heatmap:** From backend grid data
 - **Solar data:** From backend `appStats`/`websiteStats`
@@ -434,7 +441,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 #### 1.12 Focus Sessions
 - **Feature:** Track uninterrupted productive sessions with minimum duration filter
 - **Min duration:** Default 60s (configurable slider)
-- **Idle detection:** Uses `lastInteractionRef` + 5min clamp â€” idle periods don't inflate durations
+- **Idle detection:** Uses `lastInteractionRef` + 5min clamp —” idle periods don't inflate durations
 - **Stopwatch pauses:** Skip accumulation during idle (>5min no interaction)
 - **Old data cleared:** `clear-productivity-sessions` IPC on mount
 - **Refresh:** 5s auto-refresh interval
@@ -447,7 +454,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 ---
 
-## ðŸ“Š 2. Stats Page (`/stats`)
+## °Å¸“Å  2. Stats Page (`/stats`)
 
 **Component:** `src/pages/StatsPage.tsx`
 
@@ -511,7 +518,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 ---
 
-## ðŸ“ˆ 3. Productivity Page (`/productivity`)
+## °Å¸“Ë 3. Productivity Page (`/productivity`)
 
 **Component:** `src/pages/ProductivityPage.tsx`
 
@@ -519,7 +526,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 #### 3.1 Productivity Score
 - **Feature:** Overall productivity percentage
-- **Calculation:** (Productive time / Total time) Ã— 100
+- **Calculation:** (Productive time / Total time) ×— 100
 - **Visual:** Large score display with color coding
 
 #### 3.2 Focus Time Tracking
@@ -545,11 +552,11 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 #### 3.7 Score & Trend Fixes
 - **score-trend connection fix:** `trendAverageScore` useMemo computes from daily trend averages instead of raw data
-- **browser category remapping fix:** `WEBSITE_CATEGORY_MAP` applied correctly â†’ Search Engine â†’ Productivity, Developer Tools â†’ Tools
+- **browser category remapping fix:** `WEBSITE_CATEGORY_MAP` applied correctly —’ Search Engine —’ Productivity, Developer Tools —’ Tools
 
 #### 3.8 Focus Sessions
 - **Feature:** Track uninterrupted productive sessions with idle detection
-- **Idle detection:** Uses `lastInteractionRef` + 5min clamp â€” idle periods don't inflate durations
+- **Idle detection:** Uses `lastInteractionRef` + 5min clamp —” idle periods don't inflate durations
 - **Stopwatch pauses:** Skip accumulation during idle (>5min no interaction)
 - **Min duration:** Default 60s (configurable slider)
 
@@ -564,7 +571,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 ---
 
-## ðŸŒ 4. Browser Activity Page (`/browser`)
+## °Å¸ÅÂ 4. Browser Activity Page (`/browser`)
 
 **Component:** `src/pages/BrowserActivityPage.tsx`
 
@@ -609,7 +616,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 - Matches Stats page Live Detection UX
 
 #### 4.10 Tab Bar
-- **Feature:** 7 content tabs â€” Overview / IDEs / Tools / Projects / AI / Git / Trash
+- **Feature:** 7 content tabs —” Overview / IDEs / Tools / Projects / AI / Git / Trash
 - Each tab shows filtered subset of browser activity
 
 #### 4.11 Live-Log Race Condition Fix
@@ -618,7 +625,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 ---
 
-## ðŸ› ï¸ 5. IDE Projects Page (`/ide`)
+## °Å¸âºÂ ïÂ¸Â 5. IDE Projects Page (`/ide`)
 
 **Component:** ``src/pages/IDEProjectsPage.tsx` (~3271 lines)`
 
@@ -626,19 +633,19 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 #### 5.1 IDE Detection
 - **Auto-detect installed IDEs:**
-  - VS Code / VSCode Insiders
-  - Cursor
-  - IntelliJ IDEA (Community + Ultimate)
-  - PyCharm (Community + Professional)
-  - WebStorm, PhpStorm, RubyMine, GoLand, CLion, Rider, DataGrip
-  - Android Studio
-  - Xcode (macOS)
-  - Google Antigravity
+ - VS Code / VSCode Insiders
+ - Cursor
+ - IntelliJ IDEA (Community + Ultimate)
+ - PyCharm (Community + Professional)
+ - WebStorm, PhpStorm, RubyMine, GoLand, CLion, Rider, DataGrip
+ - Android Studio
+ - Xcode (macOS)
+ - Google Antigravity
 - **Detection methods:**
-  - Command existence (`where code`, `where idea64`)
-  - JetBrains Toolbox config (`.toolbox.xml`)
-  - Directory scanning (`%LOCALAPPDATA%/JetBrains`)
-  - Environment variables (`IDE_INSTALL_LOCATION`)
+ - Command existence (`where code`, `where idea64`)
+ - JetBrains Toolbox config (`.toolbox.xml`)
+ - Directory scanning (`%LOCALAPPDATA%/JetBrains`)
+ - Environment variables (`IDE_INSTALL_LOCATION`)
 
 #### 5.2 Project Management
 - **Add Project:** Manual add with name, path, default IDE
@@ -736,23 +743,23 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 - **Feature:** 3D skyline visualization of AI agent usage
 - **Technology:** React Three Fiber, Three.js InstancedMesh, custom ShaderMaterial
 - **Components:**
-  - `AICityscape.tsx` — main visualization component (873 lines)
-  - `cityscape.utils.ts` — data transforms, spiral layout, window atlas (300 lines)
+ - `AICityscape.tsx` — main visualization component (873 lines)
+ - `cityscape.utils.ts` — data transforms, spiral layout, window atlas (300 lines)
 - **Visual features:**
-  - Window atlas with per-building lit density (5-step bucket from `getWindowTexture` pool)
-  - Patched `MeshStandardMaterial` via `onBeforeCompile`: emissive windows + neon edge trim + state glow
-  - Per-instance attributes: `aWin` (atlas column), `aTile` (window tiling), `aState` (hover/select), `aEmis` (base emissive)
-  - `NeonGround` procedural shader: cyan square grid + violet radial streets + pink travelling data pulses
-  - `Atmosphere` GPU-animated `Points` system: rain fall + ember rise (1400 particles, no per-frame JS writes)
-  - Post-processing: selective Bloom (threshold 0.95), ChromaticAberration, Noise (film grain), Vignette, SMAA
-  - Fog `exp2(#0a0c18, 0.025)`
-  - `RooftopSigns` — canvas-generated sprite textures on top 8 buildings, additive blending, neon agent-name labels
-  - `SmogClouds` — drei Cloud instances at opacity 0.04–0.06, color #1a2444, slow drift (Cinematic only)
-  - `MeshReflectorMaterial` — wet reflective ground plane, 512px resolution (Cinematic only)
+ - Window atlas with per-building lit density (5-step bucket from `getWindowTexture` pool)
+ - Patched `MeshStandardMaterial` via `onBeforeCompile`: emissive windows + neon edge trim + state glow
+ - Per-instance attributes: `aWin` (atlas column), `aTile` (window tiling), `aState` (hover/select), `aEmis` (base emissive)
+ - `NeonGround` procedural shader: cyan square grid + violet radial streets + pink travelling data pulses
+ - `Atmosphere` GPU-animated `Points` system: rain fall + ember rise (1400 particles, no per-frame JS writes)
+ - Post-processing: selective Bloom (threshold 0.95), ChromaticAberration, Noise (film grain), Vignette, SMAA
+ - Fog `exp2(#0a0c18, 0.025)`
+ - `RooftopSigns` — canvas-generated sprite textures on top 8 buildings, additive blending, neon agent-name labels
+ - `SmogClouds` — drei Cloud instances at opacity 0.04–0.06, color #1a2444, slow drift (Cinematic only)
+ - `MeshReflectorMaterial` — wet reflective ground plane, 512px resolution (Cinematic only)
 - **Interaction:**
-  - Hover → emissive bloom lerp (aState.x driven by useFrame)
-  - Click → selection pulse (aState.y `sin(uTime*4.0)`) + DetailPanel slide-in
-  - Morph transitions: height/footprint lerp on mode switch and time-lapse
+ - Hover â emissive bloom lerp (aState.x driven by useFrame)
+ - Click â selection pulse (aState.y `sin(uTime*4.0)`) + DetailPanel slide-in
+ - Morph transitions: height/footprint lerp on mode switch and time-lapse
 - **Draw calls:** 4 total (body + roof glow + ground + particles) regardless of city size
 - **View modes:** By Agent, By Model, Time-lapse (play/pause scrubber)
 - **Graphics quality:** Cinematic (full effects) / Balanced (no CA/no smog/no wet) / Performance (600 particles + stripped effects), persisted in localStorage `ai-city-quality`
@@ -760,7 +767,7 @@ Note: the all-time Model Usage Timeline already existed (timeLock -> effectiveAi
 
 ---
 
-## ðŸ’» 6. Terminal Page / Workspace (`/terminal`)
+## °Å¸’Â» 6. Terminal Page / Workspace (`/terminal`)
 
 **Component:** `src/pages/TerminalPage.tsx` (~4900 lines)
 **Terminal Component:** `src/components/TerminalWindow.tsx` (607 lines)
@@ -827,7 +834,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - **Session cards:** Show status dot, category badge, agent badge, topic, terminal status (Running/Closed), description, date, tags, cost
 - **Session edit dialog:** Two-column form for editing session metadata
 - **Import opencode sessions:** Dialog for importing external session data
-- **Detail view:** Click a session → full detail panel with metadata grid, Focus/Open in Terminal buttons, Message viewer with role coloring
+- **Detail view:** Click a session â full detail panel with metadata grid, Focus/Open in Terminal buttons, Message viewer with role coloring
 - **Search & filter:** Filter sessions by text, status, category, agent
 - **Actions:** Focus terminal, Open in terminal (resume), View messages, Delete
 
@@ -938,16 +945,16 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 #### 6.4 AI Agent Integration
 - **Supported Agents:**
-  - OpenCode (`opencode`)
-  - Claude Code (`claude`)
-  - Codex (`codex`)
-  - Aider (`aider`)
-  - Cursor (`cursor`)
+ - OpenCode (`opencode`)
+ - Claude Code (`claude`)
+ - Codex (`codex`)
+ - Aider (`aider`)
+ - Cursor (`cursor`)
 - **Agent switching:** Agent can be changed via session edit dialog
 - **Session Management:**
-  - NewSessionDialog with `mode` prop (create | initialize)
-  - Resume sessions via `resume_id`
-  - Session categorization (category, product_area, description, auto_tags, category_confirmed)
+ - NewSessionDialog with `mode` prop (create | initialize)
+ - Resume sessions via `resume_id`
+ - Session categorization (category, product_area, description, auto_tags, category_confirmed)
 - **Init content:** Auto-load INITIALIZE.md, custom init files, problem/request context
 - **Thought Process toggle:** Injects `## Thought Process` instruction after system prompt
 - **Skill DSL:** 10 widget types (select, radio, switch, slider, text, textarea, code, file, checkbox, tags) from YAML frontmatter
@@ -1026,7 +1033,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ---
 
-## ðŸ”Œ 7. External Page (`/external`)
+## °Å¸”Å 7. External Page (`/external`)
 
 **Component:** `src/pages/ExternalPage.tsx`
 
@@ -1054,14 +1061,14 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - **Wake Up:** `confirm-wake-up` IPC
 - **PastSleepModal:** Date picker, edit mode, day arrows for navigation
 - **Sleep Trends Chart:** Floating range bars crossing midnight axis
-  - Pre-sleep segment (amber)
+ - Pre-sleep segment (amber)
 
-  - Sleep segment (indigo)
+ - Sleep segment (indigo)
 
-  - Post-wake segment (rose)
+ - Post-wake segment (rose)
 
 - **Sleep chart respects period:** Shows correct number of days (1/7/30/90)
-- **Sleep chart click:** Each day bar is clickable ï¿½ opens date-prefilled modal
+- **Sleep chart click:** Each day bar is clickable ïÂ¿Â½ opens date-prefilled modal
 - **Sleep date advancement fix:** 10-hour heuristic for fell-asleep date
 - **Sleep detection redesign:** Window focus/blur tracking, sleep pattern recognition (14 sessions), edit mode
 - **Sleep stats removed:** Table removed in favor of floating range chart
@@ -1106,7 +1113,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ---
 
-## ðŸ“Š 8. Insights / Reports Page (`/reports`)
+## °Å¸“Å  8. Insights / Reports Page (`/reports`)
 
 **Component:** `src/pages/InsightsPage.tsx`
 
@@ -1117,7 +1124,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - **Tabs:** Day / Weekly / Activities
 
 #### 8.2 Typical Day Heatmap
-- **Feature:** Color-coded 7ï¿½24 grid with intensity-based coloring
+- **Feature:** Color-coded 7ïÂ¿Â½24 grid with intensity-based coloring
 - **Shows:** Activity intensity across days of week and hours of day
 
 #### 8.3 Stat Cards
@@ -1151,7 +1158,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ---
 
-## ðŸ—„ï¸ 9. Database Page (`/database`)
+## °Å¸—âïÂ¸Â 9. Database Page (`/database`)
 
 **Component:** `src/pages/DatabasePage.tsx` (~2000 lines, rewritten)
 
@@ -1161,21 +1168,21 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - **Feature:** Data analytics overview with stat cards and charts
 - **5 stat cards:** Total tokens, total cost, session count, etc.
 - **8 charts:**
-  - Token distribution
+ - Token distribution
 
-  - Cost distribution
+ - Cost distribution
 
-  - Session count by agent
+ - Session count by agent
 
-  - Category distribution
+ - Category distribution
 
-  - Problem distribution
+ - Problem distribution
 
-  - Request distribution
+ - Request distribution
 
-  - Response timing (paired sequential user?assistant messages per session)
+ - Response timing (paired sequential user?assistant messages per session)
 
-  - Daily trend
+ - Daily trend
 
 - **AI usage summary:** Aggregate stats about AI agent usage
 - **Problems/Requests progress bars:** Visual completion tracking
@@ -1209,7 +1216,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ---
 
-## âš™ï¸ 10. Settings Page (`/settings`)
+## ¢Å¡â¢ïÂ¸Â 10. Settings Page (`/settings`)
 
 **Component:** `src/pages/SettingsPage.tsx`
 **Reference:** `agent/docs/SETTINGS_PAGE_FEATURES.md` (full details)
@@ -1270,7 +1277,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ---
 
-## â“ 11. IDE Help Page (`/ide-help`)
+## ¢Â“ 11. IDE Help Page (`/ide-help`)
 
 **Component:** `src/pages/IDEHelpPage.tsx`
 
@@ -1290,7 +1297,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ---
 
-## ðŸ”§ App-Wide Features
+## °Å¸”Â§ App-Wide Features
 
 ### A.1 Period Selector (Top Nav)
 - **Options:** Today, This Week, This Month, All Time
@@ -1350,29 +1357,29 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 | Page | Status | Completion |
 |------|--------|------------|
-| Dashboard | âœ… Complete | 98% |
-| Stats | âœ… Complete | 95% |
-| Productivity | âœ… Complete | 95% |
-| Browser Activity | âœ… Complete | 95% |
-| IDE Projects | âœ… Complete | 98% |
-| Terminal/Workspace | âœ… Complete | 98% |
-| External | âœ… Complete | 98% |
-| Insights/Reports | âœ… Complete | 90% |
-| Database | âœ… Complete | 95% |
-| Settings | âœ… Complete | 98% |
-| IDE Help | âœ… Complete | 100% |
+| Dashboard | ¢Å… Complete | 98% |
+| Stats | ¢Å… Complete | 95% |
+| Productivity | ¢Å… Complete | 95% |
+| Browser Activity | ¢Å… Complete | 95% |
+| IDE Projects | ¢Å… Complete | 98% |
+| Terminal/Workspace | ¢Å… Complete | 98% |
+| External | ¢Å… Complete | 98% |
+| Insights/Reports | ¢Å… Complete | 90% |
+| Database | ¢Å… Complete | 95% |
+| Settings | ¢Å… Complete | 98% |
+| IDE Help | ¢Å… Complete | 100% |
 
 ---
 
 ## Recent Feature Additions
 
 ### 2026-08-07:
-- Life Interconnected River round-03 close-out (back-and-forth collaboration, specialist answers): (1) TodayTributary creation UI — Plus button per column: Covenant → NewCommitmentModal (covenant.addCommitment), Gold → inline CriteriaBuilder reusing GoldPage's exported defaultCriteria/criteriaToGoal, Vault & Memories → inline LTG form (title/category/priority/deadline/description) via onAddLTG + Upload for memory files; LifePage owns persistence (handleAddGoal → api.saveGoal(today); handleAddLTG → api.saveGoalsBatch with period:'longterm', date:'2000-01-01', id:ltg_<ts>_<rand>). GoldPage now exports CAT_META/catDot/defaultCriteria/criteriaToGoal/LTGForm/emptyLTGForm/PRIORITY_OPTIONS. (2) Dead code deleted: river.tsx (LifeRiver) + phase-drawer.tsx (zero importers). (3) MemoryCard idPrefix prop → layoutId per-grid (`tributary`/`phase-${id}`, bare `memory-${id}` default).
-- Finance Monthly Recap typography (user: "recap has ridiculously ugly fonts"): font-selection skill round — USER-PICKED classic-authority pairing = Libre Caslon Text 700 headings + Source Serif 4 narrative body + JetBrains Mono numbers, applied to RecapPanel (hero + empty-state AnimatedGradientText titles `font-caslon`, "Follow Through" / "The Month's Story" h3s `font-caslon`, narrative paragraphs `font-serif`, NumberTicker stat values `font-mono`). New `--font-caslon` token in index.css @theme; Libre Caslon Text added to Google Fonts in index.html. GOTCHA: AnimatedGradientText doesn't forward `style` → font via className utility.
+- Life Interconnected River round-03 close-out (back-and-forth collaboration, specialist answers): (1) TodayTributary creation UI — Plus button per column: Covenant â NewCommitmentModal (covenant.addCommitment), Gold â inline CriteriaBuilder reusing GoldPage's exported defaultCriteria/criteriaToGoal, Vault & Memories â inline LTG form (title/category/priority/deadline/description) via onAddLTG + Upload for memory files; LifePage owns persistence (handleAddGoal â api.saveGoal(today); handleAddLTG â api.saveGoalsBatch with period:'longterm', date:'2000-01-01', id:ltg_<ts>_<rand>). GoldPage now exports CAT_META/catDot/defaultCriteria/criteriaToGoal/LTGForm/emptyLTGForm/PRIORITY_OPTIONS. (2) Dead code deleted: river.tsx (LifeRiver) + phase-drawer.tsx (zero importers). (3) MemoryCard idPrefix prop â layoutId per-grid (`tributary`/`phase-${id}`, bare `memory-${id}` default).
+- Finance Monthly Recap typography (user: "recap has ridiculously ugly fonts"): font-selection skill round — USER-PICKED classic-authority pairing = Libre Caslon Text 700 headings + Source Serif 4 narrative body + JetBrains Mono numbers, applied to RecapPanel (hero + empty-state AnimatedGradientText titles `font-caslon`, "Follow Through" / "The Month's Story" h3s `font-caslon`, narrative paragraphs `font-serif`, NumberTicker stat values `font-mono`). New `--font-caslon` token in index.css @theme; Libre Caslon Text added to Google Fonts in index.html. GOTCHA: AnimatedGradientText doesn't forward `style` â font via className utility.
 
 ### 2026-08-06:
-- Life Phases "River of Years" (Gold warmth page → LifeRiver section): proportional SVG river timeline (reach width = on-canvas date span, height ∝ magnitude 0–100 → 10–116px), dashed open-water future with shimmering plus-signs, golden now marker, tributary curves, adaptive zoom (5 levels) + minimap + year ruler, prefers-reduced-motion respected
-- Phase drawer (right sheet): 8 categories, 6-color palette + auto, magnitude slider with words, start/end year+month, in-canvas title rename, delete arm (3s), milestones, phase-to-phase connections, impact notes; ReflectionFlow 3-question wizard → AI serif reflection; Era Trends chips (World/Culture/My field, sky/violet/amber); Journey Summary blockquote via backend AI; empty state with 3-card example plan
+- Life Phases "River of Years" (Gold warmth page â LifeRiver section): proportional SVG river timeline (reach width = on-canvas date span, height â magnitude 0–100 â 10–116px), dashed open-water future with shimmering plus-signs, golden now marker, tributary curves, adaptive zoom (5 levels) + minimap + year ruler, prefers-reduced-motion respected
+- Phase drawer (right sheet): 8 categories, 6-color palette + auto, magnitude slider with words, start/end year+month, in-canvas title rename, delete arm (3s), milestones, phase-to-phase connections, impact notes; ReflectionFlow 3-question wizard â AI serif reflection; Era Trends chips (World/Culture/My field, sky/violet/amber); Journey Summary blockquote via backend AI; empty state with 3-card example plan
 - Backend: `life_phases` + `life_timeline_meta` tables (guarded migration), 7 IPC `lifePhase:*` handlers (get/getSummary/save/delete/saveAll/aiReflect/aiEraTrends/aiSummarize), preload `lifePhase*` (8 methods), starter phase seeded
 - New base-ui primitives: `src/components/ui/{sheet,slider,textarea,alert,label}.tsx`; Source Serif 4 added to Google Fonts in index.html
 
@@ -1382,7 +1389,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ### 2026-06-19:
 - Navigation redesign: browser-tab-style group tabs (rounded-t-lg, bg-zinc-800/80, -mb-px), chip-style sub-tabs (rounded-full pill, no border), accent connectivity strip between nav and content
-- SubTabBar redesigned: border-pill style → rounded-full chips, accent prop with static color map
+- SubTabBar redesigned: border-pill style â rounded-full chips, accent prop with static color map
 - WorkspaceShell passes accent prop to SubTabBar for per-group coloring
 - Session subpage grouping: collapsible sub-headers (Top Pinned, Recent, This Month, Older)
 - Session filter pills: category pills below sub-tab bar
@@ -1392,9 +1399,9 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ### 2026-06-02:
 - Skill DSL: dynamic UI from SKILL.md frontmatter (10 widgets, validation, groups, file picker)
-- AFK session duration fix (re-idle race â€” computes real elapsed from started_at)
+- AFK session duration fix (re-idle race —” computes real elapsed from started_at)
 - Terminal analytics wiring (variant='full', data fetching for problems/requests/promptHistory/dailyStats)
-- TerminalMiniMap height clamp fix (h-36 â†’ h-full)
+- TerminalMiniMap height clamp fix (h-36 —’ h-full)
 - Empty terminal tab agent name fix
 - Dashboard TDZ crash fix
 - 3 productivity data bugs (browser re-fetch, score-trend connection, unknown websites)
@@ -1409,16 +1416,16 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - AnalyticsDashboard variant prop (project/workspace/full) across 3 pages
 - Import opencode sessions dialog (shift-click range)
 - Problems/Requests date parsing fix ("16d ago" for all items)
-- 3-terminal grouping fix (PaneNode.children binary tuple â†’ array)
+- 3-terminal grouping fix (PaneNode.children binary tuple —’ array)
 - Prompt entry fix: system prompt layers, real session UID via opencode session list
 - Dashboard stats 0m fix (live currentProductiveMs on top of DB)
-- Focus Sessions 0s fix (minDuration slider default 300â†’60)
+- Focus Sessions 0s fix (minDuration slider default 300—’60)
 - StatsPage optimization (3 redundant O(n) computations removed)
 - Activity feed stopwatch fix (always-isActive for new feed items)
 - Productivity chart category mapping fix (WEBSITE_CATEGORY_MAP priority)
 
 ### 2026-05-29/30:
-- Dashboard optimization: getDashboardAggregates IPC (6â†’1 useMemo)
+- Dashboard optimization: getDashboardAggregates IPC (6—’1 useMemo)
 - Full sessions list with edit/delete on StatsPage
 - Live tracking indicator on StatsPage
 - Live Detection panel on StatsPage (50-event ring buffer, global persistence)
@@ -1440,9 +1447,9 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - Add Manual Session button for past durations
 - Custom categories: add/remove persistent UI
 - Prompt history: limit + delete (Settings > General)
-- Agent readiness protocol: state machine (spawningâ†’waitingâ†’ready|timeout), 5 agent signatures
+- Agent readiness protocol: state machine (spawning—’waiting—’ready|timeout), 5 agent signatures
 - Terminal:write-raw: system writes no longer pollute prompt history
-- Sleep detail: floating range chart (bedtimeâ†’wake crossing midnight axis)
+- Sleep detail: floating range chart (bedtime—’wake crossing midnight axis)
 
 ### 2026-05-18/22:
 - Context Management System: 6 knowledge system toggles, SVG context map, token budget bar
@@ -1464,8 +1471,8 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - Agent readiness protocol: Phase 1 complete (spawn-terminal handler, agent signatures, retry)
 - Timeline navigation: dateOffset for Productivity, External, Stats, Browser pages
 - Sleep detail table + floating range chart
-- Productivity chart height/overflow fix (h-40â†’h-72, hourly cap 3600s)
-- Solar system 3-in-1 fix: category navâ†’camera, planet tracking, timeline selector in UI
+- Productivity chart height/overflow fix (h-40—’h-72, hourly cap 3600s)
+- Solar system 3-in-1 fix: category nav—’camera, planet tracking, timeline selector in UI
 - Terminal workspace Phases 1-6 complete (split pane, presets, sessions, map, persistence)
 - Data layer consolidation: Problems/Requests JSON-only (no DB sync)
 - Recursive split pane rendering
@@ -1482,7 +1489,7 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 
 ### 2026-05-06/10:
 - Periodic checkpointing: every 5min, long-running sessions checkpointed
-- Sleep gap raised: 10sâ†’30s, null poll threshold 3â†’30
+- Sleep gap raised: 10s—’30s, null poll threshold 3—’30
 - OS-level idle detection via powerMonitor.getSystemIdleTime()
 - External page: uniform buttons, pause/stop controls, enhanced stopwatch
 - External activity type fix + session editing
@@ -1497,13 +1504,13 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 - Default period: changed from 'today' to 'week'
 - Solar system week sync with heatmap
 - 12-hour format heatmap labels
-- TDZ fix: useMemoâ†’useState+useEffect for complex objects
+- TDZ fix: useMemo—’useState+useEffect for complex objects
 
 
 ## Recent Feature Additions
 
 ### 2026-08-07 — Finance Monthly Recap
-- **Where:** Finance page → Recap tab (FinanceTabKey 'recap'), `src/components/finance/RecapPanel.tsx`
+- **Where:** Finance page â Recap tab (FinanceTabKey 'recap'), `src/components/finance/RecapPanel.tsx`
 - **Backend:** `finance_monthly_recaps` table (month UNIQUE), 5 IPC `finance:recap-{list,get,generate,delete,months-with-data}`, auto-gen `checkMonthlyRecaps` (prev calendar month, whenReady + every 6h)
 - **AI:** narrative via provider chain (`buildChain` feature 'monthlyRecap') or OpenRouter fallback (`ai_briefModel`); stats frozen in `stats_json` with generation-time display currency, converted live in UI
 - **Docs:** spec at `agent/docs/generate-prompt-docs/finance-monthly-recap-07082026/RESULT.md`
@@ -1515,3 +1522,31 @@ Restructured from 12 flat tabs into 5 group buttons with browser-tab-style nav (
 | F1 | Engine chain: Cloud API (when ` sttApiKey ` pref set) -> Windows native (System.Speech via powershell.exe) -> browser webkit; resolved via one ` stt:get-status ` call | Implemented (build OK, NOT LAUNCHED) | src/main.ts ~L5580 (STT block), src/lib/stt.ts (new), src/hooks/useVoiceInput.ts, src/components/VoiceInputWrapper.tsx |
 | F2 | IPC: ` stt:get-status ` (engine/apiConfigured/nativeAvailable/label), ` stt:transcribe ` (FormData multipart to Groq-style endpoint, Bearer auth, min 512-byte audio = 'No speech detected'), ` stt:native-start `/` stt:native-stop ` (PS1 written to userData/stt-native.ps1, parsed JSON forwarded as ` stt-native-event `) | Implemented (build OK) | src/main.ts 5624-5714, src/preload.ts 97-101, src/types/deskflow-api.d.ts |
 | F3 | New free-form prefs ` sttApiKey `/` sttBaseUrl ` (default https://api.groq.com/openai/v1/audio/transcriptions)/` sttModel ` (default whisper-large-v3-turbo); Settings -> General -> Voice & Speech card (password eye-toggle, immediate save, fallback-chain explainer) | Implemented (build OK) | src/pages/SettingsPage.tsx (General tab, end of section) |
+
+## Foundation Slice (LAMINAR v1.0) - 2026-08-31
+
+### Gates completed (design/design.md v1.0 foundation slice)
+| Gate | Status | What |
+|------|--------|------|
+| G1 Token Collapse | DONE | Stripped Geist from body font-family; deleted .light theme block (dark-only per §5.2); removed obsolete [data-page=] keys (productivity, stats, browser, tutorial); added rankings + documentation to map; index.css @theme confirmed app SSoT (tokens.css is landing-only) |
+| G2 Fonts | DONE | index.html keeps only Inter/Space Grotesk/JetBrains Mono; Geist stripped from body; @fontsource self-host deferred (not installed); Google Fonts link retained as fallback |
+| G3 Name/RHEO | DONE | index.html <title> DeskFlow→RHEO; window title already RHEO; 2,521 internal DeskFlow identifiers deferred |
+| G4 Data-Page | DONE | 18-route registry covered (added rankings + documentation); obsolete keys removed |
+| G5 Loop Purge | DONE | Named decorative loops (aurora, mesh, shine, border-beam, df-edge-breath, scorePulse, sidebarShine, tapestry-breathe) confirmed gone; 50 infinite hits are functional (ai canvas, recording indicator, voice meter) |
+| G6 CategoryColors | DONE | src/lib/CategoryColors.ts exists as single categorical source |
+
+### TESTING probe census (18 routes)
+- Build: npm run build → exit 0 (main 1,412 KB)
+- Electron launched on port 38123, remote debug on 9222
+- All 18 routes screenshoted → design/audit/shots/*.png (dashboard, activity, ai, learn, resume, ide, finance, insights, life, settings, guide, studio, agentic, terminal, external, database, rankings, documentation)
+- Census findings:
+  1. Token winner: pink --accent-primary #ec4899 (active nav tabs, TOTAL card). Amber --color-primary #fbbf24 retained for NEUTRAL status + Focus timer ring only. White is body text/state indicator only.
+  2. Spring call sites: 11 useSpring (framer-motion, §16 sanctioned). 0 bare spring(). Landing/ + educational MotionPresets excluded per scope.
+  3. .light reachable: NO — block deleted; dark-only enforced.
+  4. Visual states missed by static audit: none — all 18 routes render LAMINAR dark mode correctly per findings.
+
+### design/design.md reconciled with audit v1.0 (paste #4)
+- §9 updated: agent/DESIGN.md → deleted; .light block → deleted; index.html title → RHEO
+- Added §11 Token Collapse, §12 Fonts, §13 Name/RHEO Sweep, §14 Data-Page Registry
+- Added §15 Naming Law, §16 Framer-Motion-Sanctioned Motion
+- §10 Pre-Task Checklist expanded (3 new items)

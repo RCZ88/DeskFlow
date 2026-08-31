@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { motion, AnimatePresence, useScroll, useTransform } from 'framer-motion'
-import { HeartHandshake, Images, Layers, Map, BookOpen, Plus, FileClock, Pencil, Mic, Target, Sparkles, User, Network, Brain, RefreshCw } from 'lucide-react'
+import { HeartHandshake, Images, Layers, Map, BookOpen, Plus, FileClock, Pencil, Mic, Target, Sparkles, User, Network, Brain, RefreshCw, Calendar } from 'lucide-react'
 
 
 import { cn } from '@/lib/utils'
@@ -17,6 +17,7 @@ import { PhaseFormDialog } from '@/components/life-river/phase-form-dialog'
 import { MemoryLightbox } from '@/components/life-river/memory-lightbox'
 import { LifeRiver } from '@/components/life-river/river'
 import { NotesTab } from '@/components/life-river/NotesTab'
+import { ScheduleTab } from '@/components/life-river/ScheduleTab'
 import { LivingSubstrate } from '@/components/life-river/LivingSubstrate'
 import type { LensId } from '@/components/life-river/RingCanvas'
 import type { LifePhase } from '@/lib/riverMath'
@@ -26,6 +27,8 @@ import GoldPage from '../../features/warmth/gold/GoldPage'
 import { ProfileTab } from '../../components/life/ProfileTab'
 import { ContextGraphView } from './ContextGraphView'
 import { BrainManagementView } from './context-brain/BrainManagementView'
+import { NeuralFlow } from './context-brain/NeuralFlow'
+import { SelfOrchestrator } from './self/SelfOrchestrator'
 import { confetti } from '../../components/ui/confetti'
 import { NumberTicker } from '../../components/ui/number-ticker'
 import { DotPattern } from '../../components/ui/dot-pattern'
@@ -37,19 +40,23 @@ import { useMemories, type LoadedMemory } from '../../features/memories/useMemor
 
 import type { Goal, LongTermGoal } from '../../components/dashboard/types'
 import type { LTGForm } from '../warmth/gold/GoldPage'
+import { CurrentCanvas } from '../../components/CurrentCanvas'
+import { renderNetwork } from '../../lib/renderers/network'
+import { startPhaseClock } from '../../lib/currentPhase'
 
 const toStr = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 const todayStr = () => toStr(new Date())
 
 type ViewMode = 'pages' | 'river'
-type PageTab = 'covenant' | 'memories' | 'gold' | 'notes' | 'self'
+type PageTab = 'covenant' | 'memories' | 'gold' | 'notes' | 'schedule' | 'self'
 
 const PAGE_TABS: { key: PageTab; label: string; icon: typeof HeartHandshake; accent: string }[] = [
   { key: 'covenant', label: 'Covenant', icon: HeartHandshake, accent: '#e8866b' },
   { key: 'memories', label: 'Memories', icon: Images, accent: '#6fb38f' },
   { key: 'gold', label: 'Gold', icon: Layers, accent: '#fbbf24' },
   { key: 'notes', label: 'Notes', icon: BookOpen, accent: '#a78bfa' },
+  { key: 'schedule', label: 'Schedule', icon: Calendar, accent: '#ec4899' },
   { key: 'self', label: 'Self', icon: User, accent: '#8b5cf6' },
 ]
 
@@ -110,6 +117,7 @@ function SelfStatStrip() {
 }
 
 export default function LifePage() {
+  useEffect(() => { startPhaseClock(); }, [])
   const { phases, loading, error, savePhase, reflect } = useLifePhases()
   const covenant = useCovenant()
   const memories = useMemories()
@@ -193,7 +201,7 @@ export default function LifePage() {
   }, [])
 
   const handleOpenPage = useCallback((page: string) => {
-    const tabMap: Record<string, PageTab> = { memories: 'memories', gold: 'gold', covenant: 'covenant', profile: 'self', graph: 'self', brain: 'self' }
+    const tabMap: Record<string, PageTab> = { memories: 'memories', gold: 'gold', covenant: 'covenant', profile: 'self', graph: 'self', brain: 'self', schedule: 'schedule' }
     if (tabMap[page]) {
       setPageTab(tabMap[page])
       setMode('pages')
@@ -240,7 +248,7 @@ export default function LifePage() {
   }, [])
 
   const redirectToPage = useCallback((lens: LensId) => {
-    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories', profile: 'self', graph: 'self', brain: 'self' }
+    const tabMap: Record<string, PageTab> = { covenant: 'covenant', gold: 'gold', memories: 'memories', profile: 'self', graph: 'self', brain: 'self', schedule: 'schedule' }
     const tab = tabMap[lens]
     if (tab) {
       setPageTab(tab)
@@ -460,6 +468,8 @@ export default function LifePage() {
 
   return (
     <div className="flex flex-col h-full" data-page="life">
+      <CurrentCanvas accent="#fbbf24" render={renderNetwork} />
+      <div className="relative z-10">
       {/* ── Mode Toggle ── */}
       <div className="sticky top-0 z-40 -mx-5 px-5 bg-zinc-900/20 backdrop-blur-md border-b border-zinc-800/50">
         <div className="flex items-center gap-2 py-2">
@@ -548,34 +558,14 @@ export default function LifePage() {
                 <NotesTab />
               </motion.div>
             )}
+            {pageTab === 'schedule' && (
+              <motion.div key="schedule" {...crossfade} className="max-w-5xl mx-auto">
+                <ScheduleTab />
+              </motion.div>
+            )}
             {pageTab === 'self' && (
               <motion.div key="self" {...crossfade} className="max-w-5xl mx-auto relative" style={{ ['--page-accent' as string]: '#8b5cf6' }}>
-                {/* Hero Header */}
-                <div className="text-center mb-8">
-                  <h1 className="text-3xl font-serif text-transparent bg-clip-text bg-gradient-to-r from-[#8b5cf6] via-[#a78bfa] to-[#c4b5fd]">
-                    Contextual Self
-                  </h1>
-                  <p className="text-[13px] text-zinc-400 mt-2">Your identity, connections, and memory — unified.</p>
-                </div>
-
-                {/* Stat Strip */}
-                <SelfStatStrip />
-
-                {/* Sections */}
-                <div className="space-y-10 mt-10">
-                  <section className="space-y-3">
-                    <SectionHeader title="Identity & Profile" icon={<User className="w-4 h-4" />} />
-                    <ProfileTab />
-                  </section>
-                  <section className="space-y-3">
-                    <SectionHeader title="Knowledge Graph" icon={<Network className="w-4 h-4" />} />
-                    <ContextGraphView />
-                  </section>
-                  <section className="space-y-3">
-                    <SectionHeader title="Memory & Brain" icon={<Brain className="w-4 h-4" />} />
-                    <BrainManagementView />
-                  </section>
-                </div>
+                <SelfOrchestrator />
               </motion.div>
             )}
           </AnimatePresence>
@@ -1035,6 +1025,7 @@ export default function LifePage() {
           )}
         </div>
       )}
+      </div>
     </div>
   )
 }

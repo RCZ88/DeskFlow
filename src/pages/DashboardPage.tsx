@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useMemo, lazy, Suspense, useRef } fro
 import { PageShell } from '../components/PageShell';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { useNavigate } from 'react-router-dom';
+import { CurrentCanvas } from '../components/CurrentCanvas';
+import { renderStream } from '../lib/renderers/stream';
+import { startPhaseClock } from '../lib/currentPhase';
 import { HeroBand } from './dashboard/HeroBand';
 import { SummaryStrip } from './dashboard/SummaryStrip';
 import { PinnedActivities } from './dashboard/PinnedActivities';
@@ -25,7 +28,7 @@ import OrbitSystem from '../components/OrbitSystem';
 import { useHomeSummary } from '../hooks/useHomeSummary';
 import { useDeepFocus } from '../hooks/useDeepFocus';
 import { Bar, Line } from 'react-chartjs-2';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { BlurFade } from '../components/ui/blur-fade';
 import { Particles } from '../components/ui/particles';
 
@@ -2465,8 +2468,12 @@ export default function DashboardPage({
     };
   }, []);
 
+  // Start the global phase clock (idempotent — safe to call multiple times)
+  useEffect(() => { startPhaseClock(); }, []);
+
   return (
     <PageShell page="dashboard" variant="dashboard" className="text-white">
+      <CurrentCanvas accent="#10b981" render={renderStream} />
       <TimerResetOverlay trigger={resetTrigger} />
 
       <div className="relative z-10">
