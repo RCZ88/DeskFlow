@@ -7,6 +7,7 @@ import { CutPlanView } from '../cutplan/CutPlanView'
 import { ScenePlanView } from '../scene/ScenePlanView'
 import { VisualizerView } from '../visualizer/VisualizerView'
 import { VisualEvidenceView } from '../vision/VisualEvidenceView'
+import { ExportView } from '../export/ExportView'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronLeft, ChevronRight, FileJson } from 'lucide-react'
 
@@ -15,7 +16,7 @@ function StageView() {
   const views: Record<string, React.FC> = {
     dashboard: DashboardView, source: DashboardView, transcript: TranscriptView, bridge: ManualBridgePanel,
     'cut-plan': CutPlanView, 'scene-plan': ScenePlanView, visualizer: VisualizerView,
-    'visual-evidence': VisualEvidenceView,
+    'visual-evidence': VisualEvidenceView, export: ExportView,
   }
   const View = views[state.activeStage] || DashboardView
   return (
