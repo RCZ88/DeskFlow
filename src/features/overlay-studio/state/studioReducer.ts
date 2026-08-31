@@ -1,10 +1,11 @@
-import type { StudioState, StudioStage, StudioSession, ManualBridgeState, AsyncStatus } from './studioTypes'
+import type { StudioState, StudioStage, StudioSession, ManualBridgeState } from './studioTypes'
 import type { DirectorCut } from '../../../types/overlayStudio'
 import type { VisualDigest, DetectedObject, FaceRegion, TextRegion, ShotBoundary } from '../vision/types/vision'
 
 export type StudioAction =
   | { type: 'LOAD_SESSIONS_START' } | { type: 'LOAD_SESSIONS_SUCCESS'; sessions: StudioSession[] } | { type: 'LOAD_SESSIONS_ERROR'; error: string }
   | { type: 'CREATE_SESSION'; session: StudioSession } | { type: 'SET_ACTIVE_SESSION'; sessionId: string } | { type: 'REMOVE_SESSION'; sessionId: string }
+  | { type: 'LINK_EPISODE'; payload: any } | { type: 'SET_CAPTION_TRACK'; sessionId: string; captionTrack: any }
   | { type: 'SET_STAGE'; stage: StudioStage }
   | { type: 'SET_TRANSCRIPT'; sessionId: string; transcript: any } | { type: 'SET_CUT_PLAN'; sessionId: string; cutPlan: any } | { type: 'SET_SCENE_PLAN'; sessionId: string; scenePlan: DirectorCut }
   | { type: 'SELECT_SEGMENT'; segmentId: string } | { type: 'CLEAR_SELECTION' }
@@ -41,6 +42,33 @@ export function studioReducer(state: StudioState, action: StudioAction): StudioS
     case 'LOAD_SESSIONS_SUCCESS': return { ...state, sessions: action.sessions, async: { ...state.async, sessions: { state: 'success' } } }
     case 'LOAD_SESSIONS_ERROR': return { ...state, async: { ...state.async, sessions: { state: 'error', error: action.error } } }
     case 'CREATE_SESSION': return { ...state, sessions: [...state.sessions, action.session], activeSessionId: action.session.id, activeStage: 'source' }
+    case 'LINK_EPISODE': {
+      const p = action.payload
+      const existing = state.sessions.find((s) => s.episodeId === p.episodeId)
+      if (existing) {
+        return {
+          ...state,
+          sessions: state.sessions.map((s) => s.episodeId === p.episodeId
+            ? { ...s, name: p.episodeTitle || s.name, transcript: p.transcriptSegments ? { segments: p.transcriptSegments } : s.transcript, cutPlan: p.cutList ? { cuts: p.cutList } : s.cutPlan, captionTrack: p.captionTrack || s.captionTrack, sourceVideoPath: p.sourceVideoPath || s.sourceVideoPath, status: 'linked' as const, updatedAt: new Date().toISOString() }
+            : s),
+          activeSessionId: existing.id,
+          activeStage: 'visualizer',
+        }
+      }
+      const id = `ep-linked-${p.episodeId}-${Date.now().toString(36)}`
+      const session: StudioSession = {
+        id, name: p.episodeTitle || `Episode ${p.episodeId}`,
+        sourceVideoPath: p.sourceVideoPath || '', sourceVideoName: p.episodeTitle || `Episode ${p.episodeId}`,
+        transcript: p.transcriptSegments ? { segments: p.transcriptSegments } : undefined,
+        cutPlan: p.cutList ? { cuts: p.cutList } : undefined,
+        captionTrack: p.captionTrack,
+        status: 'linked', missingSource: !p.sourceVideoPath,
+        episodeId: p.episodeId,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }
+      return { ...state, sessions: [...state.sessions, session], activeSessionId: id, activeStage: 'visualizer' }
+    }
+    case 'SET_CAPTION_TRACK': return { ...state, sessions: state.sessions.map((s) => s.id === action.sessionId ? { ...s, captionTrack: action.captionTrack } : s) }
     case 'SET_ACTIVE_SESSION': return { ...state, activeSessionId: action.sessionId }
     case 'REMOVE_SESSION': return { ...state, sessions: state.sessions.filter(s => s.id !== action.sessionId), activeSessionId: state.activeSessionId === action.sessionId ? null : state.activeSessionId }
     case 'SET_STAGE': return { ...state, activeStage: action.stage }

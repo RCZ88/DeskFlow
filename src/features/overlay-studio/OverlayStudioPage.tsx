@@ -3,71 +3,79 @@ import { StudioProvider, useStudio } from './state/StudioProvider'
 import { StudioShell } from './components/shell/StudioShell'
 import { ContentEngineWorkspace } from '../content-engine/ContentEngineWorkspace'
 import { PresentationWorkspace } from '@/features/presentation/PresentationWorkspace'
+import { studioHandoff } from './handoffBus'
 import { Sparkles, Presentation } from 'lucide-react'
 import type { StudioSession, StudioAction } from './state/studioTypes'
 
 function uid() { return crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` }
 
-// File-level import handler — uses a ref for dispatch (set by StudioPageInner)
+// File-level import handler — uses a ref for dispatch (set by StudioPageInner).
+// Uses the NATIVE file dialog (dialogOpenFile) so we receive a REAL absolute
+// path. The secure renderer's <input type=file> File object has no `.path`, so
+// `file.path || file.name` previously sent a bare filename the backend could
+// not locate → "File not found". The native dialog returns the true path.
 const dispatchRef = { current: null as React.Dispatch<StudioAction> | null }
 
-function handleImport() {
-  const input = document.createElement('input')
-  input.type = 'file'
-  input.accept = 'video/*,audio/*,.json'
-  input.onchange = (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0]
-    if (!file || !dispatchRef.current) return
-    const dispatch = dispatchRef.current
+async function handleImport() {
+  const api = (window as any).deskflowAPI
+  if (!dispatchRef.current) return
+  const dispatch = dispatchRef.current
 
-    if (file.name.endsWith('.json')) {
-      // JSON transcript file — import directly
-      const reader = new FileReader()
-      reader.onload = () => {
-        try {
-          const data = JSON.parse(String(reader.result))
-          const session: StudioSession = {
-            id: uid(), name: file.name, sourceVideoPath: file.name, sourceVideoName: file.name,
-            durationSec: data.duration, transcript: data, status: 'transcript_ready', missingSource: false,
-            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          }
-          dispatch({ type: 'CREATE_SESSION', session })
-        } catch (err) { console.error('Failed to parse transcript:', err) }
-      }
-      reader.readAsText(file)
+  // Open the native dialog (returns a real filesystem path).
+  const dlg = await api?.dialogOpenFile?.()
+  if (!dlg || dlg.canceled || !dlg.filePath) return
+  const filePath: string = dlg.filePath
+  const fileName = filePath.split(/[\\/]/).pop() || filePath
+
+  if (fileName.toLowerCase().endsWith('.json')) {
+    // JSON transcript file — read via backend (it has real-path access).
+    if (!api?.overlayStudioReadTranscript) {
+      dispatch({ type: 'SET_STAGE', stage: 'transcript' })
       return
     }
-
-    // Video or audio file — create session, then auto-transcribe
-    const filePath = (file as any).path || file.name
-    const session: StudioSession = {
-      id: uid(), name: file.name, sourceVideoPath: filePath, sourceVideoName: file.name,
-      status: 'transcribing', missingSource: false,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    }
-    dispatch({ type: 'CREATE_SESSION', session })
-
-    // Auto-transcribe via faster-whisper (local, no API key)
-    const api = (window as any).deskflowAPI
-    if (api?.overlayStudioTranscribe) {
-      api.overlayStudioTranscribe({ filePath }).then((result: any) => {
-        if (result?.ok && result.transcript) {
-          dispatch({ type: 'SET_TRANSCRIPT', sessionId: session.id, transcript: result.transcript })
-        } else {
-          console.warn('[OverlayStudio] Auto-transcription failed:', result?.error)
-          // Session stays with status 'created' — user can import JSON transcript or use sample
-          dispatch({ type: 'SET_STAGE', stage: 'transcript' })
-        }
-      }).catch((err: any) => {
-        console.warn('[OverlayStudio] Transcription error:', err)
-        dispatch({ type: 'SET_STAGE', stage: 'transcript' })
-      })
+    const res = await api.overlayStudioReadTranscript({ filePath })
+    if (res?.ok && res.transcript) {
+      const data = res.transcript
+      const session: StudioSession = {
+        id: uid(), name: fileName, sourceVideoPath: filePath, sourceVideoName: fileName,
+        durationSec: data.duration, transcript: data, status: 'transcript_ready', missingSource: false,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      }
+      dispatch({ type: 'CREATE_SESSION', session })
     } else {
-      // IPC not available — show transcript view with manual options
+      console.warn('[OverlayStudio] Transcript import failed:', res?.error)
       dispatch({ type: 'SET_STAGE', stage: 'transcript' })
     }
+    return
   }
-  input.click()
+
+  // Video or audio file — create session, then auto-transcribe via faster-whisper.
+  const session: StudioSession = {
+    id: uid(), name: fileName, sourceVideoPath: filePath, sourceVideoName: fileName,
+    status: 'transcribing', missingSource: false,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  }
+  dispatch({ type: 'CREATE_SESSION', session })
+
+  if (api?.overlayStudioTranscribe) {
+    api.overlayStudioTranscribe({ filePath }).then((result: any) => {
+      if (result?.ok && result.transcript) {
+        dispatch({ type: 'SET_TRANSCRIPT', sessionId: session.id, transcript: result.transcript })
+      } else {
+        console.warn('[OverlayStudio] Auto-transcription failed:', result?.error)
+        // Backend couldn't find/transcribe the file — drop the session and let the
+        // user re-import with a valid path or use a sample transcript.
+        dispatch({ type: 'REMOVE_SESSION', sessionId: session.id })
+        dispatch({ type: 'SET_STAGE', stage: 'transcript' })
+      }
+    }).catch((err: any) => {
+      console.warn('[OverlayStudio] Transcription error:', err)
+      dispatch({ type: 'REMOVE_SESSION', sessionId: session.id })
+      dispatch({ type: 'SET_STAGE', stage: 'transcript' })
+    })
+  } else {
+    dispatch({ type: 'SET_STAGE', stage: 'transcript' })
+  }
 }
 
 function StudioPageInner() {
@@ -76,6 +84,16 @@ function StudioPageInner() {
 
   // Set the dispatch ref for the file-level handleImport
   useEffect(() => { dispatchRef.current = dispatch }, [dispatch])
+
+  // Subscribe to the Content Engine → Overlay Studio handoff bus. When AssembleView
+  // emits a handoff, switch into Studio mode and link the episode as a session.
+  useEffect(() => {
+    const unsub = studioHandoff.subscribe((payload) => {
+      dispatch({ type: 'LINK_EPISODE', payload })
+      setMode('studio')
+    })
+    return unsub
+  }, [dispatch])
 
   // Load sessions from localStorage on mount
   useEffect(() => {

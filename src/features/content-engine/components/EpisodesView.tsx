@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, Bot, CheckCircle2, ChevronLeft, Clapperboard, FileSearch, FileText, Film, Plus, RefreshCw, Search, ShieldCheck, ShieldX, Sparkles, Trash2, TrendingUp, Wand2, X } from 'lucide-react'
+import { useContentEngine } from '../ContentEngineContext'
+import { BarChart3, Bot, CheckCircle2, ChevronLeft, Clapperboard, FileSearch, FileText, Film, Plus, RefreshCw, Search, ShieldCheck, ShieldX, Sparkles, Trash2, TrendingUp, Wand2, X, ExternalLink, ClipboardPaste, Check, Zap, Route } from 'lucide-react'
 import type { ScriptFrame, ScoringSchemeInfo, FrameScoreBreakdown } from '@/types/deskflow-api'
 import { AmberButton, Card, Chip, ConfirmIconButton, EmptyState, ErrorState, FieldLabel, GhostButton, LoadingBlock, SectionHeader, SelectInput, StatusChip, TextArea, TextInput, toast } from './ui'
+import { BridgeField } from '@/components/ai-bridge/BridgeField'
 import { RetentionPanel } from './RetentionPanel'
 import { RetentionCurveChart } from './SvgRetentionChart'
 import { AnalyticsBody } from './AnalyticsView'
@@ -12,12 +14,21 @@ import { GreenLightPanel } from './GreenLightPanel'
 import { CaptureView } from './CaptureView'
 import { AssembleView } from './AssembleView'
 import { LearnView } from './LearnView'
+import { TemplateSelector } from './TemplateSelector'
+import { PipelineView } from './PipelineView'
+import { HookStackDisplay } from './HookStackDisplay'
+import { CuriosityGapBridge } from './CuriosityGapBridge'
+import { KeywordSEOPanel } from './KeywordSEOPanel'
+import { PlanningModeSelector } from './PlanningModeSelector'
+import { PromptBuilder } from './PromptBuilder'
+import { DynamicPipeline } from './DynamicPipeline'
 import { cn } from '@/lib/utils'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
 const TABS = [
   { id: 'script', label: 'Script', Icon: FileText },
+  { id: 'pipeline', label: 'Pipeline', Icon: Route },
   { id: 'seo', label: 'SEO', Icon: FileSearch },
   { id: 'analytics', label: 'Analytics', Icon: BarChart3 },
   { id: 'assets', label: 'Assets', Icon: Film },
@@ -126,7 +137,10 @@ function FrameCard({ frame, index, epId, onRegenerated }: { frame: any; index: n
 
       {regenMode && (
         <div className="rounded-lg border border-[#f5c518]/20 bg-[#f5c518]/[0.04] p-3">
-          <FieldLabel>Regeneration instruction</FieldLabel>
+          <div className="flex items-center gap-2">
+            <FieldLabel>Regeneration instruction</FieldLabel>
+            <CopyPromptButton fieldKey="episode-frame" />
+          </div>
           <TextArea rows={2} value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Make it punchier, cut 3 words, open with a question…" />
           <div className="mt-2">
             <AmberButton onClick={regenerate} disabled={regenLoading || !instruction.trim()}>
@@ -197,6 +211,16 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
   const [scoringVersion, setScoringVersion] = useState('1.0.0')
   const [scoringLoading, setScoringLoading] = useState(false)
   const [rejectedFrames, setRejectedFrames] = useState<Set<number>>(new Set())
+
+  // External AI state
+  const [externalMode, setExternalMode] = useState(false)
+  const [externalPrompt, setExternalPrompt] = useState('')
+  const [externalPaste, setExternalPaste] = useState('')
+  const [externalImporting, setExternalImporting] = useState(false)
+  const [externalSending, setExternalSending] = useState(false)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [selectedTemplates, setSelectedTemplates] = useState<string[]>([])
+  const [frameMode, setFrameMode] = useState<'strict' | 'flexible'>('strict')
 
   useEffect(() => {
     const loadThemes = async () => {
@@ -288,6 +312,68 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
       toast(e?.message || 'Script generation failed', 'error')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  const sendToExternalAI = async () => {
+    setExternalSending(true)
+    try {
+      const res = await api()?.externalBuildScriptPrompt({ episodeId: ep.id, templateIds: selectedTemplates, frameMode })
+      if (res?.ok && res.prompt) {
+        setExternalPrompt(res.prompt)
+        setExternalMode(true)
+        await navigator.clipboard.writeText(res.prompt)
+        setCopiedPrompt(true)
+        setTimeout(() => setCopiedPrompt(false), 2000)
+        window.open('https://chatgpt.com', '_blank')
+        toast('Prompt copied — paste it into ChatGPT/Claude')
+      } else {
+        toast(res?.error || 'Failed to build prompt', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Failed to build prompt', 'error')
+    } finally {
+      setExternalSending(false)
+    }
+  }
+
+  const copyPromptOnly = async () => {
+    try {
+      const res = await api()?.externalBuildScriptPrompt({ episodeId: ep.id, templateIds: selectedTemplates, frameMode })
+      if (res?.ok && res.prompt) {
+        setExternalPrompt(res.prompt)
+        setExternalMode(true)
+        await navigator.clipboard.writeText(res.prompt)
+        setCopiedPrompt(true)
+        setTimeout(() => setCopiedPrompt(false), 2000)
+        toast('Prompt copied — paste it into any AI, then paste the response below')
+      } else {
+        toast(res?.error || 'Failed to build prompt', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Failed to build prompt', 'error')
+    }
+  }
+
+  const importExternalScript = async () => {
+    if (!externalPaste.trim()) { toast('Paste the AI response first', 'error'); return }
+    setExternalImporting(true)
+    try {
+      const res = await api()?.externalImportScript({ episodeId: ep.id, rawJson: externalPaste.trim() })
+      if (res?.ok) {
+        if (Array.isArray(res.frames)) setFrames(res.frames)
+        toast(`Imported ${res.frames?.length || 0} frames from external AI`)
+        setExternalMode(false)
+        setExternalPaste('')
+        setExternalPrompt('')
+        onChanged()
+      } else {
+        toast(res?.error || 'Import failed', 'error')
+      }
+    } catch (e: any) {
+      toast(e?.message || 'Import failed', 'error')
+    } finally {
+      setExternalImporting(false)
     }
   }
 
@@ -422,7 +508,7 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
       )}
 
       {currentPhase === 'assemble' && (
-        <AssembleView episodeId={ep.id} onPhaseChange={handlePhaseChange} />
+        <AssembleView episodeId={ep.id} episodeTitle={ep.title} episodeNiche={ep.niche} />
       )}
 
       {currentPhase === 'learn' && (
@@ -451,6 +537,13 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
               <Wand2 size={13} />
               {generating ? 'Generating…' : frames.length > 0 ? 'Regenerate Script' : 'Generate Script'}
             </AmberButton>
+            <GhostButton onClick={copyPromptOnly} disabled={externalSending}>
+              <ClipboardPaste size={13} /> Copy Prompt
+            </GhostButton>
+            <GhostButton onClick={sendToExternalAI} disabled={externalSending}>
+              {externalSending ? <Zap size={13} className="animate-pulse" /> : <ExternalLink size={13} />}
+              {externalSending ? 'Building…' : 'External AI'}
+            </GhostButton>
             <GhostButton onClick={validateBatch} disabled={validating}>
               <Search size={13} />
               {validating ? 'Validating…' : 'Validate Evidence (AI)'}
@@ -473,6 +566,55 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
             )}
           </div>
 
+          <DynamicPipeline episodeId={ep.id} onStepResult={() => { load(); onChanged() }} />
+
+          <TemplateSelector selected={selectedTemplates} onChange={setSelectedTemplates} />
+
+          <PlanningModeSelector episodeId={ep.id} onPlanGenerated={() => { load(); onChanged() }} />
+
+          <HookStackDisplay episode={ep} />
+
+          {externalMode && (
+            <Card className="border-[#00d4ff]/20">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-[10px] font-semibold tracking-wider text-[#00d4ff] uppercase">
+                  <ClipboardPaste size={11} className="mr-1 inline" />
+                  Paste External AI Response
+                </div>
+                <GhostButton onClick={() => { setExternalMode(false); setExternalPaste(''); setExternalPrompt('') }} className="h-5 px-1.5 text-[10px]">
+                  Cancel
+                </GhostButton>
+              </div>
+              {externalPrompt && (
+                <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-2.5">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-[9px] tracking-wider text-zinc-500 uppercase">Prompt sent to AI</span>
+                    <button
+                      onClick={async () => { await navigator.clipboard.writeText(externalPrompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 2000) }}
+                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-zinc-400 hover:bg-white/[0.06]"
+                    >
+                      {copiedPrompt ? <Check size={10} /> : <ClipboardPaste size={10} />}
+                      {copiedPrompt ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <pre className="max-h-32 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-zinc-400">{externalPrompt}</pre>
+                </div>
+              )}
+              <TextArea
+                rows={4}
+                value={externalPaste}
+                onChange={(e) => setExternalPaste(e.target.value)}
+                placeholder="Paste the JSON output from ChatGPT/Claude here…"
+              />
+              <div className="mt-2">
+                <AmberButton onClick={importExternalScript} disabled={!externalPaste.trim() || externalImporting}>
+                  {externalImporting ? <Zap size={13} className="animate-pulse" /> : <ClipboardPaste size={13} />}
+                  {externalImporting ? 'Importing…' : 'Import Script'}
+                </AmberButton>
+              </div>
+            </Card>
+          )}
+
           {frames.length > 0 && (
             <EpisodeScoreSummary
               scheme={scoringScheme}
@@ -485,6 +627,71 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
             />
           )}
 
+          <KeywordSEOPanel episode={ep} />
+
+          {/* Caption + Pinned Comment + Caption Track */}
+          {(ep as any).caption || (ep as any).pinned_comment || (ep as any).caption_track ? (
+            <Card className="p-5">
+              <SectionHeader
+                label="CAPTION"
+                title="Post Copy"
+                icon={<FileText size={14} className="text-[#f5c518]" />}
+                action={
+                  (ep as any).caption_track ? (
+                    <GhostButton
+                      className="h-6 px-2 text-[10px]"
+                      onClick={() => {
+                        const track = (ep as any).caption_track
+                        const srt = (track.lines as any[])
+                          .map((l: any, i: number) => {
+                            const f = (t: number) => {
+                              const m = Math.floor(t / 60)
+                              const s = (t % 60).toFixed(2).padStart(5, '0')
+                              return `${String(m).padStart(2, '0')}:${s.replace('.', ',')}`
+                            }
+                            return `${i + 1}\n${f(l.start)} --> ${f(l.end)}\n${l.text}`
+                          })
+                          .join('\n\n')
+                        navigator.clipboard?.writeText(srt)
+                        toast('Caption .srt copied to clipboard', 'success')
+                      }}
+                    >
+                      Export .srt
+                    </GhostButton>
+                  ) : null
+                }
+              />
+              {(ep as any).caption && (
+                <div className="mt-4">
+                  <div className="mb-1 text-[9px] tracking-wider text-zinc-500 uppercase">Caption</div>
+                  <pre className="whitespace-pre-wrap rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 font-mono text-[12px] leading-relaxed text-zinc-300">{(ep as any).caption}</pre>
+                </div>
+              )}
+              {(ep as any).pinned_comment && (
+                <div className="mt-3">
+                  <div className="mb-1 text-[9px] tracking-wider text-zinc-500 uppercase">Pinned Comment</div>
+                  <p className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 text-[12px] leading-relaxed text-zinc-300">{(ep as any).pinned_comment}</p>
+                </div>
+              )}
+              {(ep as any).caption_track && (
+                <div className="mt-3">
+                  <div className="mb-1 text-[9px] tracking-wider text-zinc-500 uppercase">Caption Track ({((ep as any).caption_track.lines || []).length} lines)</div>
+                  <div className="space-y-1">
+                    {((ep as any).caption_track.lines as any[]).map((l: any) => (
+                      <div key={l.id} className="flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1">
+                        <span className="font-mono text-[10px] text-zinc-500">{fmtSec(l.start)}–{fmtSec(l.end)}</span>
+                        <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{l.text}</span>
+                        {Array.isArray(l.highlight) && l.highlight.length > 0 && (
+                          <span className="text-[9px] text-[#00d4ff]">{l.highlight[0]}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Card>
+          ) : null}
+
           {scriptText && (
             <Card>
               <div className="mb-2 text-[10px] font-semibold tracking-wider text-[#f5c518] uppercase">Full script</div>
@@ -495,37 +702,52 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
           {frames.length > 0 && (
             <>
               {frames.map((f, i) => (
-                <ScriptProofCard
-                  key={f.index ?? i}
-                  frame={f}
-                  scheme={scoringScheme ?? { id: 'signal_builder', name: 'Signal Builder', tier: 'A', description: '', weights: {} }}
-                  rubricVersion={scoringVersion}
-                  isRejected={rejectedFrames.has(f.index ?? i)}
-                  onAccept={() => { toast(`Frame ${i + 1} accepted`) }}
-                  onReject={() => {
-                    setRejectedFrames((prev) => {
-                      const next = new Set(prev)
-                      const idx = f.index ?? i
-                      if (next.has(idx)) next.delete(idx); else next.add(idx)
-                      return next
-                    })
-                  }}
-                  onRegenerate={async (instruction) => {
-                    try {
-                      const res = await api()?.scriptRegenerateLine({ episodeId: ep.id, frameIndex: f.index ?? i, instruction })
-                      if (res?.ok) {
-                        const nxt = res.frame ?? res.line ?? res
-                        setFrames((prev) => prev.map((p, pi) => (pi === i ? nxt : p)))
-                        toast(`Frame ${i + 1} regenerated`)
-                        onChanged()
-                      } else {
-                        toast(res?.error || 'Regeneration failed', 'error')
+                <div key={f.index ?? i}>
+                  <ScriptProofCard
+                    frame={f}
+                    scheme={scoringScheme ?? { id: 'signal_builder', name: 'Signal Builder', tier: 'A', description: '', weights: {} }}
+                    rubricVersion={scoringVersion}
+                    isRejected={rejectedFrames.has(f.index ?? i)}
+                    onAccept={() => { toast(`Frame ${i + 1} accepted`) }}
+                    onReject={() => {
+                      setRejectedFrames((prev) => {
+                        const next = new Set(prev)
+                        const idx = f.index ?? i
+                        if (next.has(idx)) next.delete(idx); else next.add(idx)
+                        return next
+                      })
+                    }}
+                    onRegenerate={async (instruction) => {
+                      try {
+                        const res = await api()?.scriptRegenerateLine({ episodeId: ep.id, frameIndex: f.index ?? i, instruction })
+                        if (res?.ok) {
+                          const nxt = res.frame ?? res.line ?? res
+                          setFrames((prev) => prev.map((p, pi) => (pi === i ? nxt : p)))
+                          toast(`Frame ${i + 1} regenerated`)
+                          onChanged()
+                        } else {
+                          toast(res?.error || 'Regeneration failed', 'error')
+                        }
+                      } catch (e: any) {
+                        toast(e?.message || 'Regeneration failed', 'error')
                       }
-                    } catch (e: any) {
-                      toast(e?.message || 'Regeneration failed', 'error')
-                    }
-                  }}
-                />
+                    }}
+                  />
+                  {i < frames.length - 1 && (() => {
+                    const nextFrame = frames[i + 1]
+                    const bridgeText = f.retention?.mechanism || ''
+                    const bridgeCriteria = f.retention?.criteria?.[0] || 'curiosity_gap'
+                    const bridgeScore = f.retention?.score ?? 0.8
+                    if (!bridgeText || bridgeScore < 0.5) return null
+                    return (
+                      <CuriosityGapBridge
+                        bridgeText={bridgeText.slice(0, 120)}
+                        criterion={bridgeCriteria}
+                        score={bridgeScore}
+                      />
+                    )
+                  })()}
+                </div>
               ))}
             </>
           )}
@@ -586,6 +808,10 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
         </div>
       )}
 
+      {tab === 'pipeline' && (
+        <PipelineView episodeId={ep.id} onStepComplete={() => onChanged()} />
+      )}
+
       {tab === 'seo' && (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
@@ -616,11 +842,44 @@ function EpisodeDetail({ ep, onBack, onChanged }: { ep: any; onBack: () => void;
       {tab === 'analytics' && <AnalyticsBody episodeId={ep.id} />}
 
       {tab === 'assets' && (
-        <EmptyState
-          icon={<Film size={28} />}
-          title="Assets coming soon"
-          hint="Raw footage, B-roll, SFX and music for this episode will live here."
-        />
+        <div className="space-y-4">
+          <SectionHeader label="Content Engine / Assets" title="Assets" action={<Chip className="border-[#00d4ff]/25 bg-[#00d4ff]/10 text-[#00d4ff]">Episode media</Chip>} />
+          {!ep.caption_track && !ep.overlay_session_id && (
+            <EmptyState
+              icon={<Film size={28} />}
+              title="No assets yet"
+              hint="Generate captions from your transcript (Script tab) and hand off the overlay plan to Overlay Studio to populate this library."
+            />
+          )}
+          {ep.caption_track && (
+            <Card className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText size={13} className="text-[#f5c518]" />
+                  <span className="text-[10px] tracking-wider text-zinc-500 uppercase">Caption Track</span>
+                </div>
+                <Chip className="font-mono">{((ep.caption_track as any).lines || []).length} lines</Chip>
+              </div>
+              <div className="mt-3 space-y-1">
+                {((ep.caption_track as any).lines || []).map((l: any) => (
+                  <div key={l.id} className="flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1">
+                    <span className="font-mono text-[10px] text-zinc-500">{fmtSec(l.start)}–{fmtSec(l.end)}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-zinc-300">{l.text}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+          {ep.overlay_session_id && (
+            <Card className="p-4">
+              <div className="flex items-center gap-2">
+                <Sparkles size={13} className="text-[#ec4899]" />
+                <span className="text-[10px] tracking-wider text-zinc-500 uppercase">Linked Overlay Studio Session</span>
+                <span className="ml-auto font-mono text-[11px] text-zinc-300">{String(ep.overlay_session_id)}</span>
+              </div>
+            </Card>
+          )}
+        </div>
       )}
 
       {tab === 'metrics' && (
@@ -643,6 +902,7 @@ export function EpisodesView() {
   const [creating, setCreating] = useState(false)
   const [selectedIdea, setSelectedIdea] = useState<string>('')
   const [ideaTitle, setIdeaTitle] = useState('')
+  const { openEpisodeId, clearOpenEpisode } = useContentEngine()
 
   const load = async () => {
     setLoading(true)
@@ -672,6 +932,14 @@ export function EpisodesView() {
       toast(e?.message || 'Could not load episode', 'error')
     }
   }
+
+  // Open an episode requested from another view (e.g. Ideas "Create Episode")
+  useEffect(() => {
+    if (openEpisodeId != null) {
+      void open(openEpisodeId)
+      clearOpenEpisode()
+    }
+  }, [openEpisodeId])
 
   const toggleCreate = async () => {
     const next = !creating
@@ -759,7 +1027,14 @@ export function EpisodesView() {
             </div>
             <div>
               <FieldLabel>Or title it manually</FieldLabel>
-              <TextInput value={ideaTitle} onChange={(e) => setIdeaTitle(e.target.value)} placeholder="Episode title" />
+              <BridgeField
+                def={{ key: 'title', label: 'Episode Title', placeholder: 'Episode title' }}
+                value={ideaTitle}
+                onChange={(_k, v) => setIdeaTitle(v)}
+                allValues={{ title: ideaTitle }}
+                category="content-engine"
+                context="Generate a compelling episode title based on the conversation"
+              />
             </div>
             <AmberButton onClick={create} disabled={!selectedIdea && !ideaTitle.trim()}>
               Create

@@ -4,6 +4,35 @@
 
 ### Commit Message
 ```
+feat: wire Content Engine → Overlay Studio handoff (replace Assemble stub) + transcript caption track + episode Assets tab
+
+## Content Engine ↔ Overlay Studio integration (fixes the "unconnected" handoff)
+- src/features/content-engine/components/AssembleView.tsx — "Send to Overlay Studio" was a STUB (toast + dead onPhaseChange('studio')). Now fetches cut list + overlay plan + caption track in parallel and emits a real handoff payload (episodeId, title, niche, cutList, overlayPlan, captionTrack, transcriptSegments) into Overlay Studio via studioHandoff bus; also persists the link via content:episodes:link-overlay. Removed unused onPhaseChange/GhostButton.
+- src/features/overlay-studio/handoffBus.ts (NEW) — tiny cross-tree event emitter so Content Engine (separate React tree under the 3-mode toggle) can push a handoff payload into Overlay Studio's StudioProvider.
+- src/features/overlay-studio/OverlayStudioPage.tsx — StudioPageInner now subscribes to studioHandoff and, on handoff, dispatches LINK_EPISODE and switches mode to 'studio' (the 3-mode toggle shares no state, so this is the bridge).
+- src/features/overlay-studio/state/studioReducer.ts — new LINK_EPISODE (creates/updates a StudioSession with episodeId, transcript, cutPlan, captionTrack, status 'linked', activeStage 'visualizer') and SET_CAPTION_TRACK actions. Removed unused AsyncStatus import.
+
+## Backend IPC (new + fixed)
+- src/services/contentEngine/index.ts — migration: add overlay_session_id (TEXT) + caption_track (JSON) columns to content_episodes (idempotent ALTER). mapEpisode now returns caption_track. NEW handler content:episodes:link-overlay (persist overlay_session_id). NEW handler content:edit:caption (deterministic transcript→caption track via src/lib/captionBuilder.buildCaptionFromTranscript, SEO-phrase aware, stores caption_track + caption). FIX content:edit:cutlist to resolve the latest evaluated/selected take when takeId omitted (was a latent bug — handler errored without takeId; AssembleView call omitted it).
+- src/preload.ts — expose episodeLinkOverlay + editCaption bridges; editCutlist/editOverlayPlan already present.
+
+## Caption + Assets UI
+- src/features/content-engine/components/EpisodesView.tsx — Script tab "Post Copy" card now also renders the episode caption_track (timed lines + highlight) with an "Export .srt" button (copies SRT to clipboard). Assets tab replaced the "coming soon" empty state with a real library: caption track card + linked Overlay Studio session chip (or a guided empty state).
+
+## Docs (generate-prompt skill artifacts)
+- agent/docs/generate-prompt-docs/content-engine-overlay-handoff-31082026/CONTEXT_BUNDLE.md — code/IPC/DB reference for the handoff.
+- agent/docs/generate-prompt-docs/content-engine-overlay-handoff-31082026/MOTION_ASSET_CONTEXT.md — motion-lab HTML primitive + Playwright recorder reference for asset generation.
+- agent/docs/generate-prompt-docs/content-engine-overlay-handoff-31082026/PROMPT.md — design spec (handoff + caption + motion asset render) per project generate-prompt skill.
+
+Build: npm run build green (4/4 steps). Note: repo-wide eslint still flags pre-existing `any` usage in contentEngine/index.ts/preload.ts (baseline, not introduced here).
+```
+
+**Date:** 2026-08-31
+
+### Detailed Changes
+
+### Commit Message
+```
 feat: Lyceum round-02 runtime fixes (CSP unsafe-eval, finchart v5 API, sankey CSV grammar, insertNode upsert) + accumulated multi-session work (life phases overhaul, top-bar smart fill, sleep day-lookup fix)
 ```
 

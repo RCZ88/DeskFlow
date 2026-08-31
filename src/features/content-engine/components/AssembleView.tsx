@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Scissors, Layers, ArrowRight, GripVertical } from 'lucide-react'
-import { AmberButton, Card, Chip, EmptyState, ErrorState, GhostButton, LoadingBlock, SectionHeader, toast } from './ui'
+import { AmberButton, Card, Chip, EmptyState, ErrorState, LoadingBlock, SectionHeader, toast } from './ui'
 import { cn } from '@/lib/utils'
+import { studioHandoff } from '@/features/overlay-studio/handoffBus'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
@@ -34,10 +35,11 @@ function posLabel(p: string): string {
 
 interface AssembleViewProps {
   episodeId: number
-  onPhaseChange?: (phase: string) => void
+  episodeTitle?: string
+  episodeNiche?: string | null
 }
 
-export function AssembleView({ episodeId, onPhaseChange }: AssembleViewProps) {
+export function AssembleView({ episodeId, episodeTitle, episodeNiche }: AssembleViewProps) {
 
   const [cuts, setCuts] = useState<CutEntry[]>([])
   const [overlays, setOverlays] = useState<OverlayEntry[]>([])
@@ -79,11 +81,38 @@ export function AssembleView({ episodeId, onPhaseChange }: AssembleViewProps) {
   useEffect(() => { load() }, [episodeId])
 
   const sendToOverlay = async () => {
+    if (sending) return
     setSending(true)
     try {
-      toast('Sending cut list to Overlay Studio…', 'info')
-      onPhaseChange?.('studio')
+      toast('Preparing handoff to Overlay Studio…', 'info')
+      const [cutRes, overlayRes, captionRes] = await Promise.all([
+        api()?.editCutlist({ episodeId }),
+        api()?.editOverlayPlan({ episodeId }),
+        api()?.editCaption({ episodeId }).catch(() => null),
+      ])
+      if (!cutRes?.ok && !overlayRes?.ok) {
+        toast(cutRes?.error || overlayRes?.error || 'Nothing to hand off yet — generate an overlay plan first', 'error')
+        return
+      }
+      const cutList = cutRes?.ok ? (cutRes.cutlist || []) : []
+      const overlayPlan = overlayRes?.ok ? (overlayRes.plan || null) : null
+      const captionTrack = captionRes?.ok ? captionRes.captionTrack : undefined
+      const transcriptSegments = (cutList as any[]).map((c) => ({ id: c.source_seg_id ?? c.index, start: c.start_s, end: c.end_s, text: c.text }))
+      // Emit the handoff payload into Overlay Studio (cross-tree bridge).
+      studioHandoff.emit({
+        episodeId,
+        episodeTitle: episodeTitle || `Episode ${episodeId}`,
+        niche: episodeNiche ?? null,
+        cutList,
+        overlayPlan,
+        captionTrack,
+        transcriptSegments,
+      })
+      // Persist the link so the episode knows its overlay session.
+      await api()?.episodeLinkOverlay({ episodeId, sessionId: `ep-linked-${episodeId}` }).catch(() => null)
       toast('Handed off to Overlay Studio', 'success')
+    } catch (e: any) {
+      toast(e?.message || 'Handoff failed', 'error')
     } finally {
       setSending(false)
     }

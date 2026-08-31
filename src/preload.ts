@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   getDomainStats: (request: { period: string; dateOffset?: number }) =>
     ipcRenderer.invoke('get-domain-stats', request),
 
+  // Rankings per period/granularity/metric (used by RankingsPage)
+  getPeriodRankings: (request: { period: string; dateOffset?: number; granularity?: string; metric?: string }) =>
+    ipcRenderer.invoke('get-period-rankings', request),
+
   // Get pre-computed dashboard data (single call replaces multiple fetches)
   getDashboardData: (params: { period: string; dateOffset?: number }) => ipcRenderer.invoke('get-dashboard-data', params),
 
@@ -272,6 +276,8 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
     episodeGet: (id: number) => ipcRenderer.invoke('content:episodes:get', id),
     episodeSave: (ep: any) => ipcRenderer.invoke('content:episodes:save', ep),
     episodeDelete: (id: number) => ipcRenderer.invoke('content:episodes:delete', id),
+    episodeLinkOverlay: (payload: any) => ipcRenderer.invoke('content:episodes:link-overlay', payload),
+    editCaption: (payload: any) => ipcRenderer.invoke('content:edit:caption', payload),
     scriptGenerate: (payload: any) => ipcRenderer.invoke('content:script:generate', payload),
     scriptRegenerateLine: (payload: any) => ipcRenderer.invoke('content:script:regenerate-line', payload),
     validateScriptEvidence: (payload: any) => ipcRenderer.invoke('content:validate-script-evidence', payload),
@@ -708,6 +714,7 @@ contextBridge.exposeInMainWorld('deskflowAPI', {
   checkSleepDetection: () => ipcRenderer.invoke('check-sleep-detection'),
   confirmSleep: (sleepData: { started_at: string; ended_at: string; device_off_to_sleep_seconds: number; wake_up_to_app_seconds: number }) => ipcRenderer.invoke('confirm-sleep', sleepData),
   dismissSleepDetection: () => ipcRenderer.invoke('dismiss-sleep-detection'),
+  computeAdjacentGaps: (params: { sleepStartIso: string; sleepEndIso: string }) => ipcRenderer.invoke('compute-adjacent-gaps', params),
   saveAfkQueue: (queue: any[]) => ipcRenderer.invoke('save-afk-queue', queue),
   loadAfkQueue: () => ipcRenderer.invoke('load-afk-queue'),
   clearAfkQueue: () => ipcRenderer.invoke('clear-afk-queue'),
@@ -1555,6 +1562,7 @@ financeGetFtPersons: () => ipcRenderer.invoke('finance:get-ft-persons'),
     save: (g: any) => ipcRenderer.invoke('focusGroup:save', g),
     remove: (id: number) => ipcRenderer.invoke('focusGroup:remove', id),
     startWith: (id: number, durationSec?: number, strictness?: string) => ipcRenderer.invoke('focusGroup:startWith', id, durationSec, strictness),
+    startWithMany: (ids: number[], durationSec?: number, strictness?: string) => ipcRenderer.invoke('focusGroup:startWithMany', ids, durationSec, strictness),
     linkUsage: (args: { sessionId: number; groupId: number; goalIds: string[] }) => ipcRenderer.invoke('focusGroup:linkUsage', args),
     getUsage: () => ipcRenderer.invoke('focusGroup:getUsage'),
   },
