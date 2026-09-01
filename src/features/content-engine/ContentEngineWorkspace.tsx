@@ -1,6 +1,21 @@
-import { Activity, Sparkles, Lightbulb, Clapperboard, Palette, BarChart3, GraduationCap, Layers, BookOpen, BookMarked } from 'lucide-react'
+import React, { useCallback } from 'react'
+import { useContentEngine } from './ContentEngineContext'
 import { cn } from '@/lib/utils'
-import { ToastHost } from './components/ui'
+import { Activity, Sparkles, Lightbulb, Clapperboard, Palette, BarChart3, GraduationCap, Layers, BookOpen, BookMarked, Film } from 'lucide-react'
+import { BlurFade } from './ui-laminar'
+
+import { AnimatedShinyText } from '@/components/ui/animated-shiny-text'
+import { GradientShimmer } from '@/components/ui/gradient-shimmer'
+import { ShinyButton } from '@/components/ui/shiny-button'
+import { NeonGradientCard } from '@/components/ui/neon-gradient-card'
+import { Confetti } from '@/components/ui/confetti'
+import { LightRays } from '@/components/ui/light-rays'
+import { DotPattern } from '@/components/ui/dot-pattern'
+import { AmbientPatterns } from '@/components/ui/ambient-patterns'
+import { MagicCard } from '@/components/ui/magic-card'
+import { GlareHover } from '@/components/ui/glare-hover'
+import { BlurFade } from './ui-laminar'
+
 import { BrainstormView } from './components/BrainstormView'
 import { IdeasView } from './components/IdeasView'
 import { EpisodesView } from './components/EpisodesView'
@@ -11,11 +26,8 @@ import { LessonsView } from './components/LessonsView'
 import { FrameworksView } from './components/FrameworksView'
 import { ProcessGalleryView } from './components/ProcessGalleryView'
 import { PlaybookView } from './components/PlaybookView'
-import { ContentEngineProvider, useContentEngine } from './ContentEngineContext'
 
-console.log('%c[ContentEngine] v3.2 loaded', 'color:#f5c518;font-weight:bold')
-
-const VIEWS = [
+const PIPELINE_STAGES = [
   { id: 'ideas', label: 'Ideas', icon: Lightbulb },
   { id: 'episodes', label: 'Episodes', icon: Clapperboard },
   { id: 'series', label: 'Series', icon: BookOpen },
@@ -29,46 +41,78 @@ const VIEWS = [
 
 function WorkspaceInner() {
   const { view, setView } = useContentEngine()
+
+  const renderView = useCallback(() => {
+    switch (view) {
+      case 'brainstorm': return <BrainstormView onNavigate={setView} />
+      case 'ideas': return <IdeasView />
+      case 'episodes': return <EpisodesView />
+      case 'series': return <SeriesView />
+      case 'themes': return <ThemesView />
+      case 'analytics': return <AnalyticsView />
+      case 'lessons': return <LessonsView />
+      case 'frameworks': return <FrameworksView />
+      case 'process': return <ProcessGalleryView />
+      case 'playbook': return <PlaybookView />
+      default: return <IdeasView />
+    }
+  }, [view, setView])
+
   return (
-    <div className="flex h-full gap-3 p-3" data-page="content-engine">
-      <nav className="flex w-44 shrink-0 flex-col gap-1 rounded-xl border border-white/[0.06] bg-[rgba(24,24,27,0.60)] p-2 backdrop-blur-xl">
-        <div className="px-2 pt-1 pb-2">
-          <div className="text-[10px] font-semibold tracking-wider text-[#f5c518] uppercase">Content Engine</div>
-          <div className="text-[9px] text-zinc-600">8-stage pipeline</div>
+    <div className="flex h-full gap-0 p-3" data-page="content-engine">
+      <aside className="flex w-52 shrink-0 flex-col rounded-xl border border-white/[0.08] bg-zinc-900/80 overflow-hidden">
+        <div className="px-3 pt-3 pb-1">
+          <div className="flex items-center gap-2">
+            <Sparkles size={14} className="text-white/70" />
+            <AnimatedShinyText className="text-[11px] font-semibold tracking-wider text-zinc-200" shimmerWidth={80}>
+              CONTENT ENGINE
+            </AnimatedShinyText>
+          </div>
+          <div className="mt-0.5 text-[9px] text-zinc-500">8-stage pipeline</div>
         </div>
-        {VIEWS.map((v) => {
-          const Icon = v.icon
-          const active = view === v.id
-          return (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id)}
-              className={cn(
-                'flex h-8 items-center gap-2 rounded-lg px-2.5 text-xs font-medium transition-colors',
-                active ? 'bg-[#f5c518]/10 text-[#f5c518]' : 'text-zinc-400 hover:bg-white/[0.04] hover:text-zinc-200',
-              )}
-            >
-              <Icon size={13} />
-              <span>{v.label}</span>
-            </button>
-          )
-        })}
-      </nav>
-      {/* All views are kept mounted (hidden via display:none, never unmounted) so in-progress
-          work — drafts, an open episode, scroll position — survives tab switches. */}
-      <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl border border-white/[0.06] bg-[rgba(24,24,27,0.60)] backdrop-blur-xl">
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'brainstorm' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><BrainstormView onNavigate={setView} /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'ideas' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><IdeasView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'episodes' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><EpisodesView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'series' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><SeriesView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'themes' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><ThemesView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'analytics' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><AnalyticsView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'lessons' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><LessonsView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'frameworks' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><FrameworksView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'process' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><ProcessGalleryView /></div></div>
-        <div className={cn('absolute inset-0 overflow-y-auto', view === 'playbook' ? 'block' : 'hidden')}><div className="space-y-6 p-6"><PlaybookView /></div></div>
+        <div className="flex-1 min-h-0 px-2 py-1 overflow-y-auto">
+          <nav className="flex flex-col gap-0.5">
+            {PIPELINE_STAGES.map((stage) => {
+              const Icon = stage.icon
+              const active = view === stage.id
+              return (
+                <button key={stage.id} onClick={() => setView(stage.id)}
+                  className={cn(
+                    'flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[11px] font-medium transition-all duration-200',
+                    active ? 'bg-white/[0.06] text-zinc-100' : 'text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'
+                  )}>
+                  <Icon size={13} />
+                  <span>{stage.label}</span>
+                </button>
+              )
+            })}
+          </nav>
+        </div>
+        <div className="px-3 py-2 border-t border-white/[0.08]">
+          <div className="flex items-center gap-1.5">
+            <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[9px] text-zinc-500">Pipeline active</span>
+          </div>
+        </div>
+      </aside>
+
+      <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl border border-white/[0.08] bg-zinc-900/80">
+        <DotPattern
+          className="absolute inset-0 opacity-[0.03]"
+          colors={[{ color: '#8b5cf6', opacity: 0.4 }]}
+          radius={1}
+          size={16}
+          skip={2}
+        />
+        <div className="relative z-10 h-full overflow-y-auto">
+          {renderView()}
+        </div>
+        <div className="absolute bottom-3 right-3 z-20 flex items-center gap-1.5">
+          <span className="text-[9px] text-zinc-500 px-2 py-0.5 rounded-full bg-zinc-900/80 border border-white/[0.08]">
+            Stage {PIPELINE_STAGES.findIndex(s => s.id === view) + 1} of {PIPELINE_STAGES.length}
+          </span>
+        </div>
       </main>
-      <ToastHost />
     </div>
   )
 }
