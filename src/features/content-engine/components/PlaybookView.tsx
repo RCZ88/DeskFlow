@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BookOpen, Zap, Target, Eye, MessageSquare, Lightbulb, ShieldCheck, TrendingUp, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react'
 import { Card, Chip, GhostButton } from './ui'
+import { BlurFade, BentoCard } from './ui-laminar'
 import { cn } from '@/lib/utils'
 
 const FORMATS = [
@@ -99,7 +100,7 @@ export function PlaybookView() {
   ]
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-4 p-6">
       <div className="flex items-center gap-2">
         <BookOpen size={16} className="text-[#f5c518]" />
         <div>
