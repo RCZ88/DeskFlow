@@ -3,6 +3,7 @@ import { Layers, Plus, Trash2, ChevronRight, Film, X, GripVertical, Palette, Clo
 import { AmberButton, Card, Chip, ConfirmIconButton, EmptyState, ErrorState, GhostButton, LoadingBlock, SectionHeader, TextInput, TextArea, toast } from './ui'
 import { BridgeForm } from '@/components/ai-bridge/BridgeForm'
 import { cn } from '@/lib/utils'
+import { BlurFade, BentoCard, StatusChip } from './ui-laminar'
 
 const api = () => (window as any).deskflowAPI?.contentEngine
 
@@ -39,9 +40,8 @@ function SeriesForm({ onSave, onCancel }: { onSave: (s: any) => void; onCancel: 
   }
 
   return (
-    <Card className="border-[#f5c518]/20">
-      <div className="mb-3 text-[10px] font-semibold tracking-wider text-[#f5c518] uppercase">New Series</div>
-
+    <BentoCard className="border-amber-500/20">
+      <div className="mb-3 text-[10px] font-semibold tracking-wider text-amber-400 uppercase">New Series</div>
       <BridgeForm
         heading="Content Series"
         category="content-engine"
@@ -65,7 +65,6 @@ function SeriesForm({ onSave, onCancel }: { onSave: (s: any) => void; onCancel: 
           { key: 'pacing', label: 'Pacing', placeholder: 'fast cuts, 2s per beat' },
         ]}
       />
-
       <div className="mt-3 grid grid-cols-2 gap-3">
         <div>
           <label className="mb-1 block text-[10px] text-zinc-500">Target Duration</label>
@@ -73,7 +72,7 @@ function SeriesForm({ onSave, onCancel }: { onSave: (s: any) => void; onCancel: 
             {DURATIONS.map(d => (
               <button key={d} onClick={() => setTargetDuration(d)}
                 className={cn('rounded-md px-2 py-1 text-[10px] transition-colors',
-                  targetDuration === d ? 'bg-[#f5c518]/15 text-[#f5c518]' : 'bg-white/[0.04] text-zinc-500 hover:bg-white/[0.06]')}>
+                  targetDuration === d ? 'bg-amber-500/15 text-amber-400' : 'bg-white/[0.04] text-zinc-500 hover:bg-white/[0.06]')}>
                 {d}
               </button>
             ))}
@@ -85,7 +84,7 @@ function SeriesForm({ onSave, onCancel }: { onSave: (s: any) => void; onCancel: 
             {FRAME_MODES.map(m => (
               <button key={m.id} onClick={() => setFrameMode(m.id)}
                 className={cn('flex-1 rounded-lg border p-2.5 text-left transition-all',
-                  frameMode === m.id ? 'border-[#f5c518]/30 bg-[#f5c518]/5' : 'border-white/[0.06] hover:border-white/[0.12]')}>
+                  frameMode === m.id ? 'border-amber-500/30 bg-amber-500/5' : 'border-white/[0.06] hover:border-white/[0.12]')}>
                 <div className="text-xs font-medium text-zinc-200">{m.icon} {m.label}</div>
                 <div className="mt-0.5 text-[10px] text-zinc-500">{m.desc}</div>
               </button>
@@ -97,22 +96,20 @@ function SeriesForm({ onSave, onCancel }: { onSave: (s: any) => void; onCancel: 
         <AmberButton onClick={save}>Save Series</AmberButton>
         <GhostButton onClick={onCancel}>Cancel</GhostButton>
       </div>
-    </Card>
+    </BentoCard>
   )
 }
 
 function SeriesCard({ series, onOpen, onDeleted }: { series: any; onOpen: () => void; onDeleted: () => void }) {
   const epCount = series.episodes?.length || 0
   return (
-    <Card className="cursor-pointer transition-colors hover:border-[#f5c518]/25" onClick={onOpen}>
+    <BentoCard onClick={onOpen} className="cursor-pointer">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-zinc-100">{series.name}</span>
-            <Chip className={series.status === 'active' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : 'bg-zinc-500/10 text-zinc-400'}>
-              {series.status}
-            </Chip>
-            <Chip className={series.frame_mode === 'strict' ? 'border-amber-500/25 bg-amber-500/10 text-amber-400' : 'border-blue-500/25 bg-blue-500/10 text-blue-400'}>
+            <StatusChip status={series.status} />
+            <Chip className={series.frame_mode === 'strict' ? 'border-amber-500/25 bg-amber-500/10 text-amber-400' : 'border-blue-500/25 bg-blue-500/10 text-blue-400 text-[9px]'}>
               {series.frame_mode === 'strict' ? '🔒 Strict' : '🎨 Flexible'}
             </Chip>
           </div>
@@ -127,13 +124,9 @@ function SeriesCard({ series, onOpen, onDeleted }: { series: any; onOpen: () => 
             <Film size={10} /> {epCount} episode{epCount !== 1 ? 's' : ''}
           </div>
         </div>
-        <ConfirmIconButton
-          onConfirm={(e?: any) => { e?.stopPropagation?.(); api()?.seriesDelete(series.id).then(() => { toast('Series deleted'); onDeleted() }) }}
-          icon={<Trash2 size={12} />}
-          label="Delete series"
-        />
+        <ConfirmIconButton onConfirm={(e?: any) => { e?.stopPropagation?.(); api()?.seriesDelete(series.id).then(() => { toast('Series deleted'); onDeleted() }) }} icon={<Trash2 size={12} />} label="Delete series" />
       </div>
-    </Card>
+    </BentoCard>
   )
 }
 
@@ -181,7 +174,7 @@ function SeriesDetail({ series, onBack, onChanged }: { series: any; onBack: () =
       </div>
 
       {editing ? (
-        <Card className="border-[#f5c518]/20">
+        <BentoCard className="border-amber-500/20">
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="mb-1 block text-[10px] text-zinc-500">Name</label>
@@ -217,7 +210,7 @@ function SeriesDetail({ series, onBack, onChanged }: { series: any; onBack: () =
                 {FRAME_MODES.map(m => (
                   <button key={m.id} onClick={() => setForm({ ...form, frame_mode: m.id })}
                     className={cn('flex-1 rounded-lg border p-2 text-left text-[10px]',
-                      form.frame_mode === m.id ? 'border-[#f5c518]/30 bg-[#f5c518]/5 text-zinc-200' : 'border-white/[0.06] text-zinc-500')}>
+                      form.frame_mode === m.id ? 'border-amber-500/30 bg-amber-500/5 text-zinc-200' : 'border-white/[0.06] text-zinc-500')}>
                     {m.icon} {m.label}
                   </button>
                 ))}
@@ -225,10 +218,10 @@ function SeriesDetail({ series, onBack, onChanged }: { series: any; onBack: () =
             </div>
           </div>
           <div className="mt-3"><AmberButton onClick={save}>Save</AmberButton></div>
-        </Card>
+        </BentoCard>
       ) : (
         <div className="grid grid-cols-2 gap-3">
-          <Card>
+          <BentoCard>
             <div className="mb-2 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Series Settings</div>
             {series.niche && <div className="text-xs text-zinc-300"><span className="text-zinc-600">Niche: </span>{series.niche}</div>}
             {series.tone && <div className="text-xs text-zinc-300"><span className="text-zinc-600">Tone: </span>{series.tone}</div>}
@@ -238,20 +231,19 @@ function SeriesDetail({ series, onBack, onChanged }: { series: any; onBack: () =
             {!series.niche && !series.tone && !series.visual_style && !series.pacing && (
               <div className="text-xs text-zinc-600">No settings configured yet. Click Edit to set up series-wide style.</div>
             )}
-          </Card>
-          <Card>
+          </BentoCard>
+          <BentoCard>
             <div className="mb-2 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Frame Mode</div>
             <div className="text-xs text-zinc-300">
               {series.frame_mode === 'strict'
                 ? '🔒 Strict — Every frame in every episode MUST follow the series template exactly. No creative deviation allowed.'
                 : '🎨 Flexible — Series style is a guideline. Each episode can deviate creatively while staying on-brand.'}
             </div>
-          </Card>
+          </BentoCard>
         </div>
       )}
 
-      {/* Episodes in this series */}
-      <Card>
+      <BentoCard>
         <div className="mb-3 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">
           <Film size={11} className="mr-1 inline" /> Episodes in Series ({series.episodes?.length || 0})
         </div>
@@ -264,18 +256,17 @@ function SeriesDetail({ series, onBack, onChanged }: { series: any; onBack: () =
                 <div className="flex items-center gap-2">
                   <span className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">#{ep.episode_number}</span>
                   <span className="text-xs text-zinc-200">{ep.title}</span>
-                  <Chip className="text-[9px]">{ep.status}</Chip>
+                  <StatusChip status={ep.status} />
                 </div>
                 <GhostButton className="h-5 px-1.5 text-[10px]" onClick={() => removeEpisode(ep.id)}>Remove</GhostButton>
               </div>
             ))}
           </div>
         )}
-      </Card>
+      </BentoCard>
 
-      {/* Unassigned episodes */}
       {unlinked.length > 0 && (
-        <Card>
+        <BentoCard>
           <div className="mb-2 text-[10px] font-semibold tracking-wider text-zinc-500 uppercase">Add Episode to Series</div>
           <div className="max-h-40 space-y-1 overflow-y-auto">
             {unlinked.map(ep => (
@@ -285,7 +276,7 @@ function SeriesDetail({ series, onBack, onChanged }: { series: any; onBack: () =
               </div>
             ))}
           </div>
-        </Card>
+        </BentoCard>
       )}
     </section>
   )
@@ -300,10 +291,8 @@ export function SeriesView() {
 
   const load = async () => {
     setLoading(true); setError(null)
-    try {
-      const list = await api()?.seriesList()
-      setSeries(Array.isArray(list) ? list : [])
-    } catch (e: any) { setError(e?.message || 'Failed to load series') }
+    try { const list = await api()?.seriesList(); setSeries(Array.isArray(list) ? list : []) }
+    catch (e: any) { setError(e?.message || 'Failed to load series') }
     finally { setLoading(false) }
   }
 
@@ -324,10 +313,8 @@ export function SeriesView() {
   if (selected) return <SeriesDetail series={selected} onBack={() => { setSelected(null); load() }} onChanged={load} />
 
   return (
-    <section className="space-y-6">
-      <SectionHeader
-        label="Content Engine"
-        title="Series"
+    <section className="space-y-6 p-6">
+      <SectionHeader label="Content Engine / 03" title="Series" icon={<Layers size={14} className="text-white/70" />}
         action={
           <AmberButton onClick={() => setCreating(!creating)}>
             {creating ? <X size={13} /> : <Plus size={13} />}
@@ -341,19 +328,12 @@ export function SeriesView() {
       {error && <ErrorState message={error} onRetry={load} />}
 
       {!loading && !error && series.length === 0 && (
-        <EmptyState
-          icon={<Layers size={28} />}
-          title="No series yet"
-          hint="Series group episodes under a shared style, tone, and visual identity. All episodes in a series inherit its settings."
-          action={<AmberButton onClick={() => setCreating(true)}><Plus size={13} /> New Series</AmberButton>}
-        />
+        <EmptyState icon={<Layers size={28} />} title="No series yet" hint="Series group episodes under a shared style, tone, and visual identity. All episodes in a series inherit its settings." action={<AmberButton onClick={() => setCreating(true)}><Plus size={13} /> New Series</AmberButton>} />
       )}
 
       {!loading && !error && series.length > 0 && (
-        <div className="space-y-3">
-          {series.map(s => (
-            <SeriesCard key={s.id} series={s} onOpen={() => open(s.id)} onDeleted={load} />
-          ))}
+        <div className="grid grid-cols-2 gap-4">
+          {series.map(s => <SeriesCard key={s.id} series={s} onOpen={() => open(s.id)} onDeleted={load} />)}
         </div>
       )}
     </section>
